@@ -1,0 +1,15 @@
+{
+  "repo": "dennyzhang/cheatsheet-kubernetes-A4",
+  "name": "cheatsheet-kubernetes-A4",
+  "description": "Kubernetes CheatSheets In A4",
+  "topics": ["kubernetes", "cheatsheet", "tutorial"],
+  "language": null,
+  "tree": ["README.md", "cheatsheet-kubernetes-A4.pdf", ".github/workflows/ci.yml"],
+  "manifests": {},
+  "expected": {
+    "kind": "learning-resource",
+    "rule": "topic:learning",
+    "domains": [],
+    "note": "Mentions Kubernetes everywhere but is not an ecosystem tool — kept in cache, demoted by k8s_relevance at projection time (§14)."
+  }
+}

@@ -1,0 +1,27 @@
+node_modules/
+.pnpm-store/
+
+# next
+.next/
+out/
+next-env.d.ts
+
+# build / cache artifacts
+dist/
+*.tsbuildinfo
+coverage/
+.turbo/
+
+# local write model (fs cache adapter) — disposable, never committed
+.cache/
+.data/
+
+# env
+.env
+.env.*
+!.env.example
+
+# editors / os
+.DS_Store
+*.pem
+*.log

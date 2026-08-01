@@ -1,0 +1,20 @@
+{
+  "repo": "prometheus-community/helm-charts",
+  "name": "helm-charts",
+  "description": "Prometheus community Helm charts",
+  "topics": ["kubernetes", "helm", "helm-charts", "prometheus", "monitoring"],
+  "language": "Mustache",
+  "tree": [
+    "README.md",
+    "charts/prometheus/Chart.yaml",
+    "charts/prometheus/values.yaml",
+    "charts/kube-prometheus-stack/Chart.yaml"
+  ],
+  "manifests": {},
+  "expected": {
+    "kind": "helm-chart",
+    "rule": "tree:Chart.yaml",
+    "domains": ["packaging", "observability"],
+    "k8s_relevance_min": 0.5
+  }
+}

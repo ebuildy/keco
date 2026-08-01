@@ -1,0 +1,24 @@
+{
+  "repo": "ahmetb/kubectx",
+  "name": "kubectx",
+  "description": "Faster way to switch between clusters and namespaces in kubectl",
+  "topics": ["kubernetes", "kubectl", "kubectl-plugin", "kubernetes-cli"],
+  "language": "Go",
+  "tree": [
+    "README.md",
+    "LICENSE",
+    ".krew.yaml",
+    "cmd/kubectx/main.go",
+    "cmd/kubens/main.go",
+    "go.mod"
+  ],
+  "manifests": {
+    "go.mod": "module github.com/ahmetb/kubectx\n\ngo 1.21\n\nrequire (\n\tgithub.com/spf13/cobra v1.8.0\n\tk8s.io/client-go v0.29.0\n)\n"
+  },
+  "expected": {
+    "kind": "kubectl-plugin",
+    "rule": "tree:.krew.yaml",
+    "domains": [],
+    "k8s_relevance_min": 0.7
+  }
+}

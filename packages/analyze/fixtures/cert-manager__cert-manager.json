@@ -1,0 +1,23 @@
+{
+  "repo": "cert-manager/cert-manager",
+  "name": "cert-manager",
+  "description": "Automatically provision and manage TLS certificates in Kubernetes",
+  "topics": ["kubernetes", "kubernetes-operator", "security", "tls"],
+  "language": "Go",
+  "tree": [
+    "README.md",
+    "PROJECT",
+    "config/crd/bases/cert-manager.io_certificates.yaml",
+    "cmd/controller/main.go",
+    "go.mod"
+  ],
+  "manifests": {
+    "go.mod": "module github.com/cert-manager/cert-manager\n\ngo 1.22\n\nrequire (\n\tsigs.k8s.io/controller-runtime v0.17.0\n\tk8s.io/client-go v0.29.0\n)\n"
+  },
+  "expected": {
+    "kind": "operator",
+    "rule": "tree:config/crd+PROJECT (kubebuilder)",
+    "domains": ["security"],
+    "k8s_relevance_min": 0.8
+  }
+}

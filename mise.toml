@@ -1,0 +1,119 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+# Keco — dev toolchain and task runner.
+# Every dev script in this repo is a mise task; nothing is invoked ad-hoc.
+
+[tools]
+node = "24.18.1"
+pnpm = "11.18.0"
+
+[env]
+NODE_ENV = "development"
+# Loaded from .env when present (created by `mise run setup`).
+_.file = { path = ".env", redact = true }
+
+[settings]
+experimental = true
+
+# ── setup ────────────────────────────────────────────────────────────────────
+
+[tasks.setup]
+description = "First-run bootstrap: .env, dependencies, local infra, index settings"
+depends = ["env:init", "install"]
+run = [
+  "mise run infra:up",
+  "mise run search:settings",
+]
+
+[tasks."env:init"]
+description = "Create .env from .env.example if missing"
+run = 'test -f .env || (cp .env.example .env && echo "created .env — fill in GITHUB_TOKEN")'
+
+[tasks.install]
+description = "Install workspace dependencies"
+run = "pnpm install"
+sources = ["package.json", "pnpm-lock.yaml", "*/*/package.json"]
+outputs = { auto = true }
+
+# ── dev ──────────────────────────────────────────────────────────────────────
+
+[tasks.dev]
+description = "Next.js portal + backoffice on :3000"
+run = "pnpm -F @keco/web dev"
+
+[tasks.build]
+description = "Build the web app"
+run = "pnpm -F @keco/web build"
+
+# ── quality gates (§15 definition of done) ───────────────────────────────────
+
+[tasks.check]
+description = "Typecheck the whole workspace"
+run = "pnpm -r --parallel check"
+
+[tasks.lint]
+description = "Lint (includes the import-boundary rules of §7)"
+run = "pnpm eslint ."
+
+[tasks.test]
+description = "Run the test suite"
+run = "pnpm vitest run"
+
+[tasks."test:watch"]
+description = "Run the test suite in watch mode"
+run = "pnpm vitest"
+
+[tasks.ci]
+description = "Everything that must be green before declaring work done"
+depends = ["check", "lint", "test"]
+
+[tasks.format]
+description = "Format sources with prettier"
+run = "pnpm prettier --write ."
+
+# ── write side: the three workers ────────────────────────────────────────────
+
+[tasks.crawler]
+description = "Discover + fetch repos into the cache. Args: --seed cncf,krew --limit 200"
+run = "pnpm -F @keco/workers crawler"
+
+[tasks.analyzer]
+description = "Classify everything with a changed content_hash or an expired signal TTL"
+run = "pnpm -F @keco/workers analyzer"
+
+[tasks.projector]
+description = "Project analyses into Meilisearch. Args: --rebuild for a full replay + alias swap"
+run = "pnpm -F @keco/workers projector"
+
+[tasks.replay]
+description = "Reset a consumer checkpoint. Args: --consumer analyzer"
+run = "pnpm -F @keco/workers replay"
+
+[tasks.rebuild]
+description = "Full offline rebuild of the read model from cache (no GitHub calls)"
+run = "pnpm -F @keco/workers projector --rebuild"
+
+[tasks.pipeline]
+description = "Small end-to-end run: crawl 200 seeded repos, analyze, project"
+run = [
+  "pnpm -F @keco/workers crawler --seed cncf,krew --limit 200",
+  "pnpm -F @keco/workers analyzer",
+  "pnpm -F @keco/workers projector",
+]
+
+# ── read side / infra ────────────────────────────────────────────────────────
+
+[tasks."search:settings"]
+description = "Apply Meilisearch index settings (idempotent)"
+run = "pnpm -F @keco/search settings"
+
+[tasks."infra:up"]
+description = "Start Meilisearch + MinIO"
+run = "docker compose -f infra/compose.yml up -d"
+
+[tasks."infra:down"]
+description = "Stop Meilisearch + MinIO"
+run = "docker compose -f infra/compose.yml down"
+
+[tasks."infra:reset"]
+description = "Stop local infra and delete its volumes (cache + index are disposable)"
+run = "docker compose -f infra/compose.yml down -v"

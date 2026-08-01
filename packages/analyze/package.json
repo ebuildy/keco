@@ -1,0 +1,22 @@
+{
+  "name": "@keco/analyze",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@keco/cache": "workspace:*",
+    "@keco/core": "workspace:*",
+    "@keco/signals": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

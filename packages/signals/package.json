@@ -1,0 +1,20 @@
+{
+  "name": "@keco/signals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@keco/cache": "workspace:*",
+    "@keco/core": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

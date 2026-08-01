@@ -1,0 +1,28 @@
+{
+  "name": "keco",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm -F @keco/web dev",
+    "build": "pnpm -F @keco/web build",
+    "check": "pnpm -r --parallel check",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "search:settings": "pnpm -F @keco/search settings"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.23.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.47.0",
+    "vitest": "^4.1.10"
+  }
+}
