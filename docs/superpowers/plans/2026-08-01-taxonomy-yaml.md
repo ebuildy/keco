@@ -884,36 +884,26 @@ import { parseTaxonomy, type TaxonomyFamily, type TaxonomyValue } from './taxono
  */
 const FILENAME = 'taxonomy.yaml';
 
-/** Walks up from `from` looking for the pnpm workspace root. */
-function workspaceRoot(from: string): string | null {
-  let current = from;
-  for (;;) {
-    if (existsSync(resolve(current, 'pnpm-workspace.yaml'))) return current;
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
-
 /**
- * Two resolution strategies, because the file has to be found under three different
- * runtimes: plain Node ESM (workers, vitest), the Next dev server, and a traced production
- * build. The first candidate covers the first two; the second covers a bundler that
- * rewrote import.meta.url. next.config.ts adds the file to outputFileTracingIncludes so it
- * is present in a standalone build.
+ * Resolved relative to this module's own location, which is correct under plain Node ESM —
+ * the workers, the Next dev server and vitest all resolve it this way.
+ *
+ * What is NOT verified: a bundler that rewrites `import.meta.url` would break this. Next's
+ * `transpilePackages` covers `@keco/core`, and `next.config.ts` traces the YAML into a
+ * standalone build, but the portal task is what proves the build actually finds it.
+ *
+ * An earlier draft also walked up to `pnpm-workspace.yaml` as a fallback. It was removed: it
+ * resolved to the identical path in this repo, and in the one deployment it claimed to
+ * protect — a traced standalone build — `pnpm-workspace.yaml` is not present at all, so it
+ * could never fire. A fallback that looks like safety but never runs is worse than none,
+ * because it stops people looking for the real fix.
  */
-function readTaxonomyFile(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = workspaceRoot(here) ?? workspaceRoot(process.cwd());
-  const candidates = [
-    resolve(here, '..', FILENAME),
-    ...(root ? [resolve(root, 'packages', 'core', FILENAME)] : []),
-  ];
+export const taxonomyPath = (): string =>
+  resolve(dirname(fileURLToPath(import.meta.url)), '..', FILENAME);
 
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return readFileSync(candidate, 'utf8');
-  }
-  throw new Error(`taxonomy: ${FILENAME} not found. Looked in:\n  ${candidates.join('\n  ')}`);
+function readTaxonomyFile(path = taxonomyPath()): string {
+  if (!existsSync(path)) throw new Error(`taxonomy: ${FILENAME} not found at ${path}`);
+  return readFileSync(path, 'utf8');
 }
 
 const FILE = parseTaxonomy(readTaxonomyFile());
@@ -2927,6 +2917,25 @@ pnpm -r --parallel check && pnpm -F @keco/web build
 ```
 
 Expected: both PASS. The build renders the home page against whatever Meilisearch holds; with an empty or unreachable index `whatsHot` and `searchTools` return empty results and `TopicChips` renders nothing.
+
+**This step is the one that proves the taxonomy loader survives a bundler.** `@keco/core` reads
+`taxonomy.yaml` from disk using a path derived from `import.meta.url`; if Next rewrites that
+during bundling, the build fails at module init with `taxonomy: taxonomy.yaml not found at
+<path>`. That error is the signal, and it is deliberately the only place this is verified — the
+plan carries no speculative fallback for it. If it fires, fix it with the evidence in hand: the
+reported path tells you what the bundler produced. Do not add a resolution fallback before
+seeing it fail.
+
+Then confirm the page actually renders rather than merely compiling:
+
+```bash
+mise run infra:up && mise run search:settings
+pnpm -F @keco/web build && pnpm -F @keco/web start &
+sleep 5 && curl -sS localhost:3000 | head -40
+```
+
+Expected: HTML containing the `<h1>Keco</h1>` and the search form. With an empty index there are
+no chips — that is correct, not a failure. Kill the server afterwards.
 
 If the build fails because Meilisearch is not running, start it first:
 
