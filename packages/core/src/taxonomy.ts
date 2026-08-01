@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { parseTaxonomy, type TaxonomyFamily, type TaxonomyValue } from './taxonomy-schema';
+import { parseTaxonomy, type TaxonomyFamily, type TaxonomyFile, type TaxonomyValue } from './taxonomy-schema';
 
 /**
  * The closed vocabulary (AGENTS.md §6), loaded from `packages/core/taxonomy.yaml`.
@@ -30,6 +30,9 @@ const FILENAME = 'taxonomy.yaml';
 
 /**
  * Resolves `packages/core/taxonomy.yaml` relative to this module's own compiled location.
+ * Not exported: this resolution strategy is unverified under a bundler (see below), and
+ * handing it out as public API would make that unverified logic something every future
+ * caller in the workspace can depend on directly.
  *
  * Verified: plain Node ESM (workers) and vitest, both of which preserve `import.meta.url`
  * pointing at the real file on disk. Not verified: a bundler that rewrites or inlines
@@ -38,7 +41,7 @@ const FILENAME = 'taxonomy.yaml';
  * fallback search are added speculatively; if the Next build needs one, add it with
  * evidence from that failure, not in advance of it.
  */
-export function taxonomyPath(): string {
+function taxonomyPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, '..', FILENAME);
 }
@@ -56,15 +59,41 @@ export function readTaxonomyFile(path: string = taxonomyPath()): string {
   return readFileSync(path, 'utf8');
 }
 
-const FILE = parseTaxonomy(readTaxonomyFile());
+/**
+ * Recursively freezes the parsed file: the families array, each family object, each
+ * family's `values` array, each value object, and each value's `aliases` array. A caller
+ * that mutates a shared value or family object (`allValues('kind')[0].label = 'x'`,
+ * `values('governance').forEach(v => { v.hidden = true })`) gets an immediate `TypeError`
+ * at the mutation site instead of silently corrupting the module singleton for the rest of
+ * the process. `allValues()` and `values()` still return a fresh, unfrozen *array* each
+ * call, so `.sort()`-ing the list a caller gets back is still legal — only the shared value
+ * objects themselves, and the singleton's own arrays, are frozen.
+ */
+function deepFreezeTaxonomy(file: TaxonomyFile): TaxonomyFile {
+  for (const fam of file.families) {
+    for (const value of fam.values) {
+      Object.freeze(value.aliases);
+      Object.freeze(value);
+    }
+    Object.freeze(fam.values);
+    Object.freeze(fam);
+  }
+  Object.freeze(file.families);
+  return Object.freeze(file);
+}
+
+const FILE = deepFreezeTaxonomy(parseTaxonomy(readTaxonomyFile()));
 
 /**
  * Every family, in declared order. Plain data — safe to pass to a client component.
  *
- * This array (and the arrays returned by `family()` / `allValues()`) is the module's shared
- * singleton state, not a copy. Callers must treat it as read-only: `TAXONOMY[0].values.sort()`
- * mutates the taxonomy for the rest of the process, silently, for every later caller. This is
- * a convention, not something enforced at runtime.
+ * Deeply frozen after module load (see `deepFreezeTaxonomy`): this array, each family
+ * object, each family's `values` array and each value object are all read-only at runtime,
+ * not just by convention. `TAXONOMY[0].values.sort()` or `TAXONOMY[0].values[0].hidden = true`
+ * throws a `TypeError` immediately rather than corrupting the taxonomy for every later
+ * caller in the process. `family()` returns the same frozen objects. `allValues()` and
+ * `values()` return a fresh, mutable *array* — safe to `.sort()` — whose elements are still
+ * these frozen value objects.
  */
 export const TAXONOMY: TaxonomyFamily[] = FILE.families;
 
@@ -90,14 +119,18 @@ export function family(id: string): TaxonomyFamily {
 export const familyByParam = (param: string): TaxonomyFamily | null => BY_PARAM.get(param) ?? null;
 export const paramFor = (familyId: string): string => family(familyId).param;
 
-/** Visible values — what the UI renders. A fresh copy; safe to sort or mutate. */
+/**
+ * Visible values — what the UI renders. A fresh array (`.filter()` always allocates one),
+ * safe to `.sort()`. Its elements are the taxonomy's frozen value objects — read-only.
+ */
 export const values = (familyId: string): TaxonomyValue[] =>
   family(familyId).values.filter((value) => !value.hidden);
 
 /**
- * Every value including hidden ones — what validation accepts. Returns a shallow copy, not
- * the family's internal array: `allValues('kind').sort(...)` must not reorder `TAXONOMY`
- * itself for every later caller in the process.
+ * Every value including hidden ones — what validation accepts. Returns a fresh copy of the
+ * array, not the family's internal one, so `allValues('kind').sort(...)` reorders only the
+ * caller's copy. The value objects inside it are the taxonomy's frozen originals, shared
+ * with the singleton — mutating a field on one (`allValues('kind')[0].label = 'x'`) throws.
  */
 export const allValues = (familyId: string): TaxonomyValue[] => [...family(familyId).values];
 

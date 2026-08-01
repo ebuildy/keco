@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   DOMAINS,
@@ -19,7 +18,6 @@ import {
   listSchema,
   paramFor,
   readTaxonomyFile,
-  taxonomyPath,
   valueSchema,
   values,
 } from './taxonomy';
@@ -99,11 +97,6 @@ describe('taxonomy accessors', () => {
     expect(listSchema('install_methods').parse([])).toEqual([]);
   });
 
-  it('resolves taxonomyPath() to the real committed file', () => {
-    expect(existsSync(taxonomyPath())).toBe(true);
-    expect(taxonomyPath().endsWith('taxonomy.yaml')).toBe(true);
-  });
-
   it('throws an actionable error reading a deliberately absent path', () => {
     const missing = '/deliberately/absent/path/taxonomy.yaml';
     expect(() => readTaxonomyFile(missing)).toThrow(/^taxonomy: /);
@@ -115,5 +108,20 @@ describe('taxonomy accessors', () => {
     copy.reverse();
     expect(allValues('kind')).not.toEqual(copy);
     expect(TAXONOMY.find((f) => f.id === 'kind')?.values[0]?.id).toBe('cli');
+  });
+
+  it('freezes value objects — mutating one throws and leaves the singleton untouched', () => {
+    const value = allValues('kind')[0];
+    if (!value) throw new Error('expected at least one kind value');
+    expect(value.id).toBe('cli');
+
+    expect(() => {
+      value.label = 'corrupted';
+    }).toThrow(TypeError);
+
+    // Verify via family() — a different accessor than the one that produced `value` — that
+    // the singleton itself was never touched.
+    expect(family('kind').values[0]?.label).not.toBe('corrupted');
+    expect(family('kind').values[0]?.label).toBe('CLI');
   });
 });
