@@ -51,7 +51,9 @@ export const AnalysisSchema = z.object({
   license_class: valueSchema('license_class').default('unknown'),
   /** Fully open vs open-core. Promoted only on positive evidence — see docs/taxonomy.md. */
   openness: valueSchema('openness').default('unknown'),
+  /** How settled the project is. CNCF graduation status takes precedence when known; age and activity are the fallback heuristic otherwise. */
   maturity: valueSchema('maturity').default('unknown'),
+  /** Who steers the project. Evidence-only — an org account alone proves nothing. */
   governance: valueSchema('governance').default('unknown'),
   /** Demotes courses, blogs and dotfiles that merely mention Kubernetes (§14). */
   k8s_relevance: z.number().min(0).max(1),
@@ -95,8 +97,13 @@ export const ToolDocument = z.object({
   forks: z.number().int(),
   open_issues: z.number().int(),
   language: z.string().nullable(),
+  /** Raw SPDX identifier from GitHub, verbatim (e.g. "Apache-2.0"). Bucketed into `license_class` below. */
   license: z.string().nullable(),
-  /** GitHub's own topics, verbatim. Not Keco's taxonomy — that is the five fields below. */
+  /**
+   * GitHub's own topics, verbatim — an unstructured tag cloud repo owners pick themselves.
+   * Distinct from Keco's closed taxonomy (`kind`, `domains`, `runtime`, `license_class`,
+   * `openness`, `maturity`, `governance`), which the analyzer assigns.
+   */
   github_topics: z.array(z.string()),
   archived: z.boolean(),
   pushed_at: z.iso.datetime(),
