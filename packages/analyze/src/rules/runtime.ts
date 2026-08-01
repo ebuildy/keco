@@ -42,14 +42,14 @@ const LIBRARY_MANIFEST = [
 ];
 
 const WORKSTATION_KINDS = new Set(['cli', 'kubectl-plugin', 'ide-extension']);
-const IN_CLUSTER_KINDS = new Set([
-  'operator',
-  'controller',
-  'admission-webhook',
-  'helm-chart',
-  'service',
-  'dashboard-ui',
-]);
+// `service` and `dashboard-ui` are deliberately absent:
+//  - `service` is FALLBACK_KIND, the LLM's "could not classify" answer (confidence 0.3,
+//    needs_review: true). Turning it into `in-cluster` would fabricate a runtime for a repo
+//    nobody could identify — exactly the plausible-looking default this module forbids.
+//  - `dashboard-ui` genuinely spans both runtimes (Lens/k9s run on the workstation;
+//    Kubernetes Dashboard/Headlamp run in-cluster) and this module has no way to tell them
+//    apart. `unknown` is the honest answer for both.
+const IN_CLUSTER_KINDS = new Set(['operator', 'controller', 'admission-webhook', 'helm-chart']);
 
 /**
  * Ordered strongest-first. `kind` is the winning verdict from `classifyKind`, or null when
@@ -65,8 +65,11 @@ export function classifyRuntime(input: RuleInput, kind: string | null): RuntimeV
   if (has(input.tree, (p) => p === '.krew.yaml' || p.endsWith('/.krew.yaml'))) {
     return { runtime: 'workstation', confidence: 0.9, rule: 'tree:.krew.yaml' };
   }
+  // Kind-only fallbacks (this branch and IN_CLUSTER_KINDS below) must both sit below every
+  // structural rule's confidence (0.7+) — a bare kind is weaker evidence than a tree fact,
+  // and the numbers must say so or a future edit could invert the ranking without noticing.
   if (kind !== null && WORKSTATION_KINDS.has(kind)) {
-    return { runtime: 'workstation', confidence: 0.8, rule: `kind:${kind}` };
+    return { runtime: 'workstation', confidence: 0.65, rule: `kind:${kind}` };
   }
 
   if (has(input.tree, (p) => isChartYaml(p) || p.startsWith('config/crd/'))) {

@@ -55,4 +55,37 @@ describe('classifyRuntime', () => {
     expect(verdict.confidence).toBe(0);
     expect(verdict.rule).toBe('none');
   });
+
+  it('puts a bare cli kind on the workstation at the weaker kind-only confidence', () => {
+    const verdict = classifyRuntime(base, 'cli');
+    expect(verdict.runtime).toBe('workstation');
+    expect(verdict.confidence).toBe(0.65);
+    expect(verdict.rule).toBe('kind:cli');
+  });
+
+  it('puts a bare ide-extension kind on the workstation', () => {
+    expect(classifyRuntime(base, 'ide-extension').runtime).toBe('workstation');
+  });
+
+  it('does not turn the LLM fallback kind "service" into a runtime guess', () => {
+    // `service` is FALLBACK_KIND — what the LLM assigns when it could not classify the repo
+    // at all (confidence 0.3, needs_review: true). It must never imply a runtime.
+    const verdict = classifyRuntime(base, 'service');
+    expect(verdict.runtime).toBe('unknown');
+    expect(verdict.confidence).toBe(0);
+  });
+
+  it('does not guess a runtime for dashboard-ui, which spans both', () => {
+    // Lens and k9s are workstation apps that connect out to a cluster; Kubernetes Dashboard
+    // and Headlamp run as in-cluster workloads. No single mapping is right.
+    const verdict = classifyRuntime(base, 'dashboard-ui');
+    expect(verdict.runtime).toBe('unknown');
+    expect(verdict.confidence).toBe(0);
+  });
+
+  it('still falls back to in-cluster for a bare operator kind', () => {
+    const verdict = classifyRuntime(base, 'operator');
+    expect(verdict.runtime).toBe('in-cluster');
+    expect(verdict.confidence).toBe(0.6);
+  });
 });
