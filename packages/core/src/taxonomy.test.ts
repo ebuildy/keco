@@ -82,6 +82,17 @@ describe('taxonomy accessors', () => {
     expect(isKind(FALLBACK_KIND)).toBe(true);
   });
 
+  it('answers membership per family, hidden values included', () => {
+    expect(isValue('kind', 'operator')).toBe(true);
+    expect(isValue('kind', 'nope')).toBe(false);
+    // A value of one family is not a value of another — this is what stops the five
+    // near-identical taxonomy fields on ToolDocument being silently interchangeable.
+    expect(isValue('openness', 'permissive')).toBe(false);
+    expect(isValue('license_class', 'permissive')).toBe(true);
+    // Hidden from the UI, still valid data.
+    expect(isValue('runtime', 'unknown')).toBe(true);
+  });
+
   it('validates a single value with valueSchema', () => {
     expect(valueSchema('kind').parse('cli')).toBe('cli');
     expect(() => valueSchema('kind').parse('nope')).toThrow();
