@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   DOMAINS,
@@ -17,6 +18,8 @@ import {
   isValue,
   listSchema,
   paramFor,
+  readTaxonomyFile,
+  taxonomyPath,
   valueSchema,
   values,
 } from './taxonomy';
@@ -94,5 +97,23 @@ describe('taxonomy accessors', () => {
     expect(() => Domains.parse(['security', 'policy', 'storage', 'cost'])).toThrow();
     // install_methods declares neither min nor max: unbounded, and empty is legal.
     expect(listSchema('install_methods').parse([])).toEqual([]);
+  });
+
+  it('resolves taxonomyPath() to the real committed file', () => {
+    expect(existsSync(taxonomyPath())).toBe(true);
+    expect(taxonomyPath().endsWith('taxonomy.yaml')).toBe(true);
+  });
+
+  it('throws an actionable error reading a deliberately absent path', () => {
+    const missing = '/deliberately/absent/path/taxonomy.yaml';
+    expect(() => readTaxonomyFile(missing)).toThrow(/^taxonomy: /);
+    expect(() => readTaxonomyFile(missing)).toThrow(missing);
+  });
+
+  it('does not let allValues() mutation leak into the shared taxonomy', () => {
+    const copy = allValues('kind');
+    copy.reverse();
+    expect(allValues('kind')).not.toEqual(copy);
+    expect(TAXONOMY.find((f) => f.id === 'kind')?.values[0]?.id).toBe('cli');
   });
 });
