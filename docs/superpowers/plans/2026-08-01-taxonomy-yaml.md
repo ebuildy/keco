@@ -1536,17 +1536,23 @@ describe('maturity', () => {
     expect(of({ created_at: '2026-03-01T00:00:00.000Z' })).toBe('young');
   });
 
-  it('reports established over two years old with a recent release', () => {
+  it('reports established when over a year old and still released recently', () => {
     expect(of({})).toBe('established');
   });
 
-  it('is unknown for an established age with no recent release', () => {
-    expect(of({ latest_release_at: null })).toBe('unknown');
-    expect(of({ latest_release_at: '2024-01-01T00:00:00.000Z' })).toBe('unknown');
+  it('reports established on a recent push even with no releases at all', () => {
+    // Plenty of controllers ship via floating container tags and never cut a release.
+    expect(of({ latest_release_at: null })).toBe('established');
+    expect(of({ latest_release_at: '2024-01-01T00:00:00.000Z' })).toBe('established');
   });
 
-  it('is unknown between one and two years old', () => {
-    expect(of({ created_at: '2025-01-01T00:00:00.000Z' })).toBe('unknown');
+  it('reports established between one and two years old', () => {
+    expect(of({ created_at: '2025-01-01T00:00:00.000Z' })).toBe('established');
+  });
+
+  it('is unknown when it is over a year old, quiet for months, and unreleased', () => {
+    // Neither clearly alive nor clearly dormant — the honest residual.
+    expect(of({ pushed_at: '2026-01-01T00:00:00.000Z', latest_release_at: null })).toBe('unknown');
   });
 });
 
@@ -1675,6 +1681,16 @@ export function classifyOpenness(input: DerivedInput): string {
   return commercial ? 'open-core' : 'fully-open';
 }
 
+/**
+ * Bands must cover the domain. An earlier draft made `established` require >2 years old AND
+ * a release within 6 months, which dropped every 1-2 year old project — and every older one
+ * that ships via floating container tags rather than cutting GitHub releases — into
+ * `unknown`. That is a hole in the definitions, not missing evidence, and it breaks the
+ * contract that `unknown` means "we genuinely could not tell".
+ *
+ * What is left in `unknown` now is the honest case: over a year old, quiet for six to twelve
+ * months, no recent release. Neither clearly alive nor clearly dormant.
+ */
 export function classifyMaturity(input: DerivedInput, now: Date): string {
   if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
   if (input.archived) return 'archived';
@@ -1684,8 +1700,9 @@ export function classifyMaturity(input: DerivedInput, now: Date): string {
   if (age < 365) return 'young';
 
   const releasedRecently =
-    input.latest_release_at !== null && daysSince(input.latest_release_at, now) <= 183;
-  if (age > 730 && releasedRecently) return 'established';
+    input.latest_release_at !== null && daysSince(input.latest_release_at, now) <= 365;
+  const pushedRecently = daysSince(input.pushed_at, now) <= 183;
+  if (releasedRecently || pushedRecently) return 'established';
 
   return 'unknown';
 }
@@ -3180,6 +3197,22 @@ in the file. If you add a rule, that test is how a typo gets caught.
 rebuild and an alias swap (§5). Everything else — `packages/search`, `packages/query`, the home
 page chip rows — loops over the file and needs no edit.
 ```
+
+- [ ] **Step 2b: Update CLAUDE.md §5 as well**
+
+§5's `tools` settings section lists `filterableAttributes` and the document shape, both of which
+changed in Tasks 4 and 9. In the `filterableAttributes` bullet, add the five new families:
+
+```markdown
+- `filterableAttributes`: `kind`, `domains`, `runtime`, `install_methods`, `language`, `license`,
+  `license_class`, `openness`, `maturity`, `governance`, `archived`, `stars`, `has_release`,
+  `k8s_relevance`, `has_scorecard`.
+```
+
+In the same section's `searchableAttributes` bullet, rename `topics` to `github_topics`. In the
+**Document shape** code block, rename the `topics[]` field to `github_topics[]` and add the five
+new fields next to `kind` and `domains`. A `facet: true` family with no filterable attribute
+behind it is a chip that 500s when clicked, so these two lists must not drift.
 
 - [ ] **Step 3: Update the two worker TODOs**
 
