@@ -1346,15 +1346,21 @@ const LIBRARY_MANIFEST = [
   { file: 'Cargo.toml', pattern: /^kube\s*=/m },
 ];
 
+/**
+ * Kind-only fallbacks, used when no structural evidence fired. Their confidence must stay
+ * BELOW every structural rule (0.7+): a guess from the kind alone is weaker than a file on
+ * disk, and the numbers have to say so.
+ *
+ * Two kinds are deliberately absent from the in-cluster set:
+ *   - `service` is FALLBACK_KIND, what the LLM assigns when it could not classify the repo
+ *     at all. Turning "we don't know what this is" into "it runs in-cluster" is exactly the
+ *     guess this module forbids, and at corpus scale it is a silent bias.
+ *   - `dashboard-ui` spans both runtimes — Lens and k9s run on your workstation, Kubernetes
+ *     Dashboard and Headlamp run in-cluster — and nothing here can tell them apart.
+ * Both fall through to `unknown`.
+ */
 const WORKSTATION_KINDS = new Set(['cli', 'kubectl-plugin', 'ide-extension']);
-const IN_CLUSTER_KINDS = new Set([
-  'operator',
-  'controller',
-  'admission-webhook',
-  'helm-chart',
-  'service',
-  'dashboard-ui',
-]);
+const IN_CLUSTER_KINDS = new Set(['operator', 'controller', 'admission-webhook', 'helm-chart']);
 
 /**
  * Ordered strongest-first. `kind` is the winning verdict from `classifyKind`, or null when
@@ -1371,7 +1377,7 @@ export function classifyRuntime(input: RuleInput, kind: string | null): RuntimeV
     return { runtime: 'workstation', confidence: 0.9, rule: 'tree:.krew.yaml' };
   }
   if (kind !== null && WORKSTATION_KINDS.has(kind)) {
-    return { runtime: 'workstation', confidence: 0.8, rule: `kind:${kind}` };
+    return { runtime: 'workstation', confidence: 0.65, rule: `kind:${kind}` };
   }
 
   if (has(input.tree, (p) => isChartYaml(p) || p.startsWith('config/crd/'))) {
