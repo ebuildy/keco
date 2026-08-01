@@ -128,7 +128,7 @@ wrong `brew install` line is worse than no line at all — people paste these in
 |---|---|---|
 | App | **Next.js 15**, App Router, RSC | Portal, backoffice and APIs in one codebase; ISR gives static-fast tool pages |
 | Read model | **Meilisearch** | Instant, typo-tolerant, first-class faceting; alias-swapped rebuilds |
-| Write model | **Object storage** (S3/R2/MinIO) | The cache: raw GitHub JSON, READMEs and third-party responses, verbatim + TTL'd. Keys only, no queries |
+| Write model | **A directory** (`.cache/`), behind a storage port | Raw GitHub JSON, READMEs and third-party responses, verbatim + TTL'd. Keys only, no queries, no database. Object storage swaps in for v2 |
 | Signals | Scorecard · deps.dev · OSV · brew · krew · Artifact Hub | Real maintenance and security data instead of star-counting |
 | Coordination | Append-only journal + checkpoints | No queue server, no locks — workers are idempotent and shard deterministically |
 | Auth | Auth.js, GitHub OAuth | Backoffice only, allowlisted logins |
@@ -140,7 +140,7 @@ wrong `brew install` line is worse than no line at all — people paste these in
 
 ```bash
 mise install                                 # node + pnpm, pinned in mise.toml
-mise run setup                               # .env, dependencies, Meilisearch + MinIO, index settings
+mise run setup                               # .env, dependencies, Meilisearch, index settings
                                              # then add GITHUB_TOKEN to .env
 
 mise run dev                                 # http://localhost:3000
@@ -160,12 +160,16 @@ mise run analyzer && mise run rebuild
 
 `mise tasks` lists the rest — `check`, `lint`, `test`, `ci`, `search:settings`, `infra:up|down|reset`.
 
+The only service you need locally is Meilisearch. The cache is a directory, so wiping the write
+model is `rm -rf .cache` and rebuilding it is a crawl.
+
 ### Environment
 
-```
-GITHUB_TOKEN=                    # classic PAT, public_repo scope — crawler only
-CACHE_ENDPOINT= / CACHE_BUCKET=  # S3-compatible; workers read-write, web read-only
-CACHE_ACCESS_KEY= / CACHE_SECRET=
+Full list with per-variable notes in [`.env.example`](./.env.example); the ones that matter:
+
+```ini
+GITHUB_TOKEN=                    # classic PAT, public_repo scope — workers only
+CACHE_DIR=.cache                 # the write model; workers write, web only reads
 MEILI_HOST=
 MEILI_MASTER_KEY=                # server + projector only, never shipped to the browser
 NEXT_PUBLIC_MEILI_SEARCH_KEY=    # search-only key, scoped to the `tools` index
@@ -177,37 +181,13 @@ ANTHROPIC_API_KEY=               # analyzer fallback + chatbot
 
 ## Roadmap
 
-**v1 — the corpus**
-Crawler, cache, analyzer, projector; taxonomy, health scoring, verified install methods; portal
-search and tool pages; backoffice observability.
+**v1 — the corpus.** Crawler, analyzer and projector doing real work; portal search and tool
+pages; backoffice observability. **v2 — the signal and the conversation.** Public API, MCP
+endpoint, hybrid search, grounded chatbot. **v3 — the surface.** `keco` CLI, health badges,
+curated stacks.
 
-**v2 — the signal & the conversation**
-
-- "Alternatives to X" pages, comparison view, momentum board, evidence-backed adopters.
-- **Public API** — `/api/v1/search`, `/tools/{owner}/{repo}`, `/compare`.
-- **MCP endpoint** — `https://keco.dev/mcp`, so Claude, Cursor, Copilot and any agent can query
-  the ecosystem while you work:
-
-  | Tool | Use |
-  |---|---|
-  | `search_tools` | natural-language or faceted query over the corpus |
-  | `get_tool` | full metadata, health breakdown, verified install commands |
-  | `compare_tools` | side-by-side on maintenance, install, license, adoption |
-  | `find_alternatives` | "what else does what ArgoCD does" |
-  | `whats_hot` | high-momentum projects in a domain |
-
-  Ask your agent *"what's the healthiest ingress controller with a Helm chart?"* and it answers
-  from Keco instead of from stale training data. Agents recommend tools constantly and are
-  systematically out of date — this may be Keco's strongest surface.
-
-- **Chatbot** — describe your problem, get tools. RAG over the corpus, not a general chatbot:
-  retrieval via Meilisearch hybrid search, answers **only** from retrieved tools, every claim
-  linked to a Keco page, install commands only from verified metadata. It says "I don't know"
-  rather than inventing a project.
-
-**v3 — the surface**
-`keco` CLI (`keco search ingress`, `keco install k9s`), embeddable health badges, curated stacks
-("a production GitOps setup in 6 tools").
+The current state of each, and what is deliberately *not* planned, is in
+[ROADMAP.md](./ROADMAP.md).
 
 ## Data and correctness
 

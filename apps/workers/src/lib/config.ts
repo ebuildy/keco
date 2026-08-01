@@ -6,13 +6,8 @@ const Env = z.object({
   GITHUB_TOKEN: z.string().default(''),
   GITHUB_QUOTA_CRAWLER_SHARE: z.coerce.number().min(0).max(1).default(0.8),
 
-  CACHE_ADAPTER: z.enum(['fs', 's3']).default('fs'),
+  /** Relative paths resolve against the workspace root, not the worker's cwd. */
   CACHE_DIR: z.string().default('.cache'),
-  CACHE_ENDPOINT: z.string().optional(),
-  CACHE_BUCKET: z.string().optional(),
-  CACHE_REGION: z.string().optional(),
-  CACHE_ACCESS_KEY: z.string().optional(),
-  CACHE_SECRET: z.string().optional(),
 
   MEILI_HOST: z.string().default('http://localhost:7700'),
   MEILI_MASTER_KEY: z.string().optional(),

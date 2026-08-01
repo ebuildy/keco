@@ -2,23 +2,20 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { FsStorage } from './adapters/fs';
-import { S3Storage } from './adapters/s3';
 import { Cache, type Storage } from './storage';
 
 export * from './keys';
 export * from './storage';
 export * from './journal';
 export { FsStorage } from './adapters/fs';
-export { S3Storage } from './adapters/s3';
 
+/**
+ * The filesystem is the only adapter for now. The `Storage` port stays because object
+ * storage (R2/S3) is what v2 runs on — but shipping an unused, untested S3 client is
+ * carrying weight we cannot verify, so it lands with the deployment that needs it.
+ */
 export type CacheConfig = {
-  adapter: 'fs' | 's3';
   dir?: string;
-  endpoint?: string;
-  bucket?: string;
-  region?: string;
-  accessKey?: string;
-  secret?: string;
 };
 
 /**
@@ -34,33 +31,13 @@ export function resolveCacheDir(dir: string, from = process.cwd()): string {
   }
 }
 
-export function createStorage(config: CacheConfig): Storage {
-  if (config.adapter === 'fs') return new FsStorage(resolveCacheDir(config.dir ?? '.cache'));
-  if (!config.bucket || !config.accessKey || !config.secret) {
-    throw new Error('CACHE_BUCKET, CACHE_ACCESS_KEY and CACHE_SECRET are required for the s3 adapter');
-  }
-  return new S3Storage({
-    endpoint: config.endpoint,
-    region: config.region,
-    bucket: config.bucket,
-    accessKeyId: config.accessKey,
-    secretAccessKey: config.secret,
-  });
+export function createStorage(config: CacheConfig = {}): Storage {
+  return new FsStorage(resolveCacheDir(config.dir ?? '.cache'));
 }
 
-/** Reads cache config from the environment. Workers get read-write credentials, the web app read-only (§12). */
+/** Reads cache config from the environment. The web app reads the same directory, never writes (§12). */
 export function createCacheFromEnv(env: NodeJS.ProcessEnv = process.env): Cache {
-  return new Cache(
-    createStorage({
-      adapter: (env.CACHE_ADAPTER as 'fs' | 's3') ?? 'fs',
-      dir: env.CACHE_DIR,
-      endpoint: env.CACHE_ENDPOINT,
-      bucket: env.CACHE_BUCKET,
-      region: env.CACHE_REGION,
-      accessKey: env.CACHE_ACCESS_KEY,
-      secret: env.CACHE_SECRET,
-    }),
-  );
+  return new Cache(createStorage({ dir: env.CACHE_DIR }));
 }
 
 export { Cache };

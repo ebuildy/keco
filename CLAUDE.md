@@ -28,6 +28,10 @@ Use mise to install tools, runtime.
 
 All dev scripts and tasks must run from mise task.
 
+The roadmap — what is done, what is next, and what is deliberately not planned — is
+[ROADMAP.md](./ROADMAP.md). Check it before proposing work: several obvious-looking gaps
+(object storage, curation, star history) are decisions, not omissions.
+
 ## 2. CQRS — the organising principle
 
 **Read this before writing any code. Every design question is answered by it.**
@@ -73,8 +77,15 @@ The rules, in priority order:
 
 ## 3. The cache (write model)
 
-Object storage — S3-compatible in production (R2/MinIO/S3), local filesystem in dev, behind one
-adapter in `packages/cache`. No database, no index, no queries: keys only.
+A directory on disk (`.cache/`, `CACHE_DIR`), behind the `Storage` port in `packages/cache`.
+No database, no index, no queries: keys only.
+
+**There is exactly one adapter today — the filesystem.** Object storage (R2/S3) is a v2 item
+and slots in behind the same port when a deployment needs it; see ROADMAP.md. Do not add an S3
+client "for later", and do not write code that assumes either backend: everything goes through
+`Storage`, so the swap must be a one-file change with no caller touched. A relative `CACHE_DIR`
+resolves against the workspace root, not the process's cwd, so every worker and the web app
+share one cache.
 
 ```
 cache/
@@ -97,8 +108,9 @@ cache/
 - **`content_hash`** = hash(repo.json core fields + readme + tree). It is the change signal for
   the entire pipeline. Unchanged hash ⇒ no analysis, no LLM call, no re-projection. This is the
   single most important cost control in the system.
-- **Never LIST to find work.** Object storage listing is slow and expensive at scale — the
-  journal exists precisely so consumers read an ordered stream instead of scanning buckets.
+- **Never LIST to find work.** A directory scan is merely slow today; the same code against
+  object storage is slow *and* billed per request. The journal exists precisely so consumers
+  read an ordered stream instead of scanning the cache.
 
 ### The journal
 Append-only, one small JSON per event, keys sortable by ULID so a consumer can resume from an
@@ -351,7 +363,7 @@ keco/
 │       └── src/{crawler,analyzer,projector}/
 ├── packages/
 │   ├── core/                      # zod schemas, taxonomy, scoring, event types
-│   ├── cache/                     # storage adapter (s3 | fs), journal, checkpoints
+│   ├── cache/                     # Storage port + fs adapter, journal, checkpoints
 │   ├── github/                    # GraphQL/REST client, shared quota governor, etags
 │   ├── signals/                   # scorecard, deps.dev, osv, brew, krew, artifacthub adapters
 │   ├── analyze/                   # rule classifiers + signal fusion + LLM fallback
@@ -374,20 +386,28 @@ pnpm workspaces, TypeScript, ESM, `strict: true`.
 
 ## 8. Commands
 
+Every dev script is a **mise task** — `mise.toml` is the single entry point, and nothing is
+invoked ad-hoc. `mise tasks` lists them all.
+
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Next.js on :3000 |
-| `pnpm -F @keco/workers crawler -- --seed cncf,krew --limit 200` | Discover + fetch into cache |
-| `pnpm -F @keco/workers analyzer` | Classify everything with a changed `content_hash` |
-| `pnpm -F @keco/workers analyzer -- --force-refresh scorecard` | Ignore TTL for one provider |
-| `pnpm -F @keco/workers projector` | Project analyses into Meilisearch |
-| `pnpm -F @keco/workers projector -- --rebuild` | Full replay → new index → alias swap |
-| `pnpm -F @keco/workers replay -- --consumer analyzer` | Reset a checkpoint |
-| `pnpm search:settings` | Apply index settings (idempotent) |
-| `pnpm test` / `pnpm check` | Vitest / `tsc --noEmit` + `next lint` |
-| `docker compose -f infra/compose.yml up` | Meilisearch + MinIO |
+| `mise run setup` | First run: `.env`, dependencies, Meilisearch, index settings |
+| `mise run dev` | Next.js on :3000 |
+| `mise run crawler -- --seed cncf,krew --limit 200` | Discover + fetch into cache |
+| `mise run analyzer` | Classify everything with a changed `content_hash` or an expired signal TTL |
+| `mise run analyzer -- --force-refresh scorecard` | Ignore TTL for one provider |
+| `mise run projector` | Project analyses into Meilisearch |
+| `mise run rebuild` | Full replay → new index → alias swap |
+| `mise run replay -- --consumer analyzer` | Reset a checkpoint |
+| `mise run pipeline` | crawl → analyze → project, end to end |
+| `mise run search:settings` | Apply index settings (idempotent) |
+| `mise run check` / `lint` / `test` | `tsc --noEmit` · eslint (incl. §7 boundaries) · vitest |
+| `mise run ci` | All three — the gate for §15 |
+| `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
 
-Always run `pnpm check && pnpm test` before declaring work done.
+Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl.
+
+Always run `mise run ci` before declaring work done.
 
 ## 9. Portal (read side)
 
@@ -472,7 +492,9 @@ schemas in `@keco/core` (the same ones that generate MCP tool shapes). Public id
 - `/api/commands/*`: admin session **or** `Bearer $COMMAND_TOKEN`, `timingSafeEqual`, no CORS.
 - Meilisearch: master key server-side only. `NEXT_PUBLIC_MEILI_SEARCH_KEY` is search-only,
   scoped to `tools`.
-- Cache credentials belong to workers; the web app gets a **read-only** cache credential.
+- The cache is a local directory today, so the web app's read-only access is a convention the
+  lint rules and code review enforce, not a credential. When object storage lands, it becomes a
+  read-only credential — write the code as if it already were one.
 - `.env.example` stays in sync, with a comment naming the surface that uses each variable.
 
 ## 13. Conventions
@@ -495,7 +517,11 @@ schemas in `@keco/core` (the same ones that generate MCP tool shapes). Public id
 - **Meilisearch writes are async** — advance the checkpoint only after `waitForTask`, or a crash
   loses a batch silently.
 - **Partial updates are a shallow merge** — whole sub-objects only.
-- **Listing object storage to find work** is slow and expensive; read the journal.
+- **Listing the cache to find work** is slow now and billed per request once it is object
+  storage; read the journal.
+- **Assuming the cache is a filesystem.** `fs.readFile` on a cache path, a glob, a `path.join`
+  outside `packages/cache` — each one is a line that has to be found and undone when the S3
+  adapter lands. Go through the `Storage` port.
 - **A third-party call without the cache in front of it** turns a replay into a 30k-request
   storm and gets your IP throttled by Scorecard or Artifact Hub. Every provider goes through
   `external/`.

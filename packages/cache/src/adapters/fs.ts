@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import type { Storage } from '../storage';
 
-/** Local filesystem adapter — the dev default. Same contract as S3, no infra required. */
+/** Local filesystem adapter — the whole write model today, and it needs no infra. */
 export class FsStorage implements Storage {
   constructor(private readonly root: string) {}
 

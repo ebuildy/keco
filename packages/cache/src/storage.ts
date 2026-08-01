@@ -1,6 +1,7 @@
 /**
- * The storage port. Object storage in production (R2/MinIO/S3), the local filesystem in
- * dev — one adapter, no database, no index (AGENTS.md §3).
+ * The storage port. One adapter today — the local filesystem — with no database and no
+ * index (AGENTS.md §3). The port exists so object storage (R2/S3) can slot in for v2
+ * without any caller changing; see ROADMAP.md.
  *
  * `list` exists for the journal and for full rebuilds only. Never list to find work:
  * that is what the journal and checkpoints are for (§3, §14).

@@ -3,17 +3,7 @@ import { config } from './config';
 
 /** Shared write-side wiring. Workers never call each other — only the cache and journal (§4). */
 export function createRuntime() {
-  const cache = new Cache(
-    createStorage({
-      adapter: config.CACHE_ADAPTER,
-      dir: config.CACHE_DIR,
-      endpoint: config.CACHE_ENDPOINT,
-      bucket: config.CACHE_BUCKET,
-      region: config.CACHE_REGION,
-      accessKey: config.CACHE_ACCESS_KEY,
-      secret: config.CACHE_SECRET,
-    }),
-  );
+  const cache = new Cache(createStorage({ dir: config.CACHE_DIR }));
   return { cache, journal: new Journal(cache) };
 }
 

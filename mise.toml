@@ -14,10 +14,9 @@ pnpm = "11.18.0"
 # Loaded from .env when present (created by `mise run setup`).
 #
 # Deliberately NOT `{ path = ".env", redact = true }`: that masks every value from this
-# file by plain substring match, with no idea which are sensitive — CACHE_BUCKET=keco
-# turns `@keco/web` into `@[redacted]/web`, and SHARD_INDEX=0 redacts every digit 0 in
-# every task's output. Per-key redaction (`redactions = [...]`) needs a mise newer than
-# 2026.7.5; no task here echoes a secret, and .env is gitignored.
+# file by plain substring match, with no idea which are sensitive — SHARD_INDEX=0 alone
+# redacts every digit 0 in every task's output. Per-key redaction (`redactions = [...]`)
+# needs a mise newer than 2026.7.5; no task here echoes a secret, and .env is gitignored.
 _.file = ".env"
 
 [settings]
@@ -26,7 +25,7 @@ experimental = true
 # ── setup ────────────────────────────────────────────────────────────────────
 
 [tasks.setup]
-description = "First-run bootstrap: .env, dependencies, local infra, index settings"
+description = "First-run bootstrap: .env, dependencies, Meilisearch, index settings"
 depends = ["env:init", "install"]
 run = [
   "mise run infra:up",
@@ -116,13 +115,13 @@ description = "Apply Meilisearch index settings (idempotent)"
 run = "pnpm -F @keco/search settings"
 
 [tasks."infra:up"]
-description = "Start Meilisearch + MinIO"
+description = "Start Meilisearch"
 run = "docker compose -f infra/compose.yml up -d"
 
 [tasks."infra:down"]
-description = "Stop Meilisearch + MinIO"
+description = "Stop Meilisearch"
 run = "docker compose -f infra/compose.yml down"
 
 [tasks."infra:reset"]
-description = "Stop local infra and delete its volumes (cache + index are disposable)"
+description = "Stop Meilisearch and delete its volume (the index is disposable)"
 run = "docker compose -f infra/compose.yml down -v"

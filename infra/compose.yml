@@ -1,5 +1,10 @@
-# Local dev infrastructure: the read model and the write model.
-# Both are disposable — `mise run infra:reset` wipes them and the pipeline rebuilds.
+# Local dev infrastructure: the read model.
+#
+# The write model needs no service — it is a directory (`.cache/`) behind the storage port
+# in packages/cache. Object storage arrives with the deployment that needs it (ROADMAP.md).
+#
+# Both are disposable: `mise run infra:reset` wipes the index, `rm -rf .cache` wipes the
+# cache, and the pipeline rebuilds either one.
 
 services:
   meilisearch:
@@ -19,37 +24,5 @@ services:
       timeout: 3s
       retries: 10
 
-  # Only needed when CACHE_ADAPTER=s3. The fs adapter is the dev default and needs nothing.
-  minio:
-    image: minio/minio:latest
-    container_name: keco-minio
-    command: server /data --console-address ":9001"
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    environment:
-      MINIO_ROOT_USER: ${CACHE_ACCESS_KEY:-keco-dev}
-      MINIO_ROOT_PASSWORD: ${CACHE_SECRET:-keco-dev-secret}
-    volumes:
-      - minio:/data
-    healthcheck:
-      test: ['CMD', 'mc', 'ready', 'local']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  # Creates the bucket once, then exits.
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${CACHE_ACCESS_KEY:-keco-dev} ${CACHE_SECRET:-keco-dev-secret} &&
-      mc mb --ignore-existing local/${CACHE_BUCKET:-keco}
-      "
-
 volumes:
   meili:
-  minio:
