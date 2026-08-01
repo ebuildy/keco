@@ -40,7 +40,10 @@ families:
         description: Custom resource definitions and generated clients, with no controller.
       - id: admission-webhook
         label: Admission webhook
-        description: A validating or mutating webhook that intercepts API server requests.
+        description: >-
+          A validating or mutating webhook that intercepts API server requests. Prefer this
+          over `operator` when interception at admission time is the primary function, even if
+          the project also owns CRDs — Kyverno, Gatekeeper, Kubewarden.
       - id: distribution
         label: Distribution
         description: A Kubernetes distribution or installer that produces a cluster.
@@ -83,15 +86,17 @@ families:
         aliases: [security, rbac]
       - id: policy
         label: Policy
-        description: Admission policy, governance rules and their enforcement engines.
+        description: Admission policy, cluster-wide rules and their enforcement engines.
         aliases: [policy, opa]
       - id: storage
         label: Storage
-        description: CSI drivers, volume management and persistent data plumbing.
+        description: CSI drivers, volume management, object storage and persistent data plumbing.
         aliases: [storage, csi]
       - id: database
         label: Database
-        description: Data stores and the operators that run them — relational, key-value, document, streaming.
+        description: >-
+          Data stores and the operators that run them — relational, key-value, document, and
+          message or event-streaming stores.
         aliases: [database, databases, postgresql, postgres, mysql, mariadb, redis, mongodb, cassandra, kafka, etcd, clickhouse]
       - id: observability
         label: Observability
@@ -140,7 +145,7 @@ families:
       - id: serverless
         label: Serverless
         description: Scale-to-zero runtimes, functions and event-driven workloads.
-        aliases: [serverless, faas, knative, event-driven]
+        aliases: [serverless, faas, knative]
       - id: dev-experience
         label: Developer experience
         description: Local clusters, inner-loop tooling and everything that shortens the edit-deploy cycle.
@@ -184,7 +189,9 @@ families:
         description: A library you import; it has no process of its own.
       - id: cluster-itself
         label: The cluster itself
-        description: Creates or is the cluster, rather than running on one.
+        description: >-
+          Its job is to bring a cluster into existence, or to be one. Classify by purpose, not
+          by where its own process runs — k3s, kind, kubeadm, Cluster API, kOps.
       - id: hosted-service
         label: Hosted service
         description: A managed control plane you connect to rather than run.
@@ -335,7 +342,7 @@ families:
         description: In the CNCF sandbox.
       - id: established
         label: Established
-        description: Over two years old, with a release in the last six months.
+        description: Over a year old and still moving — a release in the last twelve months, or a push in the last six.
       - id: young
         label: Young
         description: Under a year old. Promising or unproven; too early to tell.
