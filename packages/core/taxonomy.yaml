@@ -1,0 +1,376 @@
+# Keco's classification vocabulary — the closed vocabulary of AGENTS.md §6.
+#
+# This file is the source of truth. Adding a value is a deliberate PR with its rationale in
+# docs/taxonomy.md, a rule that detects it, and a fixture proving the rule.
+#
+# `aliases` map an external identifier to a value: GitHub topics for `domains`, SPDX ids for
+# `license_class`. Matching is case-insensitive. An alias may appear once per family.
+#
+# Every family whose classification can fail declares `unknown`, and `unknown` is always
+# hidden from the UI. Absence of evidence is never a positive claim.
+version: 1
+
+families:
+  # ── assigned by the analyzer ───────────────────────────────────────────────
+  - id: kind
+    label: Kind
+    param: kind
+    description: What the artifact is. Exactly one per tool.
+    cardinality: one
+    source: analyzer
+    facet: true
+    values:
+      - id: cli
+        label: CLI
+        description: A standalone command-line binary you run against a cluster or locally.
+      - id: kubectl-plugin
+        label: kubectl plugin
+        description: A binary invoked as `kubectl <name>`, usually distributed through krew.
+      - id: operator
+        label: Operator
+        description: Custom resources plus the controller that reconciles them.
+      - id: controller
+        label: Controller
+        description: A reconciliation loop over existing Kubernetes resources, with no CRDs of its own.
+      - id: helm-chart
+        label: Helm chart
+        description: A packaged deployment of something else, distributed as a chart.
+      - id: crd-library
+        label: CRD library
+        description: Custom resource definitions and generated clients, with no controller.
+      - id: admission-webhook
+        label: Admission webhook
+        description: A validating or mutating webhook that intercepts API server requests.
+      - id: distribution
+        label: Distribution
+        description: A Kubernetes distribution or installer that produces a cluster.
+      - id: dashboard-ui
+        label: Dashboard / UI
+        description: A graphical or terminal interface for inspecting and operating clusters.
+      - id: library-sdk
+        label: Library / SDK
+        description: Code you import into your own program rather than run.
+      - id: terraform-provider
+        label: Terraform provider
+        description: A Terraform provider for Kubernetes or an ecosystem service.
+      - id: ide-extension
+        label: IDE extension
+        description: An editor or IDE plugin for working with Kubernetes manifests and clusters.
+      - id: service
+        label: Service
+        description: A long-running server or platform component that is none of the above.
+      - id: learning-resource
+        label: Learning resource
+        description: Courses, cheatsheets, curated lists and books. Not a tool.
+
+  - id: domains
+    label: Domain
+    param: domain
+    description: What problem the tool solves. One to three per tool.
+    cardinality: many
+    min: 1
+    max: 3
+    source: analyzer
+    facet: true
+    values:
+      - id: networking
+        label: Networking
+        description: CNI plugins, ingress, load balancing, DNS and cluster connectivity.
+        aliases: [networking, cni, ingress, load-balancer]
+      - id: security
+        label: Security
+        description: Image and cluster scanning, RBAC, runtime security and supply-chain integrity.
+        aliases: [security, rbac]
+      - id: policy
+        label: Policy
+        description: Admission policy, governance rules and their enforcement engines.
+        aliases: [policy, opa]
+      - id: storage
+        label: Storage
+        description: CSI drivers, volume management and persistent data plumbing.
+        aliases: [storage, csi]
+      - id: database
+        label: Database
+        description: Data stores and the operators that run them — relational, key-value, document, streaming.
+        aliases: [database, databases, postgresql, postgres, mysql, mariadb, redis, mongodb, cassandra, kafka, etcd, clickhouse]
+      - id: observability
+        label: Observability
+        description: Metrics, logs, traces, profiling and the dashboards over them.
+        aliases: [observability, monitoring, prometheus, tracing, logging]
+      - id: ci-cd
+        label: CI/CD
+        description: Build and deployment pipelines, release automation and progressive delivery.
+        aliases: [ci-cd, cicd]
+      - id: gitops
+        label: GitOps
+        description: Git as the source of truth for cluster state, and the agents that reconcile it.
+        aliases: [gitops, argocd, flux]
+      - id: packaging
+        label: Packaging
+        description: Charts, manifests, templating and the distribution of deployable artifacts.
+        aliases: [helm, packaging]
+      - id: autoscaling
+        label: Autoscaling
+        description: Scaling workloads and nodes to match demand.
+        aliases: [autoscaling, hpa]
+      - id: scheduling
+        label: Scheduling
+        description: Placement, batch queues, gang scheduling and bin-packing. Where pods land, not how many.
+        aliases: [scheduling, scheduler, batch, job-queue]
+      - id: cost
+        label: Cost
+        description: Spend visibility, allocation and rightsizing.
+        aliases: [finops, cost]
+      - id: multi-cluster
+        label: Multi-cluster
+        description: Federation, fleet management and workloads spanning clusters.
+        aliases: [multi-cluster, federation]
+      - id: backup-dr
+        label: Backup & DR
+        description: Snapshots, restores, migration and disaster recovery.
+        aliases: [backup, disaster-recovery]
+      - id: service-mesh
+        label: Service mesh
+        description: Sidecar and ambient meshes, traffic policy and mTLS between services.
+        aliases: [service-mesh, istio, envoy]
+      - id: secrets
+        label: Secrets
+        description: Secret storage, injection, rotation and external secret managers.
+        aliases: [secrets, secrets-management, vault, sealed-secrets]
+      - id: serverless
+        label: Serverless
+        description: Scale-to-zero runtimes, functions and event-driven workloads.
+        aliases: [serverless, faas, knative, event-driven]
+      - id: dev-experience
+        label: Developer experience
+        description: Local clusters, inner-loop tooling and everything that shortens the edit-deploy cycle.
+        aliases: [developer-tools]
+      - id: testing
+        label: Testing
+        description: Conformance, end-to-end, chaos and load testing.
+        aliases: [testing]
+      - id: ai-ml
+        label: AI / ML
+        description: Training, serving and orchestrating models on Kubernetes.
+        aliases: [machine-learning, mlops, llm]
+      - id: edge
+        label: Edge
+        description: Small-footprint, intermittently connected and IoT deployments.
+        aliases: [edge, iot]
+      - id: troubleshooting
+        label: Troubleshooting
+        description: Debugging, diagnostics and understanding why a cluster is unhappy.
+        aliases: [debugging, troubleshooting]
+
+  - id: runtime
+    label: Runtime
+    param: runtime
+    description: Where the thing actually executes.
+    cardinality: one
+    source: analyzer
+    facet: true
+    values:
+      - id: in-cluster
+        label: In cluster
+        description: Runs as a workload inside the cluster.
+      - id: workstation
+        label: Workstation
+        description: Runs on your own machine and talks to a cluster.
+      - id: ci-pipeline
+        label: CI pipeline
+        description: Runs as a step in a build or deployment pipeline.
+      - id: in-your-code
+        label: In your code
+        description: A library you import; it has no process of its own.
+      - id: cluster-itself
+        label: The cluster itself
+        description: Creates or is the cluster, rather than running on one.
+      - id: hosted-service
+        label: Hosted service
+        description: A managed control plane you connect to rather than run.
+      - id: unknown
+        label: Unknown
+        description: Not enough evidence to say where it runs.
+        hidden: true
+
+  # ── proven against a registry ──────────────────────────────────────────────
+  - id: install_methods
+    label: Install method
+    param: install
+    description: >-
+      How you actually get it. Detected and proven against a registry, never guessed — every
+      entry carries a verified command and a source URL. People paste these into a terminal.
+    cardinality: many
+    source: registry
+    facet: true
+    values:
+      - id: brew
+        label: Homebrew
+        description: A Homebrew formula or cask.
+      - id: mise
+        label: mise
+        description: A mise-en-place tool registry entry.
+      - id: asdf
+        label: asdf
+        description: An asdf plugin.
+      - id: krew
+        label: krew
+        description: A kubectl plugin published in the krew index.
+      - id: helm
+        label: Helm
+        description: A chart in a published Helm repository.
+      - id: kubectl-apply
+        label: kubectl apply
+        description: Manifests applied directly from a published URL.
+      - id: go-install
+        label: go install
+        description: Installable with `go install`.
+      - id: cargo
+        label: cargo
+        description: Published on crates.io.
+      - id: npm
+        label: npm
+        description: Published on the npm registry.
+      - id: pip
+        label: pip
+        description: Published on PyPI.
+      - id: nix
+        label: Nix
+        description: Packaged in nixpkgs.
+      - id: arkade
+        label: arkade
+        description: Available through the arkade marketplace.
+      - id: apt
+        label: apt
+        description: Published in an apt repository.
+      - id: container-image
+        label: Container image
+        description: Published as a runnable container image.
+      - id: curl-script
+        label: curl script
+        description: An install script fetched over HTTPS and executed.
+      - id: github-release
+        label: GitHub release
+        description: A prebuilt binary attached to a GitHub release.
+      - id: operator-hub
+        label: OperatorHub
+        description: Published on OperatorHub.
+
+  # ── derived from cached metadata ───────────────────────────────────────────
+  - id: license_class
+    label: Licence
+    param: license_class
+    description: The licence family, bucketed from the SPDX identifier GitHub reports.
+    cardinality: one
+    source: derived
+    facet: true
+    values:
+      - id: permissive
+        label: Permissive
+        description: Use, modify and redistribute with attribution. Apache, MIT, BSD, ISC.
+        # Careful: BSL-1.0 is the Boost Software Licence (permissive). BUSL-1.1 is the
+        # Business Source Licence (source-available). One character, opposite meanings.
+        aliases: [apache-2.0, mit, bsd-2-clause, bsd-3-clause, isc, 0bsd, zlib, bsl-1.0, ncsa, python-2.0, artistic-2.0, postgresql]
+      - id: weak-copyleft
+        label: Weak copyleft
+        description: Changes to the files themselves must be shared; linking is unrestricted.
+        aliases: [mpl-2.0, lgpl-2.1, lgpl-3.0, epl-1.0, epl-2.0, cddl-1.0, ms-pl]
+      - id: copyleft
+        label: Copyleft
+        description: Derivative works must carry the same licence. GPL, AGPL.
+        aliases: [gpl-2.0, gpl-3.0, agpl-3.0, osl-3.0, eupl-1.2]
+      - id: source-available
+        label: Source available
+        description: The source is published but the licence restricts commercial use. BUSL, Elastic, SSPL.
+        aliases: [busl-1.1, elastic-2.0, sspl-1.0]
+      - id: public-domain
+        label: Public domain
+        description: Dedicated to the public domain or equivalent.
+        aliases: [unlicense, cc0-1.0, wtfpl]
+      - id: unknown
+        label: Unknown
+        description: No licence detected, or one GitHub could not identify.
+        hidden: true
+
+  - id: openness
+    label: Openness
+    param: openness
+    description: >-
+      Whether the whole product is open source, or the repository is the free tier of a
+      commercial one. Promoted to `fully-open` only on positive evidence.
+    cardinality: one
+    source: derived
+    facet: true
+    values:
+      - id: fully-open
+        label: Fully open
+        description: An OSI-approved licence and no sign of a separate commercial edition.
+      - id: open-core
+        label: Open core
+        description: An OSI-approved licence alongside an enterprise or commercial edition.
+      - id: source-available
+        label: Source available
+        description: Published under a licence that restricts commercial use.
+      - id: unknown
+        label: Unknown
+        description: Not enough evidence to make a claim about openness.
+        hidden: true
+
+  - id: maturity
+    label: Maturity
+    param: maturity
+    description: How settled the project is, from CNCF status where it exists and from age and activity otherwise.
+    cardinality: one
+    source: derived
+    facet: true
+    values:
+      - id: cncf-graduated
+        label: CNCF graduated
+        description: Graduated in the CNCF landscape.
+      - id: cncf-incubating
+        label: CNCF incubating
+        description: Incubating in the CNCF landscape.
+      - id: cncf-sandbox
+        label: CNCF sandbox
+        description: In the CNCF sandbox.
+      - id: established
+        label: Established
+        description: Over two years old, with a release in the last six months.
+      - id: young
+        label: Young
+        description: Under a year old. Promising or unproven; too early to tell.
+      - id: dormant
+        label: Dormant
+        description: No commits pushed in over a year.
+      - id: archived
+        label: Archived
+        description: Marked archived on GitHub. Read-only and unmaintained.
+      - id: unknown
+        label: Unknown
+        description: Not enough evidence to place it.
+        hidden: true
+
+  - id: governance
+    label: Governance
+    param: governance
+    description: Who steers the project. Evidence-only — an org account alone proves nothing.
+    cardinality: one
+    source: derived
+    facet: true
+    values:
+      - id: foundation
+        label: Foundation
+        description: Owned by a foundation or an upstream Kubernetes organisation.
+      - id: vendor-backed
+        label: Vendor backed
+        description: Owned by a company, per the CNCF landscape.
+      - id: community
+        label: Community
+        description: Community-governed, per the CNCF landscape.
+      - id: individual
+        label: Individual
+        description: Owned by a personal GitHub account.
+      - id: unknown
+        label: Unknown
+        description: Not enough evidence to say who steers it.
+        hidden: true
