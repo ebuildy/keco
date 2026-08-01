@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Domains, InstallMethod, Kind } from './taxonomy';
+import { Domains, InstallMethod, Kind, valueSchema } from './taxonomy';
 
 /**
  * The two model shapes (AGENTS.md §2.6). `AnalysisSchema` is the write side's output;
@@ -45,6 +45,14 @@ export const AnalysisSchema = z.object({
   summary: z.string().max(400),
   kind: Kind,
   domains: Domains,
+  /** Where the thing executes. `unknown` until a rule proves otherwise (§6). */
+  runtime: valueSchema('runtime').default('unknown'),
+  /** Licence family bucketed from the SPDX id GitHub reports. */
+  license_class: valueSchema('license_class').default('unknown'),
+  /** Fully open vs open-core. Promoted only on positive evidence — see docs/taxonomy.md. */
+  openness: valueSchema('openness').default('unknown'),
+  maturity: valueSchema('maturity').default('unknown'),
+  governance: valueSchema('governance').default('unknown'),
   /** Demotes courses, blogs and dotfiles that merely mention Kubernetes (§14). */
   k8s_relevance: z.number().min(0).max(1),
   confidence: z.number().min(0).max(1),
@@ -88,7 +96,8 @@ export const ToolDocument = z.object({
   open_issues: z.number().int(),
   language: z.string().nullable(),
   license: z.string().nullable(),
-  topics: z.array(z.string()),
+  /** GitHub's own topics, verbatim. Not Keco's taxonomy — that is the five fields below. */
+  github_topics: z.array(z.string()),
   archived: z.boolean(),
   pushed_at: z.iso.datetime(),
   created_at: z.iso.datetime(),
@@ -97,6 +106,11 @@ export const ToolDocument = z.object({
   summary: z.string(),
   kind: Kind,
   domains: Domains,
+  runtime: valueSchema('runtime'),
+  license_class: valueSchema('license_class'),
+  openness: valueSchema('openness'),
+  maturity: valueSchema('maturity'),
+  governance: valueSchema('governance'),
   k8s_relevance: z.number().min(0).max(1),
   confidence: z.number().min(0).max(1),
   needs_review: z.boolean(),
