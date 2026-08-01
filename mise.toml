@@ -7,9 +7,18 @@ node = "24.18.1"
 pnpm = "11.18.0"
 
 [env]
-NODE_ENV = "development"
+# NODE_ENV is deliberately not set here: exporting "development" globally leaks into
+# `next build`, which then warns about a non-standard NODE_ENV and prerenders in dev mode.
+# Each tool sets its own (next dev → development, next build → production).
+#
 # Loaded from .env when present (created by `mise run setup`).
-_.file = { path = ".env", redact = true }
+#
+# Deliberately NOT `{ path = ".env", redact = true }`: that masks every value from this
+# file by plain substring match, with no idea which are sensitive — CACHE_BUCKET=keco
+# turns `@keco/web` into `@[redacted]/web`, and SHARD_INDEX=0 redacts every digit 0 in
+# every task's output. Per-key redaction (`redactions = [...]`) needs a mise newer than
+# 2026.7.5; no task here echoes a secret, and .env is gitignored.
+_.file = ".env"
 
 [settings]
 experimental = true
