@@ -3234,6 +3234,12 @@ In `apps/workers/src/analyzer/index.ts`, extend the pass-1 line of the TODO bloc
     //            repo.json licence, timestamps and owner type, plus the CNCF landscape
     //            lookup — pass `landscape: null` until the crawler caches that seed, which
     //            degrades maturity and governance to `unknown` rather than guessing.
+    //   NOTE: AnalysisSchema defaults the five taxonomy fields to `unknown`, so an
+    //   analysis written before those families existed stays parseable on replay — but it
+    //   also stays `unknown` forever, because an unchanged content_hash never re-triggers
+    //   analysis. Re-classification is not driven by content_hash alone (§14). When these
+    //   passes land, force one full-corpus pass-1 re-run for the new fields rather than
+    //   waiting for organic change: it is free, being rules over data already in cache.
 ```
 
 In `apps/workers/src/projector/index.ts`, extend the document-building TODO:
