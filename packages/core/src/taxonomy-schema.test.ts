@@ -92,11 +92,31 @@ describe('parseTaxonomy', () => {
   });
 
   it('rejects malformed YAML', () => {
-    expect(() => parseTaxonomy('version: 1\nfamilies: [')).toThrow();
+    expect(() => parseTaxonomy('version: 1\nfamilies: [')).toThrow(/^taxonomy: invalid YAML:/);
   });
 
   it('rejects an unknown source', () => {
     const text = valid.replace('source: analyzer', 'source: magic');
-    expect(() => parseTaxonomy(text)).toThrow();
+    // Shape errors go through the same `taxonomy: ` prefix and read as prose (via
+    // z.prettifyError), not a raw ZodError with a JSON-stringified issue array.
+    expect(() => parseTaxonomy(text)).toThrow(/^taxonomy: .*\bsource\b/s);
+  });
+
+  it('rejects an unknown value that is not hidden in a derived family', () => {
+    const text = valid.replace('        hidden: true', '');
+    expect(() => parseTaxonomy(text)).toThrow(
+      /family openness has an "unknown" value that is not hidden/,
+    );
+  });
+
+  it('rejects an unknown value that is not hidden in an analyzer family', () => {
+    const text = valid.replace(
+      '      - id: operator\n        label: Operator\n        description: A CRD plus its controller.\n',
+      '      - id: operator\n        label: Operator\n        description: A CRD plus its controller.\n' +
+        '      - id: unknown\n        label: Unknown\n        description: Not enough evidence.\n',
+    );
+    expect(() => parseTaxonomy(text)).toThrow(
+      /family kind has an "unknown" value that is not hidden/,
+    );
   });
 });

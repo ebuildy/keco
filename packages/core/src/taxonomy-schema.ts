@@ -19,7 +19,7 @@ export const TaxonomyValueSchema = z.object({
   description: z.string().min(1),
   /** External identifiers that map to this value: GitHub topics, SPDX ids. Lowercased on read. */
   aliases: z.array(z.string()).default([]),
-  /** Never rendered as a chip. `unknown` is always hidden. */
+  /** Never rendered as a chip. `unknown` is always hidden — `parseTaxonomy` enforces it. */
   hidden: z.boolean().default(false),
 });
 export type TaxonomyValue = z.infer<typeof TaxonomyValueSchema>;
@@ -52,9 +52,31 @@ const fail = (message: string): never => {
   throw new Error(`taxonomy: ${message}`);
 };
 
-/** Parses and fully validates the file. Throws with an actionable message on any problem. */
+/**
+ * Parses and fully validates the file. Throws with an actionable message on any problem.
+ *
+ * Every failure mode — YAML syntax, zod shape, cross-family invariant — throws a plain `Error`
+ * whose message starts `taxonomy: ` and reads as prose. A taxonomy that fails to load takes
+ * every worker and the web app down, so whoever hand-edits the file needs an answer they can
+ * act on, not a stack trace through a parser they've never heard of.
+ */
 export function parseTaxonomy(text: string): TaxonomyFile {
-  const file = TaxonomyFileSchema.parse(parseYaml(text));
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch (error) {
+    fail(`invalid YAML: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  let file: TaxonomyFile;
+  try {
+    file = TaxonomyFileSchema.parse(parsed);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      fail(z.prettifyError(error));
+    }
+    throw error;
+  }
 
   const familyIds = new Set<string>();
   const params = new Set<string>();
@@ -78,6 +100,13 @@ export function parseTaxonomy(text: string): TaxonomyFile {
     for (const value of family.values) {
       if (valueIds.has(value.id)) fail(`duplicate value id: ${family.id}/${value.id}`);
       valueIds.add(value.id);
+
+      // A selectable "Unknown" chip on the portal home page is a UI defect, not a feature —
+      // enforce the doc comment on `hidden` here rather than trusting every family author to
+      // remember it by hand.
+      if (value.id === 'unknown' && !value.hidden) {
+        fail(`family ${family.id} has an "unknown" value that is not hidden`);
+      }
 
       for (const alias of value.aliases) {
         const key = alias.toLowerCase();
