@@ -1654,9 +1654,17 @@ export const DECLARED_DERIVED = {
 /** Upstream organisations that are foundation-governed by definition. */
 const FOUNDATION_OWNERS = new Set(['kubernetes', 'kubernetes-sigs', 'kubernetes-client', 'cncf']);
 
-/** A directory that exists to hold the paid edition. */
-const ENTERPRISE_PATH = /^(ee|enterprise|pro)\//;
-const ENTERPRISE_README = /enterprise edition|enterprise version|commercial license|commercial edition/i;
+/**
+ * A root directory that exists to hold the paid edition. Root-anchored deliberately:
+ * loosening it to any path segment was checked against Vault, Istio and Kong and found zero
+ * additional hits, while `docs/enterprise/` and vendored paths would start matching. The
+ * dominant real miss — Grafana — keeps Enterprise in a separate private repo with no
+ * footprint in the public tree, which no path pattern can catch. `pro` was dropped: no repo
+ * checked used it for a commercial edition, and it collides far more readily than `ee`.
+ */
+const ENTERPRISE_PATH = /^(ee|enterprise)\//;
+const ENTERPRISE_README =
+  /enterprise edition|enterprise version|business edition|commercial license|commercial edition/i;
 
 const DAY_MS = 86_400_000;
 const daysSince = (iso: string, now: Date) => (now.getTime() - Date.parse(iso)) / DAY_MS;
@@ -1688,8 +1696,13 @@ export function classifyOpenness(input: DerivedInput): string {
  * months, no recent release. Neither clearly alive nor clearly dormant.
  */
 export function classifyMaturity(input: DerivedInput, now: Date): string {
-  if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
+  // `archived` is checked first, and beats a CNCF level. LandscapeEntry has no retired
+  // state and a cached seed can lag CNCF's own retirement bookkeeping, so the other order
+  // reports `cncf-incubating` for projects GitHub already marks archived — opentracing-go
+  // and rkt are both exactly that. Archived is the strongest evidence a project is not
+  // alive, and it comes from GitHub rather than a cache that can drift.
   if (input.archived) return 'archived';
+  if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
   if (daysSince(input.pushed_at, now) > 365) return 'dormant';
 
   const age = daysSince(input.created_at, now);
