@@ -70,9 +70,13 @@ run = "pnpm vitest run"
 description = "Run the test suite in watch mode"
 run = "pnpm vitest"
 
+[tasks."taxonomy:check"]
+description = "Validate packages/core/taxonomy.yaml (schema, duplicates, unknown defaults)"
+run = "pnpm -F @keco/core taxonomy:check"
+
 [tasks.ci]
 description = "Everything that must be green before declaring work done"
-depends = ["check", "lint", "test"]
+depends = ["check", "lint", "test", "taxonomy:check"]
 
 [tasks.format]
 description = "Format sources with prettier"

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import type { Domain, Kind } from '@keco/core';
-import { searchTools } from '@keco/query';
+import { searchTools, selectionFromParams } from '@keco/query';
 import { query } from '@/lib/query';
 
 /**
@@ -21,14 +20,11 @@ export function OPTIONS() {
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
-  const csv = (key: string) => params.get(key)?.split(',').filter(Boolean) ?? [];
 
   // TODO(api): per-IP rate limiting before this runs (§11).
   const results = await searchTools(query, {
     q: params.get('q') ?? '',
-    kind: csv('kind') as Kind[],
-    domains: csv('domain') as Domain[],
-    install: csv('install'),
+    filters: selectionFromParams(params),
     sort: (params.get('sort') as 'relevance' | 'stars' | 'score' | 'momentum' | 'recent') ?? 'relevance',
     page: Number(params.get('page') ?? 1),
     hitsPerPage: Math.min(50, Number(params.get('limit') ?? 20)),

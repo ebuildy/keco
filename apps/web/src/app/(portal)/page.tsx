@@ -1,6 +1,8 @@
 import Link from 'next/link';
-import { whatsHot } from '@keco/query';
+import { searchTools, whatsHot } from '@keco/query';
 import { query } from '@/lib/query';
+import { chipRows } from '@/lib/topics';
+import { TopicChips } from './topic-chips';
 
 /**
  * Home — RSC (§9). Keep request-scoped APIs (cookies(), headers()) out of portal routes:
@@ -9,7 +11,11 @@ import { query } from '@/lib/query';
 export const revalidate = 900;
 
 export default async function HomePage() {
-  const hot = await whatsHot(query, { limit: 12 });
+  // hitsPerPage: 0 buys the facet distribution for every family without paying for hits.
+  const [hot, browse] = await Promise.all([
+    whatsHot(query, { limit: 12 }),
+    searchTools(query, { hitsPerPage: 0 }),
+  ]);
 
   return (
     <main>
@@ -22,6 +28,9 @@ export default async function HomePage() {
         <input id="q" name="q" type="search" placeholder="ingress controller, cost, backup…" />
         <button type="submit">Search</button>
       </form>
+
+      {/* Renders nothing until the first crawl has filled the index. */}
+      <TopicChips rows={chipRows(browse.facets)} />
 
       {/* "Momentum", never "trending this week": there is no history to measure (§4.3). */}
       <h2>Highest momentum</h2>

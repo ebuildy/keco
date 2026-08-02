@@ -11,10 +11,28 @@
     "charts/kube-prometheus-stack/Chart.yaml"
   ],
   "manifests": {},
+  "derived_input": {
+    "owner": "prometheus-community",
+    "owner_type": "Organization",
+    "license_spdx": "Apache-2.0",
+    "readme": "# Prometheus Community Kubernetes Helm Charts\n\nUsage instructions for the charts in this repository.",
+    "archived": false,
+    "created_at": "2020-04-01T00:00:00.000Z",
+    "pushed_at": "2026-07-25T00:00:00.000Z",
+    "latest_release_at": "2026-07-20T00:00:00.000Z",
+    "landscape": null
+  },
   "expected": {
     "kind": "helm-chart",
     "rule": "tree:Chart.yaml",
     "domains": ["packaging", "observability"],
-    "k8s_relevance_min": 0.5
+    "k8s_relevance_min": 0.5,
+    "runtime": "in-cluster",
+    "derived": {
+      "license_class": "permissive",
+      "openness": "fully-open",
+      "maturity": "established",
+      "governance": "unknown"
+    }
   }
 }

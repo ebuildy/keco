@@ -1,4 +1,4 @@
-import type { Domain, Kind } from '@keco/core';
+import { aliasesFor, family, type Domain, type Kind } from '@keco/core';
 
 /**
  * Pass 1 — local rules (AGENTS.md §4.2). Cache only, free, deterministic, reproducible.
@@ -136,6 +136,9 @@ const KIND_RULES: Array<{ rule: string; kind: Kind; confidence: number; test: (i
   },
 ];
 
+/** Every kind a pass-1 rule can emit. Asserted against taxonomy.yaml by pinning.test.ts. */
+export const DECLARED_KINDS: string[] = [...new Set(KIND_RULES.map((rule) => rule.kind))];
+
 /** Returns every rule that fired, strongest first. Empty means pass 1 could not decide. */
 export function classifyKind(input: RuleInput): RuleVerdict[] {
   return KIND_RULES.filter((rule) => rule.test(input)).map(({ rule, kind, confidence }) => ({
@@ -145,59 +148,19 @@ export function classifyKind(input: RuleInput): RuleVerdict[] {
   }));
 }
 
-const DOMAIN_TOPICS: Record<string, Domain> = {
-  networking: 'networking',
-  cni: 'networking',
-  ingress: 'networking',
-  'load-balancer': 'networking',
-  security: 'security',
-  rbac: 'security',
-  policy: 'policy',
-  opa: 'policy',
-  storage: 'storage',
-  csi: 'storage',
-  observability: 'observability',
-  monitoring: 'observability',
-  prometheus: 'observability',
-  tracing: 'observability',
-  logging: 'observability',
-  'ci-cd': 'ci-cd',
-  cicd: 'ci-cd',
-  gitops: 'gitops',
-  argocd: 'gitops',
-  flux: 'gitops',
-  helm: 'packaging',
-  packaging: 'packaging',
-  autoscaling: 'autoscaling',
-  hpa: 'autoscaling',
-  finops: 'cost',
-  cost: 'cost',
-  'multi-cluster': 'multi-cluster',
-  federation: 'multi-cluster',
-  backup: 'backup-dr',
-  'disaster-recovery': 'backup-dr',
-  'service-mesh': 'service-mesh',
-  istio: 'service-mesh',
-  envoy: 'service-mesh',
-  testing: 'testing',
-  'machine-learning': 'ai-ml',
-  mlops: 'ai-ml',
-  llm: 'ai-ml',
-  edge: 'edge',
-  iot: 'edge',
-  debugging: 'troubleshooting',
-  troubleshooting: 'troubleshooting',
-  'developer-tools': 'dev-experience',
-};
-
-/** Domains from topics. One to three; the LLM fills the gap when nothing matches (§6). */
+/**
+ * Domains from GitHub topics, mapped through the `aliases` declared in taxonomy.yaml.
+ * Adding a topic mapping is a data edit, not a code change (§6).
+ */
 export function classifyDomains(input: RuleInput): Domain[] {
+  const aliases = aliasesFor('domains');
+  const max = family('domains').max ?? 3;
   const found = new Set<Domain>();
   for (const topic of input.topics) {
-    const domain = DOMAIN_TOPICS[topic.toLowerCase()];
+    const domain = aliases.get(topic.toLowerCase());
     if (domain) found.add(domain);
   }
-  return [...found].slice(0, 3);
+  return [...found].slice(0, max);
 }
 
 /**
