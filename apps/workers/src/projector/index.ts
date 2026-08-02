@@ -52,8 +52,10 @@ async function main(): Promise<void> {
 
     // TODO(projector): read repos/{repo}/repo.json + analysis/{repo}.json, compute the
     // four score axes plus momentum (z-scored across the corpus), build the ToolDocument,
-    // and buffer it. Send complete sub-objects: updateDocuments merges only at the top
-    // level, so a partial `score` wipes the rest of it (§5, §14).
+    // and buffer it. Copy kind, domains, runtime, license_class, openness, maturity and
+    // governance straight from the analysis — the projector classifies nothing, it only
+    // scores. Send complete sub-objects: updateDocuments merges only at the top level, so
+    // a partial `score` wipes the rest of it (§5, §14).
   }
 
   // Meilisearch writes are asynchronous: await the task, THEN advance the checkpoint, or a

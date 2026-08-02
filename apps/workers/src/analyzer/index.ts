@@ -39,7 +39,11 @@ async function main(): Promise<void> {
     log.debug({ repo: event.repo, content_hash: event.content_hash }, 'would analyze');
 
     // TODO(analyzer): implement the three passes (§4.2):
-    //   pass 1 — classifyKind / classifyDomains / k8sRelevance over the cached payloads
+    //   pass 1 — classifyKind / classifyDomains / k8sRelevance / classifyRuntime /
+    //            classifyDerived over the cached payloads. classifyDerived takes the
+    //            repo.json licence, timestamps and owner type, plus the CNCF landscape
+    //            lookup — pass `landscape: null` until the crawler caches that seed, which
+    //            degrades maturity and governance to `unknown` rather than guessing.
     //   pass 2 — signal providers via @keco/signals; a provider that fails yields null +
     //            an entry in partial_signals[]; write the analysis anyway with partial:true
     //   pass 3 — LLM only when confidence < 0.7 or kind is ambiguous, structured output
@@ -47,6 +51,12 @@ async function main(): Promise<void> {
     //   Then write analysis/{repo}.json and append RepoAnalyzed.
     // Also re-analyze when the oldest signal's TTL has expired, not only on a content_hash
     // change — signal freshness drifts from repo freshness (§14).
+    // NOTE: AnalysisSchema defaults the five taxonomy fields to `unknown`, so an
+    // analysis written before those families existed stays parseable on replay — but it
+    // also stays `unknown` forever, because an unchanged content_hash never re-triggers
+    // analysis. Re-classification is not driven by content_hash alone (§14). When these
+    // passes land, force one full-corpus pass-1 re-run for the new fields rather than
+    // waiting for organic change: it is free, being rules over data already in cache.
   }
 
   if (lastId && lastId !== checkpoint.last_event_id) {

@@ -280,9 +280,10 @@ the backoffice can exist without giving anyone write access to anything.
 
 ### `tools` settings
 - `searchableAttributes` in weight order: `name`, `full_name`, `summary`, `description`,
-  `topics`, `readme_excerpt`.
-- `filterableAttributes`: `kind`, `domains`, `install_methods`, `language`, `license`,
-  `archived`, `stars`, `has_release`, `k8s_relevance`, `has_scorecard`.
+  `github_topics`, `readme_excerpt`.
+- `filterableAttributes`: `kind`, `domains`, `runtime`, `install_methods`, `language`, `license`,
+  `license_class`, `openness`, `maturity`, `governance`, `archived`, `stars`, `has_release`,
+  `k8s_relevance`, `has_scorecard`.
 - `sortableAttributes`: `stars`, `score_total`, `score_momentum`, `pushed_at`.
 - Default ranking rules + `score_total:desc` appended — relevance first, health as tie-breaker.
 - `pagination.maxTotalHits` raised deliberately (default 1000 caps deep paging).
@@ -292,9 +293,10 @@ the backoffice can exist without giving anyone write access to anything.
 ```ts
 {
   id, owner, name, full_name, description, homepage, repo_url,
-  stars, forks, open_issues, language, license, topics[], archived,
+  stars, forks, open_issues, language, license, github_topics[], archived,
   pushed_at, created_at, discovery_source,
-  summary, kind, domains[], k8s_relevance, confidence, needs_review,
+  summary, kind, domains[], runtime, license_class, openness, maturity, governance,
+  k8s_relevance, confidence, needs_review,
   install_methods: [{ method, command, source_url, verified_at }],
   score: { popularity, activity, adoption, quality, quality_coverage, total, momentum },
   signals: { scorecard: { score, checks, fetched_at } | null,
@@ -321,29 +323,64 @@ the backoffice can exist without giving anyone write access to anything.
 - **The client key is search-only and scoped to `tools`.** Never issue a browser key with access
   to `repos_state` or `traces`.
 
-## 6. Taxonomy — two axes, never one
+## 6. Taxonomy — declared in YAML, never in code
 
-`packages/core/src/taxonomy.ts`. Closed vocabulary; adding a value is a deliberate PR with
-rationale in `docs/taxonomy.md`, not an ad-hoc string.
+`packages/core/taxonomy.yaml`. Closed vocabulary; adding a value is a deliberate PR with
+rationale in `docs/taxonomy.md`, a rule that detects it and a fixture proving the rule — not an
+ad-hoc string. The file is loaded and fully validated at module init; a malformed taxonomy takes
+every worker and the web app down immediately rather than letting them classify into a vocabulary
+that does not exist.
 
-**`kind`** — what the artifact *is* (exactly one):
-`cli` · `kubectl-plugin` · `operator` · `controller` · `helm-chart` · `crd-library` ·
-`admission-webhook` · `distribution` · `dashboard-ui` · `library-sdk` · `terraform-provider` ·
-`ide-extension` · `service` · `learning-resource`
+Eight families, each declaring `id`, `label`, `param` (its URL query parameter), `cardinality`,
+`source` and its values. Each value declares `label`, `description`, optional `aliases` (GitHub
+topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
 
-**`domains`** — what problem it solves (1–3):
-`networking` · `security` · `policy` · `storage` · `observability` · `ci-cd` · `gitops` ·
-`packaging` · `autoscaling` · `cost` · `multi-cluster` · `backup-dr` · `service-mesh` ·
-`dev-experience` · `testing` · `ai-ml` · `edge` · `troubleshooting`
+**Assigned by the analyzer:**
+- **`kind`** — what the artifact *is* (exactly one): `cli` · `kubectl-plugin` · `operator` ·
+  `controller` · `helm-chart` · `crd-library` · `admission-webhook` · `distribution` ·
+  `dashboard-ui` · `library-sdk` · `terraform-provider` · `ide-extension` · `service` ·
+  `learning-resource`
+- **`domains`** — what problem it solves (1–3): `networking` · `security` · `policy` · `storage` ·
+  `database` · `observability` · `ci-cd` · `gitops` · `packaging` · `autoscaling` · `scheduling` ·
+  `cost` · `multi-cluster` · `backup-dr` · `service-mesh` · `secrets` · `serverless` ·
+  `dev-experience` · `testing` · `ai-ml` · `edge` · `troubleshooting`
+- **`runtime`** — where it executes (exactly one): `in-cluster` · `workstation` · `ci-pipeline` ·
+  `in-your-code` · `cluster-itself` · `hosted-service` · `unknown`
 
-**`install_methods`** — detected, never guessed: `brew` · `mise` · `asdf` · `krew` · `helm` ·
-`kubectl-apply` · `go-install` · `cargo` · `npm` · `pip` · `nix` · `arkade` · `apt` ·
-`container-image` · `curl-script` · `github-release` · `operator-hub`
+**Proven against a registry:**
+- **`install_methods`** — detected, never guessed: `brew` · `mise` · `asdf` · `krew` · `helm` ·
+  `kubectl-apply` · `go-install` · `cargo` · `npm` · `pip` · `nix` · `arkade` · `apt` ·
+  `container-image` · `curl-script` · `github-release` · `operator-hub`
 
-Each carries a **verified command** (`brew install k9s`) and a `source_url` proving the entry
-exists in that registry. Unprovable ⇒ not listed. Rendering a `brew install` line for a formula
-that doesn't exist is the single worst bug this project can ship — people paste these into a
-terminal.
+  Each carries a **verified command** (`brew install k9s`) and a `source_url` proving the entry
+  exists in that registry. Unprovable ⇒ not listed. Rendering a `brew install` line for a formula
+  that doesn't exist is the single worst bug this project can ship — people paste these into a
+  terminal.
+
+**Derived from cached metadata:**
+- **`license_class`** — `permissive` · `weak-copyleft` · `copyleft` · `source-available` ·
+  `public-domain` · `unknown`
+- **`openness`** — `fully-open` · `open-core` · `source-available` · `unknown`
+- **`maturity`** — `cncf-graduated` · `cncf-incubating` · `cncf-sandbox` · `established` ·
+  `young` · `dormant` · `archived` · `unknown`
+- **`governance`** — `foundation` · `vendor-backed` · `community` · `individual` · `unknown`
+
+**Unknown is a real answer.** Every family whose classification can fail declares `unknown` and
+defaults to it. Absence of evidence never becomes a positive claim — the same rule §4.2 applies to
+a missing Scorecard. `unknown` values are hidden from the UI. `governance` in particular will
+report `unknown` for most real foundation projects (etcd-io, containerd, helm, prometheus,
+cilium) until the CNCF landscape crawler ships a cached seed — an org account alone proves
+nothing. `maturity` checks `archived` before the CNCF level, so an archived CNCF-graduated
+project reports `archived`; see `docs/taxonomy.md` for why.
+
+**The vocabulary is data, so the types are `string`.** `Kind` and `Domain` are no longer literal
+unions; validation is a zod refinement against the loaded file. The compile-time check is replaced
+by `packages/analyze/src/rules/pinning.test.ts`, which asserts every value a rule can emit exists
+in the file. If you add a rule, that test is how a typo gets caught.
+
+**Adding a family** means a new `filterableAttribute`, which is a settings change, which means a
+rebuild and an alias swap (§5). Everything else — `packages/search`, `packages/query`, the home
+page chip rows — loops over the file and needs no edit.
 
 ## 7. Repository layout
 
@@ -410,6 +447,15 @@ Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl.
 Always run `mise run ci` before declaring work done.
 
 ## 9. Portal (read side)
+
+**Home** — RSC, `revalidate = 900`. A hero search form posting to `/search`, then **Browse**: one
+chip row per facetable taxonomy family (`facetableFamilies()` — currently all eight), built from
+the `tools` facet distribution fetched at `hitsPerPage: 0` so the page pays for facet counts and
+nothing else. A value with zero documents behind it renders no chip, so the row itself renders
+nothing until the first crawl fills the index — no dead links, no wall of zero-count chips. Each
+chip links to `/search?<param>=<value>` using the family's declared `param`. Below Browse,
+**Highest momentum** — the top results from `whatsHot()`, labelled "momentum" per §4.3, never
+"trending". Plain links throughout: the page, including Browse, works with JavaScript disabled.
 
 **Search** — client component querying Meilisearch directly, debounced, **URL-synced state**
 (`?q=&kind=&domain=&install=&sort=&view=`) so results are shareable and back/forward work;
