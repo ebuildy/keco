@@ -48,7 +48,11 @@ async function main(): Promise<void> {
     //            an entry in partial_signals[]; write the analysis anyway with partial:true
     //   pass 3 — LLM only when confidence < 0.7 or kind is ambiguous, structured output
     //            validated by AnalysisSchema, one retry, then fallbackAnalysis()
-    //   Then write analysis/{repo}.json and append RepoAnalyzed.
+    //   Then run the assembled document through AnalysisSchema.parse() — exactly as
+    //   fallbackAnalysis() already does for pass 3 — before writing analysis/{repo}.json
+    //   and appending RepoAnalyzed. §3 calls this path "schema-validated" and it has to
+    //   actually be: the taxonomy is data, so a mistyped family value is not a type error
+    //   and nothing downstream would reject it.
     // Also re-analyze when the oldest signal's TTL has expired, not only on a content_hash
     // change — signal freshness drifts from repo freshness (§14).
     // NOTE: AnalysisSchema defaults the five taxonomy fields to `unknown`, so an

@@ -34,6 +34,10 @@ describe('rule outputs are pinned to taxonomy.yaml', () => {
     }
   });
 
+  // `domains` needs no entry here, and its absence is not a gap: classifyDomains only ever
+  // emits values it read out of `aliasesFor('domains')`, which is built from the family's
+  // own value ids, so it cannot produce an unpinned value by construction.
+
   for (const [familyId, declared] of Object.entries(DECLARED_DERIVED)) {
     it(`${familyId} declares exactly the values in the file`, () => {
       expect([...declared].sort()).toEqual(allValues(familyId).map((value) => value.id).sort());

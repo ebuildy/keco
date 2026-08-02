@@ -56,6 +56,15 @@ async function main(): Promise<void> {
     // governance straight from the analysis — the projector classifies nothing, it only
     // scores. Send complete sub-objects: updateDocuments merges only at the top level, so
     // a partial `score` wipes the rest of it (§5, §14).
+    //
+    // VALIDATE BEFORE YOU UPSERT. Run every document through `ToolDocument.parse()` and, on
+    // failure, emit RepoFailed and skip it rather than writing. This is not optional
+    // belt-and-braces: the taxonomy is data now, so `kind` and the five family fields are
+    // plain `string` and a typo like `'vendor_backed'` is no longer a type error. Nothing
+    // downstream would catch it — Meilisearch accepts any value, `searchTools` casts the
+    // response to ToolDocument without parsing, and the portal renders it verbatim or
+    // silently never matches a chip. The write side is what guarantees read-model
+    // correctness (§2); pinning.test.ts only pins the analyzer's rule tables, not this.
   }
 
   // Meilisearch writes are asynchronous: await the task, THEN advance the checkpoint, or a

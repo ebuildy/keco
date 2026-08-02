@@ -23,8 +23,9 @@ import { parseTaxonomy, type TaxonomyFamily, type TaxonomyFile, type TaxonomyVal
  * bindings from it, so importing *anything* from `@keco/core` now pays that cost — including
  * consumers that only wanted, say, `CONSUMERS` from the events module. The cost is
  * sub-millisecond and not worth rewiring existing imports over, but if you're writing a new
- * consumer that has no need for the taxonomy, prefer the `@keco/core/events` or
- * `@keco/core/schemas` subpath exports to skip it.
+ * consumer that has no need for the taxonomy, the `@keco/core/events` subpath export skips
+ * it. `@keco/core/schemas` does not — `schemas.ts` imports value bindings from this module
+ * to validate the taxonomy fields, so it pays the same cost.
  */
 const FILENAME = 'taxonomy.yaml';
 
