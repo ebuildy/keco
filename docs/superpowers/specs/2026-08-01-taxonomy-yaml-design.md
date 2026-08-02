@@ -1,7 +1,11 @@
 # Taxonomy as YAML — design
 
 Date: 2026-08-01
-Status: approved, not implemented
+Status: implemented on `feat/taxonomy-yaml`
+
+> **Looking for how it works rather than why we chose it?**
+> See [the guide for humans](./2026-08-01-taxonomy-yaml-guide.md) — architecture, file format,
+> how to add a value, and the gotchas. This document records the decisions and their rationale.
 
 ## Problem
 
