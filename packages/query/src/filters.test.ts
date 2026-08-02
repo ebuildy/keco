@@ -74,4 +74,16 @@ describe('selectionFromParams', () => {
   it('rejects a value that belongs to a different family', () => {
     expect(selectionFromParams({ kind: 'security' })).toEqual({});
   });
+
+  it('splits a single repeated URLSearchParams key with comma-joined values', () => {
+    const params = new URLSearchParams('domain=security,policy');
+    expect(selectionFromParams(params)).toEqual({ domains: ['security', 'policy'] });
+  });
+
+  it('reads two repetitions of the same URLSearchParams key', () => {
+    const params = new URLSearchParams();
+    params.append('domain', 'security');
+    params.append('domain', 'policy');
+    expect(selectionFromParams(params)).toEqual({ domains: ['security', 'policy'] });
+  });
 });

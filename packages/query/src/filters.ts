@@ -55,11 +55,18 @@ const asList = (value: string | string[] | undefined): string[] =>
  * Reads a URL query object into a selection, using each family's declared `param` and
  * dropping anything not in the vocabulary — a hand-edited URL must not reach Meilisearch
  * as a filter on a value that cannot exist.
+ *
+ * Accepts either a Next.js `searchParams` object or a `URLSearchParams` — the portal has the
+ * first, the REST route has the second, and both must read facets identically (§11).
  */
-export function selectionFromParams(params: RawParams): FacetSelection {
+export function selectionFromParams(params: RawParams | URLSearchParams): FacetSelection {
+  const read = (key: string): string | string[] | undefined =>
+    params instanceof URLSearchParams ? params.getAll(key) : params[key];
+
   const selection: FacetSelection = {};
   for (const taxonomyFamily of TAXONOMY) {
-    const values = asList(params[taxonomyFamily.param])
+    const values = asList(read(taxonomyFamily.param))
+      .flatMap((value) => value.split(','))
       .map((value) => value.trim())
       .filter((value) => value !== '' && isValue(taxonomyFamily.id, value));
     if (values.length) selection[taxonomyFamily.id] = values;
