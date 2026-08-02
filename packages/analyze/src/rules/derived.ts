@@ -61,9 +61,22 @@ export const DECLARED_DERIVED = {
 /** Upstream organisations that are foundation-governed by definition. */
 const FOUNDATION_OWNERS = new Set(['kubernetes', 'kubernetes-sigs', 'kubernetes-client', 'cncf']);
 
-/** A directory that exists to hold the paid edition. */
-const ENTERPRISE_PATH = /^(ee|enterprise|pro)\//;
-const ENTERPRISE_README = /enterprise edition|enterprise version|commercial license|commercial edition/i;
+/**
+ * A directory that exists to hold the paid edition. Root-anchored deliberately: checked
+ * against coder, kong, vault, istio, grafana, minio, portainer and teleport, none of which
+ * nests commercial code below a non-root path, and loosening to any-segment matching buys no
+ * confirmed recall while adding false-positive risk from `docs/enterprise/` and vendored
+ * paths. `pro` was dropped — none of those repos uses a root `pro/`, and the token collides
+ * with far too much (`prometheus/`, `probe/`) to justify keeping it on zero evidence.
+ *
+ * This still cannot catch every open-core project: Grafana keeps Enterprise in a wholly
+ * separate private repo with no footprint in the public tree at all, which no path regex can
+ * ever see. That is a real, known gap in this signal, not something this pattern can close —
+ * README markers below are the only lever left for that shape of split.
+ */
+const ENTERPRISE_PATH = /^(ee|enterprise)\//;
+const ENTERPRISE_README =
+  /enterprise edition|enterprise version|commercial license|commercial edition|business edition/i;
 
 const DAY_MS = 86_400_000;
 const daysSince = (iso: string, now: Date) => (now.getTime() - Date.parse(iso)) / DAY_MS;
@@ -73,8 +86,10 @@ export function classifyLicenseClass(spdx: string | null): string {
   return aliasesFor('license_class').get(spdx.toLowerCase()) ?? 'unknown';
 }
 
-export function classifyOpenness(input: DerivedInput): string {
-  const licenseClass = classifyLicenseClass(input.license_spdx);
+export function classifyOpenness(
+  input: DerivedInput,
+  licenseClass: string = classifyLicenseClass(input.license_spdx),
+): string {
   if (licenseClass === 'source-available') return 'source-available';
   // No licence, no claim. This is the majority case for small repos and it must stay silent.
   if (licenseClass === 'unknown') return 'unknown';
@@ -93,18 +108,34 @@ export function classifyOpenness(input: DerivedInput): string {
  *
  * What is left in `unknown` now is the honest case: over a year old, quiet for six to twelve
  * months, no recent release. Neither clearly alive nor clearly dormant.
+ *
+ * `archived` is checked *before* the CNCF level, not after. `LandscapeEntry.cncf_level` has
+ * no retired state, and nothing forces a cached landscape seed to track CNCF's retirement
+ * bookkeeping in lockstep — `opentracing/opentracing-go` and `rkt/rkt` are both archived on
+ * GitHub today while still recorded at `incubating` in CNCF history. `archived` is the
+ * strongest and freshest evidence available (it comes straight from GitHub, not a seed that
+ * can lag), so it wins: reporting a dead project as `cncf-incubating` would actively mislead
+ * anyone filtering the Maturity facet for projects that are still alive.
  */
 export function classifyMaturity(input: DerivedInput, now: Date): string {
-  if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
   if (input.archived) return 'archived';
-  if (daysSince(input.pushed_at, now) > 365) return 'dormant';
+  if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
 
-  const age = daysSince(input.created_at, now);
-  if (age < 365) return 'young';
+  const pushedAge = daysSince(input.pushed_at, now);
+  const createdAge = daysSince(input.created_at, now);
+  // A malformed timestamp (NaN) or a created_at in the future (clock skew, giving a negative
+  // age that would otherwise satisfy `< 365`) is not evidence of anything — say so honestly
+  // rather than let it fall through the bands below to a guess.
+  if (!Number.isFinite(pushedAge) || !Number.isFinite(createdAge) || createdAge < 0) {
+    return 'unknown';
+  }
+
+  if (pushedAge > 365) return 'dormant';
+  if (createdAge < 365) return 'young';
 
   const releasedRecently =
     input.latest_release_at !== null && daysSince(input.latest_release_at, now) <= 365;
-  const pushedRecently = daysSince(input.pushed_at, now) <= 183;
+  const pushedRecently = pushedAge <= 183;
   if (releasedRecently || pushedRecently) return 'established';
 
   return 'unknown';
@@ -131,9 +162,10 @@ export function classifyGovernance(input: DerivedInput): string {
 }
 
 export function classifyDerived(input: DerivedInput, now: Date = new Date()): DerivedVerdict {
+  const licenseClass = classifyLicenseClass(input.license_spdx);
   return {
-    license_class: classifyLicenseClass(input.license_spdx),
-    openness: classifyOpenness(input),
+    license_class: licenseClass,
+    openness: classifyOpenness(input, licenseClass),
     maturity: classifyMaturity(input, now),
     governance: classifyGovernance(input),
   };

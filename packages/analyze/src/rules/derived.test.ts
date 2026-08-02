@@ -53,6 +53,13 @@ describe('openness', () => {
     expect(classifyDerived(input, NOW).openness).toBe('open-core');
   });
 
+  it('is open-core when the README advertises a business edition', () => {
+    // Real miss: Portainer is Zlib-licensed with no enterprise/ directory, but its README
+    // says "Portainer Business" — the sole surviving signal for that split.
+    const input = { ...base, readme: '# Portainer\n\nSee Portainer Business Edition for RBAC and support.' };
+    expect(classifyDerived(input, NOW).openness).toBe('open-core');
+  });
+
   it('is source-available for a restricted licence regardless of markers', () => {
     const input = { ...base, license_spdx: 'BUSL-1.1' };
     expect(classifyDerived(input, NOW).openness).toBe('source-available');
@@ -74,6 +81,16 @@ describe('maturity', () => {
 
   it('reports archived', () => {
     expect(of({ archived: true })).toBe('archived');
+  });
+
+  it('reports archived even when the landscape still lists a CNCF level', () => {
+    // opentracing/opentracing-go and rkt/rkt are both archived on GitHub today while still
+    // recorded at `incubating` in CNCF history — a cached landscape seed has no obligation
+    // to track CNCF's retirement bookkeeping in lockstep. GitHub's archived flag is fresher
+    // and stronger evidence, so it must win over a landscape entry that can lag.
+    expect(of({ archived: true, landscape: { cncf_level: 'incubating', org_type: 'foundation' } })).toBe(
+      'archived',
+    );
   });
 
   it('reports dormant after a year with no push', () => {
@@ -101,6 +118,25 @@ describe('maturity', () => {
   it('is unknown when it is over a year old, quiet for months, and unreleased', () => {
     // Neither clearly alive nor clearly dormant — the honest residual.
     expect(of({ pushed_at: '2026-01-01T00:00:00.000Z', latest_release_at: null })).toBe('unknown');
+  });
+
+  it('reports established on the release alone when the push is not recent', () => {
+    // pushed_at ~250 days ago: not dormant (<365) but not "recently pushed" (>183) either.
+    // Only latest_release_at, ~200 days ago, keeps this established — proving the
+    // release-only branch of `releasedRecently || pushedRecently` actually pulls its weight.
+    expect(
+      of({ pushed_at: '2025-11-24T00:00:00.000Z', latest_release_at: '2026-01-13T00:00:00.000Z' }),
+    ).toBe('established');
+  });
+
+  it('is unknown rather than a guess when a timestamp fails to parse', () => {
+    expect(of({ pushed_at: 'not-a-date' })).toBe('unknown');
+    expect(of({ created_at: 'not-a-date' })).toBe('unknown');
+  });
+
+  it('is unknown rather than "young" when created_at is in the future (clock skew)', () => {
+    // A negative age would otherwise satisfy `age < 365` and be confidently reported young.
+    expect(of({ created_at: '2027-01-01T00:00:00.000Z' })).toBe('unknown');
   });
 });
 
