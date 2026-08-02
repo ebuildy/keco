@@ -1,6 +1,7 @@
-import { fromDocumentId, toDocumentId, type Domain, type Kind, type ToolDocument } from '@keco/core';
+import { fromDocumentId, toDocumentId, type ToolDocument } from '@keco/core';
 import { TOOLS_ALIAS } from '@keco/search';
 import { Meilisearch } from 'meilisearch';
+import { buildFilters, defaultFacets, type FacetSelection } from './filters';
 
 /**
  * The single retrieval implementation (AGENTS.md §11). The portal, the REST API, the MCP
@@ -31,9 +32,11 @@ const index = (client: QueryClient) => client.meili.index<ToolDocument>(client.i
 
 export type SearchParams = {
   q?: string;
-  kind?: Kind[];
-  domains?: Domain[];
-  install?: string[];
+  /**
+   * Taxonomy selections, keyed by family id. Nothing in this package knows the family
+   * names — they come from taxonomy.yaml (§6).
+   */
+  filters?: FacetSelection;
   language?: string[];
   license?: string[];
   includeArchived?: boolean;
@@ -42,6 +45,7 @@ export type SearchParams = {
   sort?: 'relevance' | 'stars' | 'score' | 'momentum' | 'recent';
   page?: number;
   hitsPerPage?: number;
+  /** Attributes to compute a facet distribution for. Defaults to every facetable family. */
   facets?: string[];
 };
 
@@ -63,26 +67,13 @@ const SORTS: Record<NonNullable<SearchParams['sort']>, string[]> = {
 };
 
 export async function searchTools(client: QueryClient, params: SearchParams = {}): Promise<SearchResult> {
-  const filters: string[] = [];
-  const inList = (attribute: string, values?: string[]) => {
-    if (values?.length) filters.push(`${attribute} IN [${values.map((v) => `"${v}"`).join(', ')}]`);
-  };
-
-  inList('kind', params.kind);
-  inList('domains', params.domains);
-  inList('install_methods.method', params.install);
-  inList('language', params.language);
-  inList('license', params.license);
-  if (!params.includeArchived) filters.push('archived = false');
-  filters.push(`k8s_relevance >= ${params.minRelevance ?? 0.4}`);
-
   const response = await index(client).search(params.q ?? '', {
-    filter: filters,
+    filter: buildFilters(params),
     sort: SORTS[params.sort ?? 'relevance'],
     page: params.page ?? 1,
     hitsPerPage: params.hitsPerPage ?? 20,
     // Facet distribution is the only aggregation this system has (§5).
-    facets: params.facets ?? ['kind', 'domains', 'install_methods.method', 'language'],
+    facets: params.facets ?? defaultFacets(),
   });
 
   return {
@@ -122,8 +113,7 @@ export async function findAlternatives(
   if (!tool) return [];
 
   const result = await searchTools(client, {
-    kind: [tool.kind],
-    domains: tool.domains,
+    filters: { kind: [tool.kind], domains: tool.domains },
     sort: 'score',
     hitsPerPage: limit + 10,
   });
@@ -139,10 +129,10 @@ export async function findAlternatives(
  */
 export async function whatsHot(
   client: QueryClient,
-  options: { domain?: Domain; limit?: number } = {},
+  options: { domain?: string; limit?: number } = {},
 ): Promise<ToolDocument[]> {
   const result = await searchTools(client, {
-    domains: options.domain ? [options.domain] : undefined,
+    filters: options.domain ? { domains: [options.domain] } : undefined,
     sort: 'momentum',
     hitsPerPage: options.limit ?? 10,
   });
@@ -150,4 +140,6 @@ export async function whatsHot(
 }
 
 export { fromDocumentId, toDocumentId };
+export { buildFilters, defaultFacets, familyAttribute, paramForFamily, selectionFromParams } from './filters';
+export type { FacetSelection } from './filters';
 export type { ToolDocument };

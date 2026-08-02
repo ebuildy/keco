@@ -884,36 +884,26 @@ import { parseTaxonomy, type TaxonomyFamily, type TaxonomyValue } from './taxono
  */
 const FILENAME = 'taxonomy.yaml';
 
-/** Walks up from `from` looking for the pnpm workspace root. */
-function workspaceRoot(from: string): string | null {
-  let current = from;
-  for (;;) {
-    if (existsSync(resolve(current, 'pnpm-workspace.yaml'))) return current;
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
-
 /**
- * Two resolution strategies, because the file has to be found under three different
- * runtimes: plain Node ESM (workers, vitest), the Next dev server, and a traced production
- * build. The first candidate covers the first two; the second covers a bundler that
- * rewrote import.meta.url. next.config.ts adds the file to outputFileTracingIncludes so it
- * is present in a standalone build.
+ * Resolved relative to this module's own location, which is correct under plain Node ESM —
+ * the workers, the Next dev server and vitest all resolve it this way.
+ *
+ * What is NOT verified: a bundler that rewrites `import.meta.url` would break this. Next's
+ * `transpilePackages` covers `@keco/core`, and `next.config.ts` traces the YAML into a
+ * standalone build, but the portal task is what proves the build actually finds it.
+ *
+ * An earlier draft also walked up to `pnpm-workspace.yaml` as a fallback. It was removed: it
+ * resolved to the identical path in this repo, and in the one deployment it claimed to
+ * protect — a traced standalone build — `pnpm-workspace.yaml` is not present at all, so it
+ * could never fire. A fallback that looks like safety but never runs is worse than none,
+ * because it stops people looking for the real fix.
  */
-function readTaxonomyFile(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = workspaceRoot(here) ?? workspaceRoot(process.cwd());
-  const candidates = [
-    resolve(here, '..', FILENAME),
-    ...(root ? [resolve(root, 'packages', 'core', FILENAME)] : []),
-  ];
+export const taxonomyPath = (): string =>
+  resolve(dirname(fileURLToPath(import.meta.url)), '..', FILENAME);
 
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return readFileSync(candidate, 'utf8');
-  }
-  throw new Error(`taxonomy: ${FILENAME} not found. Looked in:\n  ${candidates.join('\n  ')}`);
+function readTaxonomyFile(path = taxonomyPath()): string {
+  if (!existsSync(path)) throw new Error(`taxonomy: ${FILENAME} not found at ${path}`);
+  return readFileSync(path, 'utf8');
 }
 
 const FILE = parseTaxonomy(readTaxonomyFile());
@@ -1356,15 +1346,21 @@ const LIBRARY_MANIFEST = [
   { file: 'Cargo.toml', pattern: /^kube\s*=/m },
 ];
 
+/**
+ * Kind-only fallbacks, used when no structural evidence fired. Their confidence must stay
+ * BELOW every structural rule (0.7+): a guess from the kind alone is weaker than a file on
+ * disk, and the numbers have to say so.
+ *
+ * Two kinds are deliberately absent from the in-cluster set:
+ *   - `service` is FALLBACK_KIND, what the LLM assigns when it could not classify the repo
+ *     at all. Turning "we don't know what this is" into "it runs in-cluster" is exactly the
+ *     guess this module forbids, and at corpus scale it is a silent bias.
+ *   - `dashboard-ui` spans both runtimes — Lens and k9s run on your workstation, Kubernetes
+ *     Dashboard and Headlamp run in-cluster — and nothing here can tell them apart.
+ * Both fall through to `unknown`.
+ */
 const WORKSTATION_KINDS = new Set(['cli', 'kubectl-plugin', 'ide-extension']);
-const IN_CLUSTER_KINDS = new Set([
-  'operator',
-  'controller',
-  'admission-webhook',
-  'helm-chart',
-  'service',
-  'dashboard-ui',
-]);
+const IN_CLUSTER_KINDS = new Set(['operator', 'controller', 'admission-webhook', 'helm-chart']);
 
 /**
  * Ordered strongest-first. `kind` is the winning verdict from `classifyKind`, or null when
@@ -1381,7 +1377,7 @@ export function classifyRuntime(input: RuleInput, kind: string | null): RuntimeV
     return { runtime: 'workstation', confidence: 0.9, rule: 'tree:.krew.yaml' };
   }
   if (kind !== null && WORKSTATION_KINDS.has(kind)) {
-    return { runtime: 'workstation', confidence: 0.8, rule: `kind:${kind}` };
+    return { runtime: 'workstation', confidence: 0.65, rule: `kind:${kind}` };
   }
 
   if (has(input.tree, (p) => isChartYaml(p) || p.startsWith('config/crd/'))) {
@@ -1536,17 +1532,23 @@ describe('maturity', () => {
     expect(of({ created_at: '2026-03-01T00:00:00.000Z' })).toBe('young');
   });
 
-  it('reports established over two years old with a recent release', () => {
+  it('reports established when over a year old and still released recently', () => {
     expect(of({})).toBe('established');
   });
 
-  it('is unknown for an established age with no recent release', () => {
-    expect(of({ latest_release_at: null })).toBe('unknown');
-    expect(of({ latest_release_at: '2024-01-01T00:00:00.000Z' })).toBe('unknown');
+  it('reports established on a recent push even with no releases at all', () => {
+    // Plenty of controllers ship via floating container tags and never cut a release.
+    expect(of({ latest_release_at: null })).toBe('established');
+    expect(of({ latest_release_at: '2024-01-01T00:00:00.000Z' })).toBe('established');
   });
 
-  it('is unknown between one and two years old', () => {
-    expect(of({ created_at: '2025-01-01T00:00:00.000Z' })).toBe('unknown');
+  it('reports established between one and two years old', () => {
+    expect(of({ created_at: '2025-01-01T00:00:00.000Z' })).toBe('established');
+  });
+
+  it('is unknown when it is over a year old, quiet for months, and unreleased', () => {
+    // Neither clearly alive nor clearly dormant — the honest residual.
+    expect(of({ pushed_at: '2026-01-01T00:00:00.000Z', latest_release_at: null })).toBe('unknown');
   });
 });
 
@@ -1652,9 +1654,17 @@ export const DECLARED_DERIVED = {
 /** Upstream organisations that are foundation-governed by definition. */
 const FOUNDATION_OWNERS = new Set(['kubernetes', 'kubernetes-sigs', 'kubernetes-client', 'cncf']);
 
-/** A directory that exists to hold the paid edition. */
-const ENTERPRISE_PATH = /^(ee|enterprise|pro)\//;
-const ENTERPRISE_README = /enterprise edition|enterprise version|commercial license|commercial edition/i;
+/**
+ * A root directory that exists to hold the paid edition. Root-anchored deliberately:
+ * loosening it to any path segment was checked against Vault, Istio and Kong and found zero
+ * additional hits, while `docs/enterprise/` and vendored paths would start matching. The
+ * dominant real miss — Grafana — keeps Enterprise in a separate private repo with no
+ * footprint in the public tree, which no path pattern can catch. `pro` was dropped: no repo
+ * checked used it for a commercial edition, and it collides far more readily than `ee`.
+ */
+const ENTERPRISE_PATH = /^(ee|enterprise)\//;
+const ENTERPRISE_README =
+  /enterprise edition|enterprise version|business edition|commercial license|commercial edition/i;
 
 const DAY_MS = 86_400_000;
 const daysSince = (iso: string, now: Date) => (now.getTime() - Date.parse(iso)) / DAY_MS;
@@ -1675,17 +1685,33 @@ export function classifyOpenness(input: DerivedInput): string {
   return commercial ? 'open-core' : 'fully-open';
 }
 
+/**
+ * Bands must cover the domain. An earlier draft made `established` require >2 years old AND
+ * a release within 6 months, which dropped every 1-2 year old project — and every older one
+ * that ships via floating container tags rather than cutting GitHub releases — into
+ * `unknown`. That is a hole in the definitions, not missing evidence, and it breaks the
+ * contract that `unknown` means "we genuinely could not tell".
+ *
+ * What is left in `unknown` now is the honest case: over a year old, quiet for six to twelve
+ * months, no recent release. Neither clearly alive nor clearly dormant.
+ */
 export function classifyMaturity(input: DerivedInput, now: Date): string {
-  if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
+  // `archived` is checked first, and beats a CNCF level. LandscapeEntry has no retired
+  // state and a cached seed can lag CNCF's own retirement bookkeeping, so the other order
+  // reports `cncf-incubating` for projects GitHub already marks archived — opentracing-go
+  // and rkt are both exactly that. Archived is the strongest evidence a project is not
+  // alive, and it comes from GitHub rather than a cache that can drift.
   if (input.archived) return 'archived';
+  if (input.landscape?.cncf_level) return `cncf-${input.landscape.cncf_level}`;
   if (daysSince(input.pushed_at, now) > 365) return 'dormant';
 
   const age = daysSince(input.created_at, now);
   if (age < 365) return 'young';
 
   const releasedRecently =
-    input.latest_release_at !== null && daysSince(input.latest_release_at, now) <= 183;
-  if (age > 730 && releasedRecently) return 'established';
+    input.latest_release_at !== null && daysSince(input.latest_release_at, now) <= 365;
+  const pushedRecently = daysSince(input.pushed_at, now) <= 183;
+  if (releasedRecently || pushedRecently) return 'established';
 
   return 'unknown';
 }
@@ -1994,7 +2020,12 @@ import { classifyRuntime } from './runtime';
  */
 type Fixture = RuleInput & {
   synthetic?: boolean;
-  derived_input?: DerivedInput;
+  /**
+   * The tree is deliberately absent here and merged in from the fixture's top-level `tree`
+   * below: it is the same repo tree the kind and runtime rules read, and giving one fact
+   * two homes in the same file is how they drift apart.
+   */
+  derived_input?: Omit<DerivedInput, 'tree'>;
   expected: {
     kind: string;
     rule: string;
@@ -2061,7 +2092,10 @@ describe('pass 1 — local rules', () => {
       if (fixture.expected.derived) {
         it('derives licence, openness, maturity and governance', () => {
           expect(fixture.derived_input).toBeDefined();
-          expect(classifyDerived(fixture.derived_input!, NOW)).toEqual(fixture.expected.derived);
+          // The tree comes from the fixture's top level — same repo tree the kind and
+          // runtime rules read. classifyOpenness needs it to spot an `enterprise/` path.
+          const input = { ...fixture.derived_input!, tree: fixture.tree };
+          expect(classifyDerived(input, NOW)).toEqual(fixture.expected.derived);
         });
       }
     });
@@ -2875,6 +2909,52 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
 
 Leave the rest of the file (the JSX from `return (` onwards) untouched.
 
+- [ ] **Step 7b: Wire the REST route through the same selection helper**
+
+`apps/web/src/app/api/v1/search/route.ts` passes the old `kind` / `domains` / `install` shape and
+fails typecheck after Task 10. It reads a `URLSearchParams`, not a plain object, so first teach
+`selectionFromParams` to accept both — §11 says REST, MCP and the portal share one
+implementation, and facet parsing is exactly the kind of thing that drifts when each surface
+rolls its own. In `packages/query/src/filters.ts`:
+
+```ts
+type RawParams = Record<string, string | string[] | undefined>;
+
+const asList = (value: string | string[] | undefined): string[] =>
+  value === undefined ? [] : Array.isArray(value) ? value : value.split(',');
+
+/**
+ * Accepts either a Next.js `searchParams` object or a `URLSearchParams` — the portal has the
+ * first, the REST route has the second, and both must read facets identically (§11).
+ */
+export function selectionFromParams(params: RawParams | URLSearchParams): FacetSelection {
+  const read = (key: string): string | string[] | undefined =>
+    params instanceof URLSearchParams ? params.getAll(key) : params[key];
+
+  const selection: FacetSelection = {};
+  for (const taxonomyFamily of TAXONOMY) {
+    const values = asList(read(taxonomyFamily.param))
+      .flatMap((value) => value.split(','))
+      .map((value) => value.trim())
+      .filter((value) => value !== '' && isValue(taxonomyFamily.id, value));
+    if (values.length) selection[taxonomyFamily.id] = values;
+  }
+  return selection;
+}
+```
+
+Note the added `.flatMap((value) => value.split(','))`: `getAll` returns each repetition
+whole, so `?domain=security,policy` arrives as one string that still needs splitting, while
+`?domain=security&domain=policy` arrives as two. Both must work, and a test must cover both.
+
+Then in the route, replace the three per-family lines with:
+
+```ts
+    filters: selectionFromParams(params),
+```
+
+and drop the now-unused `Domain` / `Kind` type import.
+
 - [ ] **Step 8: Make sure the YAML survives a production build**
 
 In `apps/web/next.config.ts`, add the tracing include:
@@ -2910,6 +2990,25 @@ pnpm -r --parallel check && pnpm -F @keco/web build
 ```
 
 Expected: both PASS. The build renders the home page against whatever Meilisearch holds; with an empty or unreachable index `whatsHot` and `searchTools` return empty results and `TopicChips` renders nothing.
+
+**This step is the one that proves the taxonomy loader survives a bundler.** `@keco/core` reads
+`taxonomy.yaml` from disk using a path derived from `import.meta.url`; if Next rewrites that
+during bundling, the build fails at module init with `taxonomy: taxonomy.yaml not found at
+<path>`. That error is the signal, and it is deliberately the only place this is verified — the
+plan carries no speculative fallback for it. If it fires, fix it with the evidence in hand: the
+reported path tells you what the bundler produced. Do not add a resolution fallback before
+seeing it fail.
+
+Then confirm the page actually renders rather than merely compiling:
+
+```bash
+mise run infra:up && mise run search:settings
+pnpm -F @keco/web build && pnpm -F @keco/web start &
+sleep 5 && curl -sS localhost:3000 | head -40
+```
+
+Expected: HTML containing the `<h1>Keco</h1>` and the search form. With an empty index there are
+no chips — that is correct, not a failure. Kill the server afterwards.
 
 If the build fails because Meilisearch is not running, start it first:
 
@@ -3181,6 +3280,22 @@ rebuild and an alias swap (§5). Everything else — `packages/search`, `package
 page chip rows — loops over the file and needs no edit.
 ```
 
+- [ ] **Step 2b: Update CLAUDE.md §5 as well**
+
+§5's `tools` settings section lists `filterableAttributes` and the document shape, both of which
+changed in Tasks 4 and 9. In the `filterableAttributes` bullet, add the five new families:
+
+```markdown
+- `filterableAttributes`: `kind`, `domains`, `runtime`, `install_methods`, `language`, `license`,
+  `license_class`, `openness`, `maturity`, `governance`, `archived`, `stars`, `has_release`,
+  `k8s_relevance`, `has_scorecard`.
+```
+
+In the same section's `searchableAttributes` bullet, rename `topics` to `github_topics`. In the
+**Document shape** code block, rename the `topics[]` field to `github_topics[]` and add the five
+new fields next to `kind` and `domains`. A `facet: true` family with no filterable attribute
+behind it is a chip that 500s when clicked, so these two lists must not drift.
+
 - [ ] **Step 3: Update the two worker TODOs**
 
 In `apps/workers/src/analyzer/index.ts`, extend the pass-1 line of the TODO block so whoever implements it knows the new classifiers exist:
@@ -3192,6 +3307,12 @@ In `apps/workers/src/analyzer/index.ts`, extend the pass-1 line of the TODO bloc
     //            repo.json licence, timestamps and owner type, plus the CNCF landscape
     //            lookup — pass `landscape: null` until the crawler caches that seed, which
     //            degrades maturity and governance to `unknown` rather than guessing.
+    //   NOTE: AnalysisSchema defaults the five taxonomy fields to `unknown`, so an
+    //   analysis written before those families existed stays parseable on replay — but it
+    //   also stays `unknown` forever, because an unchanged content_hash never re-triggers
+    //   analysis. Re-classification is not driven by content_hash alone (§14). When these
+    //   passes land, force one full-corpus pass-1 re-run for the new fields rather than
+    //   waiting for organic change: it is free, being rules over data already in cache.
 ```
 
 In `apps/workers/src/projector/index.ts`, extend the document-building TODO:

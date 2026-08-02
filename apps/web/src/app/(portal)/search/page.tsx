@@ -1,17 +1,16 @@
 import Link from 'next/link';
-import type { Domain, Kind } from '@keco/core';
-import { searchTools } from '@keco/query';
+import { searchTools, selectionFromParams } from '@keco/query';
 import { query } from '@/lib/query';
 
 /**
  * Search (§9). State lives in the URL (`?q=&kind=&domain=&install=&sort=&view=`) so
  * results are shareable and back/forward work. This server rendering is the no-JS
  * baseline; the interactive client component layers on top of the same URL state.
+ *
+ * Every taxonomy family is readable from the URL by its declared `param`, so a new family
+ * needs no change here.
  */
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
-
-const list = (value: string | string[] | undefined): string[] =>
-  value === undefined ? [] : Array.isArray(value) ? value : value.split(',').filter(Boolean);
 
 export default async function SearchPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
@@ -19,9 +18,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
 
   const results = await searchTools(query, {
     q,
-    kind: list(params.kind) as Kind[],
-    domains: list(params.domain) as Domain[],
-    install: list(params.install),
+    filters: selectionFromParams(params),
     sort: (params.sort as 'relevance' | 'stars' | 'score' | 'momentum' | 'recent') ?? 'relevance',
     page: Number(params.page ?? 1),
   });
