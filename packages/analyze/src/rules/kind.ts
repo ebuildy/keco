@@ -136,6 +136,9 @@ const KIND_RULES: Array<{ rule: string; kind: Kind; confidence: number; test: (i
   },
 ];
 
+/** Every kind a pass-1 rule can emit. Asserted against taxonomy.yaml by pinning.test.ts. */
+export const DECLARED_KINDS: string[] = [...new Set(KIND_RULES.map((rule) => rule.kind))];
+
 /** Returns every rule that fired, strongest first. Empty means pass 1 could not decide. */
 export function classifyKind(input: RuleInput): RuleVerdict[] {
   return KIND_RULES.filter((rule) => rule.test(input)).map(({ rule, kind, confidence }) => ({

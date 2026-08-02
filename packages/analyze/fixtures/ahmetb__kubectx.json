@@ -15,10 +15,28 @@
   "manifests": {
     "go.mod": "module github.com/ahmetb/kubectx\n\ngo 1.21\n\nrequire (\n\tgithub.com/spf13/cobra v1.8.0\n\tk8s.io/client-go v0.29.0\n)\n"
   },
+  "derived_input": {
+    "owner": "ahmetb",
+    "owner_type": "User",
+    "license_spdx": "Apache-2.0",
+    "readme": "# kubectx + kubens\n\nFaster way to switch between clusters and namespaces in kubectl.",
+    "archived": false,
+    "created_at": "2017-06-12T00:00:00.000Z",
+    "pushed_at": "2026-06-15T00:00:00.000Z",
+    "latest_release_at": "2026-04-01T00:00:00.000Z",
+    "landscape": null
+  },
   "expected": {
     "kind": "kubectl-plugin",
     "rule": "tree:.krew.yaml",
     "domains": [],
-    "k8s_relevance_min": 0.7
+    "k8s_relevance_min": 0.7,
+    "runtime": "workstation",
+    "derived": {
+      "license_class": "permissive",
+      "openness": "fully-open",
+      "maturity": "established",
+      "governance": "individual"
+    }
   }
 }

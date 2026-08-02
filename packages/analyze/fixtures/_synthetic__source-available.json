@@ -1,0 +1,36 @@
+{
+  "synthetic": true,
+  "note": "Not a real repository. Encodes a Business Source Licence, which no real fixture in this directory carries yet, and pins the BSL-1.0 / BUSL-1.1 distinction end to end.",
+  "repo": "example/terraform-provider-synthetic",
+  "name": "terraform-provider-synthetic",
+  "description": "A synthetic Terraform provider under a source-available licence",
+  "topics": ["kubernetes", "terraform"],
+  "language": "Go",
+  "tree": ["README.md", "main.go", "go.mod"],
+  "manifests": {
+    "go.mod": "module example.io/terraform-provider-synthetic\n\ngo 1.22\n"
+  },
+  "derived_input": {
+    "owner": "example",
+    "owner_type": "Organization",
+    "license_spdx": "BUSL-1.1",
+    "readme": "# terraform-provider-synthetic\n\nManage synthetic resources from Terraform.",
+    "archived": false,
+    "created_at": "2019-03-01T00:00:00.000Z",
+    "pushed_at": "2026-07-10T00:00:00.000Z",
+    "latest_release_at": "2026-07-01T00:00:00.000Z",
+    "landscape": null
+  },
+  "expected": {
+    "kind": "terraform-provider",
+    "rule": "manifest:terraform-provider",
+    "domains": [],
+    "runtime": "unknown",
+    "derived": {
+      "license_class": "source-available",
+      "openness": "source-available",
+      "maturity": "established",
+      "governance": "unknown"
+    }
+  }
+}
