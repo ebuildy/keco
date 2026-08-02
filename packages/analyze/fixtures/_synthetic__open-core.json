@@ -1,6 +1,6 @@
 {
   "synthetic": true,
-  "note": "Not a real repository. Encodes the open-core combination — an OSI licence alongside an enterprise directory and a commercial edition in the README — which no real fixture in this directory carries yet. Replace it with a real cache entry once the crawler has one.",
+  "note": "Not a real repository. Exists to pin the ENTERPRISE_PATH tree marker end to end: its README is deliberately commercial-silent (no enterprise/commercial wording at all), so the enterprise/ directory in `tree` is the only thing that can produce `open-core` here. The README-marker branch of that same rule is already covered by real prose in derived.test.ts (the Portainer 'business edition' case). Replace this fixture with a real cache entry once the crawler has one.",
   "repo": "example/synthetic-open-core",
   "name": "synthetic-operator",
   "description": "A synthetic operator with a paid edition",
@@ -20,7 +20,7 @@
     "owner": "example",
     "owner_type": "Organization",
     "license_spdx": "AGPL-3.0",
-    "readme": "# synthetic-operator\n\nThe open source edition. See the Enterprise Edition for SSO and audit logs.",
+    "readme": "# synthetic-operator\n\nManages Widget resources.",
     "archived": false,
     "created_at": "2021-02-01T00:00:00.000Z",
     "pushed_at": "2026-07-01T00:00:00.000Z",
