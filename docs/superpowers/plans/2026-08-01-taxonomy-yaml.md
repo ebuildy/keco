@@ -2020,7 +2020,12 @@ import { classifyRuntime } from './runtime';
  */
 type Fixture = RuleInput & {
   synthetic?: boolean;
-  derived_input?: DerivedInput;
+  /**
+   * The tree is deliberately absent here and merged in from the fixture's top-level `tree`
+   * below: it is the same repo tree the kind and runtime rules read, and giving one fact
+   * two homes in the same file is how they drift apart.
+   */
+  derived_input?: Omit<DerivedInput, 'tree'>;
   expected: {
     kind: string;
     rule: string;
@@ -2087,7 +2092,10 @@ describe('pass 1 — local rules', () => {
       if (fixture.expected.derived) {
         it('derives licence, openness, maturity and governance', () => {
           expect(fixture.derived_input).toBeDefined();
-          expect(classifyDerived(fixture.derived_input!, NOW)).toEqual(fixture.expected.derived);
+          // The tree comes from the fixture's top level — same repo tree the kind and
+          // runtime rules read. classifyOpenness needs it to spot an `enterprise/` path.
+          const input = { ...fixture.derived_input!, tree: fixture.tree };
+          expect(classifyDerived(input, NOW)).toEqual(fixture.expected.derived);
         });
       }
     });
