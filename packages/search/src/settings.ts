@@ -1,3 +1,4 @@
+import { TAXONOMY } from '@keco/core';
 import type { Settings } from 'meilisearch';
 
 /** The public search corpus. `tools` is an alias onto `tools_<ts>` (AGENTS.md §5). */
@@ -8,21 +9,42 @@ export const TRACES_INDEX = 'traces';
 export const toolsIndexName = (timestamp = new Date()): string =>
   `tools_${timestamp.toISOString().replace(/[-:T.]/g, '').slice(0, 14)}`;
 
+/**
+ * Attributes Meilisearch filters on that are not taxonomy families: raw repository facts
+ * and the numeric gates the query layer applies.
+ */
+const NON_TAXONOMY_FILTERABLE = [
+  'language',
+  'license',
+  'archived',
+  'stars',
+  'has_release',
+  'k8s_relevance',
+  'has_scorecard',
+  'owner',
+];
+
+/**
+ * One filterable attribute per taxonomy family, derived from the file so that adding a
+ * family is a YAML edit plus a rebuild — never an edit here that someone forgets (§5, §6).
+ * `install_methods` is an array of objects, so it filters on the nested `.method`.
+ */
+export const familyAttribute = (familyId: string): string =>
+  familyId === 'install_methods' ? 'install_methods.method' : familyId;
+
 export const TOOLS_SETTINGS: Settings = {
   // Weight order matters: a name match must outrank a README mention.
-  searchableAttributes: ['name', 'full_name', 'summary', 'description', 'topics', 'readme_excerpt'],
+  searchableAttributes: [
+    'name',
+    'full_name',
+    'summary',
+    'description',
+    'github_topics',
+    'readme_excerpt',
+  ],
   filterableAttributes: [
-    'kind',
-    'domains',
-    'install_methods.method',
-    'language',
-    'license',
-    'archived',
-    'stars',
-    'has_release',
-    'k8s_relevance',
-    'has_scorecard',
-    'owner',
+    ...TAXONOMY.map((family) => familyAttribute(family.id)),
+    ...NON_TAXONOMY_FILTERABLE,
   ],
   sortableAttributes: ['stars', 'score.total', 'score.momentum', 'pushed_at'],
   // Default ranking rules, then health as the tie-breaker — relevance first, always.
