@@ -2909,6 +2909,52 @@ export default async function SearchPage({ searchParams }: { searchParams: Searc
 
 Leave the rest of the file (the JSX from `return (` onwards) untouched.
 
+- [ ] **Step 7b: Wire the REST route through the same selection helper**
+
+`apps/web/src/app/api/v1/search/route.ts` passes the old `kind` / `domains` / `install` shape and
+fails typecheck after Task 10. It reads a `URLSearchParams`, not a plain object, so first teach
+`selectionFromParams` to accept both — §11 says REST, MCP and the portal share one
+implementation, and facet parsing is exactly the kind of thing that drifts when each surface
+rolls its own. In `packages/query/src/filters.ts`:
+
+```ts
+type RawParams = Record<string, string | string[] | undefined>;
+
+const asList = (value: string | string[] | undefined): string[] =>
+  value === undefined ? [] : Array.isArray(value) ? value : value.split(',');
+
+/**
+ * Accepts either a Next.js `searchParams` object or a `URLSearchParams` — the portal has the
+ * first, the REST route has the second, and both must read facets identically (§11).
+ */
+export function selectionFromParams(params: RawParams | URLSearchParams): FacetSelection {
+  const read = (key: string): string | string[] | undefined =>
+    params instanceof URLSearchParams ? params.getAll(key) : params[key];
+
+  const selection: FacetSelection = {};
+  for (const taxonomyFamily of TAXONOMY) {
+    const values = asList(read(taxonomyFamily.param))
+      .flatMap((value) => value.split(','))
+      .map((value) => value.trim())
+      .filter((value) => value !== '' && isValue(taxonomyFamily.id, value));
+    if (values.length) selection[taxonomyFamily.id] = values;
+  }
+  return selection;
+}
+```
+
+Note the added `.flatMap((value) => value.split(','))`: `getAll` returns each repetition
+whole, so `?domain=security,policy` arrives as one string that still needs splitting, while
+`?domain=security&domain=policy` arrives as two. Both must work, and a test must cover both.
+
+Then in the route, replace the three per-family lines with:
+
+```ts
+    filters: selectionFromParams(params),
+```
+
+and drop the now-unused `Domain` / `Kind` type import.
+
 - [ ] **Step 8: Make sure the YAML survives a production build**
 
 In `apps/web/next.config.ts`, add the tracing include:
