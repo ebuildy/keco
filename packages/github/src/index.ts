@@ -2,6 +2,7 @@ import { Octokit } from '@octokit/rest';
 import { QuotaGovernor, type QuotaConsumer, backoffMs } from './quota';
 
 export * from './quota';
+export * from './search';
 
 /**
  * GitHub access for the write side only (AGENTS.md §7): the crawler and the analyzer.
