@@ -12,9 +12,30 @@
  * Pure: no network, no cache, no ambient clock.
  */
 
-/** Kubernetes launched in 2014; GitHub opened in 2008. Everything older is one bucket. */
+/**
+ * Kubernetes launched in 2014; GitHub opened in 2008. Everything older is one bucket.
+ *
+ * This is a known, deliberate near-floor, not a hard one: a live probe of
+ * `created:<2008-01-01` returns exactly one repo, `mojombo/grit` (repo id 1, created during
+ * GitHub's private beta). That single repo is knowingly dropped rather than chased — pushing
+ * the epoch earlier to catch it is not a bug fix worth making.
+ */
 export const GITHUB_EPOCH_YEAR = 2008;
 export const EARLY_YEARS_END = 2013;
+
+// If these ever collide, the pre-2014 "years" bucket degenerates to from === to and its only
+// child (a single `year`) renders the exact same query string as its parent. The orchestrator
+// matches completed windows by query string, so it can no longer tell the two apart — the
+// window would appear already-done and be silently skipped, or spin forever re-splitting an
+// identical query. Unreachable with today's constants; enforced anyway because both are
+// exported and tunable. Same validate-at-module-load posture as packages/core/src/taxonomy.ts.
+if (GITHUB_EPOCH_YEAR >= EARLY_YEARS_END) {
+  throw new Error(
+    `windows: GITHUB_EPOCH_YEAR (${GITHUB_EPOCH_YEAR}) must be < EARLY_YEARS_END (${EARLY_YEARS_END}); ` +
+      'otherwise the pre-2014 "years" bucket has from === to and splitting it produces a ' +
+      "child whose query string is identical to its parent's, breaking resume-by-query-string.",
+  );
+}
 
 /**
  * Coarse at the top where repos are few, fine at the bottom where the long tail lives.
@@ -53,8 +74,17 @@ export function initialWindows(base: string): Window[] {
   return STAR_BANDS.map((stars) => ({ base, stars, created: null }));
 }
 
-/** Sub-windows one level finer. An empty result means the floor: a single day. */
-export function split(window: Window, now = new Date()): Window[] {
+/**
+ * Sub-windows one level finer. An empty result means the floor: a single day.
+ *
+ * `now` is required, not defaulted — it decides how many yearly windows an unconstrained
+ * band expands to, and it must be threaded from a single clock read by the caller. Letting
+ * this default to `new Date()` would make every call sample the wall clock independently, so
+ * a sweep that straddles midnight on New Year's Eve — or a resume run days after the original
+ * sweep started — could disagree with itself about the current year. One clock in, for the
+ * whole sweep.
+ */
+export function split(window: Window, now: Date): Window[] {
   return splitCreated(window.created, now.getUTCFullYear()).map((created) => ({
     ...window,
     created,
@@ -87,6 +117,12 @@ function splitCreated(created: Created | null, currentYear: number): Created[] {
       }));
     }
     case 'month': {
+      // Splitting the current month emits days that haven't happened yet — e.g. on the 4th,
+      // 27 of the 31 windows are guaranteed-empty future dates. This is intentional, not an
+      // oversight: clamping to `now` would make the window's query string (and therefore its
+      // identity in resume state) change every day, which breaks the exact property this
+      // module exists to guarantee. A few wasted requests against an empty result set is a
+      // fair trade for a query string that never moves.
       const out: Created[] = [];
       for (let day = 1; day <= daysInMonth(created.year, created.month); day += 1) {
         out.push({ kind: 'day', date: iso(created.year, created.month, day) });
