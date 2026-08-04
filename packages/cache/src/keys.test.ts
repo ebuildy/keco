@@ -38,4 +38,9 @@ describe('discoveryKeys', () => {
     expect(() => discoveryKeys.detail('/kubectx')).toThrow(/owner\/repo/);
     expect(() => discoveryKeys.detail('ahmetb/')).toThrow(/owner\/repo/);
   });
+
+  it('rejects more than one slash', () => {
+    expect(() => discoveryKeys.detail('foo/bar/baz')).toThrow(/owner\/repo/);
+    expect(() => discoveryKeys.detail('a//b')).toThrow(/owner\/repo/);
+  });
 });

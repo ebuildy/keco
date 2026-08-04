@@ -51,7 +51,7 @@ export const discoveryKeys = {
   state: 'discovery/_state.json',
   detail(repo: string): string {
     const slash = repo.indexOf('/');
-    if (slash <= 0 || slash === repo.length - 1) {
+    if (slash <= 0 || slash === repo.length - 1 || slash !== repo.lastIndexOf('/')) {
       throw new Error(`expected owner/repo, got "${repo}"`);
     }
     const owner = repo.slice(0, slash);
