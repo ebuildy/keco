@@ -79,6 +79,8 @@ export type SearchPage = {
   total_count: number;
   incomplete_results: boolean;
   items: SearchItem[];
+  /** Items that failed `SearchItem` validation and were dropped — never silent, per §13. */
+  dropped: number;
 };
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -113,8 +115,11 @@ export class RatePacer {
   ) {}
 
   wait(): Promise<void> {
-    this.queue = this.queue.then(() => this.waitTurn());
-    return this.queue;
+    const turn = this.queue.then(() => this.waitTurn());
+    // One caller's failure must not poison every later one: `queue` always chains onto a
+    // resolved promise, even when this caller's own turn rejected.
+    this.queue = turn.catch(() => undefined);
+    return turn;
   }
 
   /**
@@ -127,8 +132,14 @@ export class RatePacer {
   }
 
   private async waitTurn(): Promise<void> {
-    const delay = this.nextAllowedAt - this.clock.now();
-    if (delay > 0) await this.clock.sleep(delay);
+    // Re-read after every wake: a concurrent caller may `penalise()` while this call is
+    // asleep, and a stale `nextAllowedAt` read from before the sleep would let this call
+    // fire straight through a throttle that landed mid-wait.
+    for (;;) {
+      const delay = this.nextAllowedAt - this.clock.now();
+      if (delay <= 0) break;
+      await this.clock.sleep(delay);
+    }
     this.nextAllowedAt = this.clock.now() + this.minIntervalMs;
   }
 }
@@ -274,6 +285,16 @@ export class SearchClient {
       if (result.success) items.push(result.data);
       else dropped += 1;
     }
+
+    // A page where every item failed to parse is not "one bad repo" — it's GitHub having
+    // changed shape corpus-wide. Returning an empty-but-successful page would let the worker
+    // mark the window complete and the sweep "succeed" with the data silently missing.
+    if (dropped > 0 && dropped === raw.items.length) {
+      throw new Error(
+        `github search: all ${dropped} items on this page failed to parse — treating as a schema change, not per-repo noise`,
+      );
+    }
+
     if (dropped > 0) {
       this.logger?.warn(
         { dropped, total: raw.items.length, query },
@@ -283,6 +304,11 @@ export class SearchClient {
     if (raw.incomplete_results) {
       this.logger?.warn({ query }, 'github search returned incomplete results');
     }
-    return { total_count: raw.total_count, incomplete_results: raw.incomplete_results, items };
+    return {
+      total_count: raw.total_count,
+      incomplete_results: raw.incomplete_results,
+      items,
+      dropped,
+    };
   }
 }

@@ -99,6 +99,53 @@ describe('RatePacer', () => {
     await pacer.wait();
     expect(clock.elapsed).toBe(52_000); // 50_000 + the ordinary interval
   });
+
+  it('re-reads nextAllowedAt after waking, so a penalty landing mid-sleep is honoured, not clobbered', async () => {
+    // Reproduces: caller A's turn is already asleep waiting out a 2s pacing gap when caller
+    // B discovers a 403 and penalises the *shared* pacer to 60s. A stale read taken before
+    // the sleep would let A fire at t=2000 straight through B's throttle.
+    let ms = 0;
+    let penalisedMidSleep = false;
+    const box: { pacer?: RatePacer } = {};
+    const clock: Clock = {
+      now: () => ms,
+      sleep: async (delay: number) => {
+        ms += delay;
+        if (!penalisedMidSleep) {
+          penalisedMidSleep = true;
+          box.pacer!.penalise(60_000); // simulates B's throttle landing while A is still asleep
+        }
+      },
+    };
+    box.pacer = new RatePacer(0, clock);
+
+    box.pacer.penalise(2000); // A's turn must sleep 2000ms before it's otherwise allowed to fire
+    await box.pacer.wait();
+
+    expect(ms).toBe(62_000); // A honoured the 60s penalty that landed during its own sleep
+  });
+
+  it('recovers after a failed wait() instead of poisoning every later call', async () => {
+    const base = fakeClock();
+    let shouldFail = true;
+    const clock: Clock = {
+      now: base.now,
+      sleep: async (delay: number) => {
+        if (shouldFail) {
+          shouldFail = false;
+          throw new Error('sleep blew up');
+        }
+        await base.sleep(delay);
+      },
+    };
+    const pacer = new RatePacer(1000, clock); // minIntervalMs > 0 forces the second call to sleep
+
+    await pacer.wait(); // consumes the first slot for free, nextAllowedAt = 1000
+    await expect(pacer.wait()).rejects.toThrow('sleep blew up');
+
+    // The queue must not stay poisoned by the rejection above.
+    await expect(pacer.wait()).resolves.toBeUndefined();
+  });
 });
 
 describe('SearchClient', () => {
@@ -149,10 +196,39 @@ describe('SearchClient', () => {
     const result = await client.page('kubernetes', 1);
 
     expect(result.items).toHaveLength(2);
+    expect(result.dropped).toBe(1); // recorded on the page, not just logged and forgotten (§13)
     expect(result.items.map((i) => i.full_name)).toEqual(['ahmetb/kubectx', 'other/repo']);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ dropped: 1, total: 3 }),
       expect.stringContaining('dropped'),
+    );
+  });
+
+  it('throws when every item on a page fails to parse, instead of returning an empty-but-successful page', async () => {
+    const transport = vi.fn().mockResolvedValue({
+      data: page([{ id: 'nope' }, { id: 'also-nope' }]),
+      headers: {},
+    });
+    const client = new SearchClient(transport, { minIntervalMs: 0 });
+
+    await expect(client.page('kubernetes', 1)).rejects.toThrow(/failed to parse/);
+    expect(transport).toHaveBeenCalledTimes(1); // a shape change, not per-repo noise — not retried
+  });
+
+  it('logs when GitHub reports incomplete_results, since a sweep cares about completeness', async () => {
+    const transport = vi.fn().mockResolvedValue({
+      data: page([item()], { incomplete_results: true }),
+      headers: {},
+    });
+    const logger = { warn: vi.fn() };
+    const client = new SearchClient(transport, { minIntervalMs: 0, logger });
+
+    const result = await client.page('kubernetes', 1);
+
+    expect(result.incomplete_results).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ query: 'kubernetes' }),
+      expect.stringContaining('incomplete'),
     );
   });
 
@@ -212,6 +288,24 @@ describe('SearchClient', () => {
     expect(clock.elapsed).toBe(60_000);
   });
 
+  it('caps a huge retry-after at the 300s ceiling instead of sleeping it verbatim', async () => {
+    const clock = fakeClock();
+    const throttled = Object.assign(new Error('rate limited'), {
+      status: 403,
+      response: { headers: { 'retry-after': '3600' } },
+    });
+    const transport = vi
+      .fn()
+      .mockRejectedValueOnce(throttled)
+      .mockResolvedValue({ data: page([]), headers: {} });
+
+    const client = new SearchClient(transport, { minIntervalMs: 0, clock });
+
+    await client.page('kubernetes', 1);
+
+    expect(clock.elapsed).toBe(300_000); // not the full 3_600_000 the header asked for
+  });
+
   it('waits until the absolute x-ratelimit-reset instant when retry-after is absent', async () => {
     const clock = fakeClock();
     const throttled = Object.assign(new Error('rate limited'), {
@@ -264,13 +358,14 @@ describe('SearchClient', () => {
   it('retries a status-500 transient failure with plain exponential backoff', async () => {
     // @octokit/request wraps every network failure (ECONNRESET, ETIMEDOUT, a hung socket)
     // as a RequestError with status 500 — this is the case a 403/429-only retry policy misses.
+    const clock = fakeClock();
     const wrappedNetworkFailure = Object.assign(new Error('request failed'), { status: 500 });
     const transport = vi
       .fn()
       .mockRejectedValueOnce(wrappedNetworkFailure)
       .mockResolvedValue({ data: page([]), headers: {} });
 
-    const client = new SearchClient(transport, { minIntervalMs: 0 });
+    const client = new SearchClient(transport, { minIntervalMs: 0, clock });
 
     await client.page('kubernetes', 1);
 
@@ -279,11 +374,12 @@ describe('SearchClient', () => {
 
   it('retries real 502/503/504 from Search under load', async () => {
     for (const status of [502, 503, 504]) {
+      const clock = fakeClock();
       const transport = vi
         .fn()
         .mockRejectedValueOnce(Object.assign(new Error('unavailable'), { status }))
         .mockResolvedValue({ data: page([]), headers: {} });
-      const client = new SearchClient(transport, { minIntervalMs: 0 });
+      const client = new SearchClient(transport, { minIntervalMs: 0, clock });
 
       await client.page('kubernetes', 1);
 
@@ -294,13 +390,14 @@ describe('SearchClient', () => {
   it('retries a network failure that carries no status at all', async () => {
     // What @octokit/request throws for ECONNRESET / ETIMEDOUT / a socket hang-up: a plain
     // Error with no .status property.
+    const clock = fakeClock();
     const socketHangUp = new Error('socket hang up');
     const transport = vi
       .fn()
       .mockRejectedValueOnce(socketHangUp)
       .mockResolvedValue({ data: page([]), headers: {} });
 
-    const client = new SearchClient(transport, { minIntervalMs: 0 });
+    const client = new SearchClient(transport, { minIntervalMs: 0, clock });
 
     await client.page('kubernetes', 1);
 
