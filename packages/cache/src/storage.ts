@@ -8,6 +8,15 @@
  */
 export interface Storage {
   get(key: string): Promise<Buffer | null>;
+  /**
+   * Atomic. A `get(key)` issued at any point — including by a process that crashes mid-call
+   * — observes either the previous complete value or the new one, never a truncated or
+   * partial body. Callers build on this: a multi-file flush (e.g. the discovery worker's
+   * list/hashes/state, apps/workers/src/discovery/store.ts) relies on each individual `put`
+   * being all-or-nothing so it only has to reason about *ordering* between files, not about
+   * a single file tearing mid-write. `FsStorage` gets this from write-then-rename; any future
+   * adapter must provide the same guarantee (most object storage already does, natively).
+   */
   put(key: string, body: Buffer | string, contentType?: string): Promise<void>;
   has(key: string): Promise<boolean>;
   /** Keys under a prefix, lexicographically ordered. */
