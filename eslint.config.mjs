@@ -49,7 +49,11 @@ export default ts.config(
 
   // Only the projector writes to Meilisearch.
   {
-    files: ['apps/workers/src/crawler/**/*.ts', 'apps/workers/src/analyzer/**/*.ts'],
+    files: [
+      'apps/workers/src/discovery/**/*.ts',
+      'apps/workers/src/crawler/**/*.ts',
+      'apps/workers/src/analyzer/**/*.ts',
+    ],
     rules: boundary(
       'Only the projector may import @keco/search. The write side never reads a read model (§2.1).',
       [['@keco/search']],
