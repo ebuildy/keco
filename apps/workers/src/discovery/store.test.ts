@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Cache, FsStorage, discoveryKeys } from '@keco/cache';
+import { Cache, FsStorage, discoveryKeys, legacyDiscoveryStateKey } from '@keco/cache';
 import type { SearchItem } from '@keco/github';
 import { parse, stringify } from 'yaml';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -72,6 +72,8 @@ describe('toDetail', () => {
 });
 
 describe('DiscoveryStore', () => {
+  // Every key below is namespaced by query; `keys` is this suite's "kubernetes" namespace.
+  const keys = discoveryKeys('kubernetes');
   let dir: string;
   let cache: Cache;
 
@@ -89,7 +91,7 @@ describe('DiscoveryStore', () => {
 
     expect(await store.record(item(), 'kubernetes stars:>5000')).toBe('new');
 
-    const raw = await cache.getText(discoveryKeys.detail('ahmetb/kubectx'));
+    const raw = await cache.getText(keys.detail('ahmetb/kubectx'));
     expect(raw).not.toBeNull();
     expect(parse(raw!).full_name).toBe('ahmetb/kubectx');
   });
@@ -111,7 +113,7 @@ describe('DiscoveryStore', () => {
     const resumed = await DiscoveryStore.open(cache, 'kubernetes');
     expect(await resumed.record(item({ stargazers_count: 19000 }), 'q')).toBe('changed');
 
-    const raw = await cache.getText(discoveryKeys.detail('ahmetb/kubectx'));
+    const raw = await cache.getText(keys.detail('ahmetb/kubectx'));
     expect(parse(raw!).stars).toBe(19000);
   });
 
@@ -121,7 +123,7 @@ describe('DiscoveryStore', () => {
     await store.record(item({ id: 1, full_name: 'aa/first', name: 'first' }), 'q');
     await store.flush();
 
-    const list = parse((await cache.getText(discoveryKeys.fullList))!);
+    const list = parse((await cache.getText(keys.fullList))!);
     expect(list).toEqual([
       { id: 1, path: 'aa/first', name: 'first' },
       { id: 2, path: 'zz/last', name: 'last' },
@@ -138,9 +140,9 @@ describe('DiscoveryStore', () => {
     await store.flush();
 
     expect(store.size).toBe(1);
-    expect(parse((await cache.getText(discoveryKeys.fullList))!)).toHaveLength(1);
+    expect(parse((await cache.getText(keys.fullList))!)).toHaveLength(1);
 
-    const raw = await cache.getText(discoveryKeys.detail('ahmetb/kubectx'));
+    const raw = await cache.getText(keys.detail('ahmetb/kubectx'));
     expect(parse(raw!).discovered_via).toBe('window-a');
   });
 
@@ -155,27 +157,92 @@ describe('DiscoveryStore', () => {
     expect(resumed.state.completed_windows).toEqual(['kubernetes stars:>5000']);
   });
 
-  it('refuses to open state written for a different query, to avoid overwriting that corpus', async () => {
-    const store = await DiscoveryStore.open(cache, 'kubernetes');
-    store.state.completed_windows = ['kubernetes stars:>5000'];
-    await store.record(item(), 'q');
-    await store.flush();
+  it('lets two queries share one cache without either corpus touching the other', async () => {
+    // Before per-query namespacing this was the hazard the store had to *guard* against by
+    // throwing: every query wrote the same three keys, so sweeping "istio" over a "kubernetes"
+    // cache merged the two corpora. The paths no longer overlap, so both sweeps just work.
+    const istioKeys = discoveryKeys('istio');
 
-    await expect(DiscoveryStore.open(cache, 'istio')).rejects.toThrow(/fresh/i);
+    const k8s = await DiscoveryStore.open(cache, 'kubernetes');
+    k8s.state.completed_windows = ['kubernetes stars:>5000'];
+    await k8s.record(item(), 'kubernetes stars:>5000');
+    await k8s.flush();
 
-    // And the kubernetes corpus is untouched — the whole point of refusing.
-    expect(parse((await cache.getText(discoveryKeys.fullList))!)).toHaveLength(1);
+    const istio = await DiscoveryStore.open(cache, 'istio');
+    expect(istio.size).toBe(0);
+    expect(istio.state.query).toBe('istio');
+    expect(istio.state.completed_windows).toEqual([]);
+    istio.state.completed_windows = ['istio stars:>5000'];
+    await istio.record(item({ id: 99, full_name: 'istio/istio', name: 'istio' }), 'istio');
+    await istio.flush();
+
+    // Each query has its own full list, hash index and state.
+    expect(parse((await cache.getText(keys.fullList))!)).toEqual([
+      { id: 20038725, path: 'ahmetb/kubectx', name: 'kubectx' },
+    ]);
+    expect(parse((await cache.getText(istioKeys.fullList))!)).toEqual([
+      { id: 99, path: 'istio/istio', name: 'istio' },
+    ]);
+    expect(Object.keys(JSON.parse((await cache.getText(keys.hashes))!))).toEqual([
+      'ahmetb/kubectx',
+    ]);
+    expect(Object.keys(JSON.parse((await cache.getText(istioKeys.hashes))!))).toEqual([
+      'istio/istio',
+    ]);
+    expect(await cache.getText(keys.detail('ahmetb/kubectx'))).not.toBeNull();
+    expect(await cache.getText(istioKeys.detail('ahmetb/kubectx'))).toBeNull();
+
+    // And the kubernetes sweep still resumes exactly where it left off.
+    const resumed = await DiscoveryStore.open(cache, 'kubernetes');
+    expect(resumed.size).toBe(1);
+    expect(resumed.state.query).toBe('kubernetes');
+    expect(resumed.state.completed_windows).toEqual(['kubernetes stars:>5000']);
+    expect(await resumed.record(item(), 'kubernetes stars:>5000')).toBe('unchanged');
   });
 
-  it('lets --fresh bypass the query-mismatch guard and start an empty sweep', async () => {
-    const store = await DiscoveryStore.open(cache, 'kubernetes');
-    await store.record(item(), 'q');
-    await store.flush();
+  it('scopes --fresh to the query being swept, leaving other corpora alone', async () => {
+    const istioKeys = discoveryKeys('istio');
 
-    const other = await DiscoveryStore.open(cache, 'istio', { fresh: true });
-    expect(other.size).toBe(0);
-    expect(other.state.query).toBe('istio');
-    expect(other.state.completed_windows).toEqual([]);
+    const k8s = await DiscoveryStore.open(cache, 'kubernetes');
+    await k8s.record(item(), 'q');
+    await k8s.flush();
+    const istio = await DiscoveryStore.open(cache, 'istio');
+    await istio.record(item({ id: 99, full_name: 'istio/istio', name: 'istio' }), 'q');
+    await istio.flush();
+
+    const refreshed = await DiscoveryStore.open(cache, 'istio', { fresh: true });
+    expect(refreshed.size).toBe(0);
+    await refreshed.flush();
+
+    expect(parse((await cache.getText(istioKeys.fullList))!)).toEqual([]);
+    expect(parse((await cache.getText(keys.fullList))!)).toHaveLength(1);
+    const untouched = await DiscoveryStore.open(cache, 'kubernetes');
+    expect(untouched.size).toBe(1);
+  });
+
+  it('refuses a query that has no cache namespace, before doing any I/O', async () => {
+    await expect(DiscoveryStore.open(cache, '   ')).rejects.toThrow(/alphanumeric/);
+  });
+
+  it('warns about a cache written before per-query namespacing', async () => {
+    // Those files are unreachable now: the sweep would report an empty corpus and silently
+    // re-run for hours. They are never read, moved or deleted — just named, once, on stderr.
+    await cache.putJSON(legacyDiscoveryStateKey, { query: 'kubernetes' });
+
+    const logger = { warn: vi.fn() };
+    const store = await DiscoveryStore.open(cache, 'kubernetes', { logger });
+
+    expect(store.size).toBe(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ key: legacyDiscoveryStateKey }),
+      expect.stringContaining('per-query'),
+    );
+  });
+
+  it('says nothing about a legacy cache when there is none', async () => {
+    const logger = { warn: vi.fn() };
+    await DiscoveryStore.open(cache, 'kubernetes', { logger });
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('starts over when opened fresh', async () => {
@@ -194,7 +261,7 @@ describe('DiscoveryStore', () => {
     const store = await DiscoveryStore.open(cache, 'kubernetes');
     await store.record(item(), 'q');
     await store.flush();
-    await cache.putText(discoveryKeys.fullList, '[]');
+    await cache.putText(keys.fullList, '[]');
 
     const resumed = await DiscoveryStore.open(cache, 'kubernetes');
     expect(await resumed.record(item(), 'q')).toBe('new');
@@ -208,8 +275,8 @@ describe('DiscoveryStore', () => {
       store.state.completed_windows = ['kubernetes stars:>5000'];
       await store.flush();
 
-      const raw = (await cache.getText(discoveryKeys.state))!;
-      await cache.putText(discoveryKeys.state, raw.slice(0, Math.floor(raw.length * 0.6)));
+      const raw = (await cache.getText(keys.state))!;
+      await cache.putText(keys.state, raw.slice(0, Math.floor(raw.length * 0.6)));
 
       const logger = { warn: vi.fn() };
       const resumed = await DiscoveryStore.open(cache, 'kubernetes', { logger });
@@ -219,13 +286,13 @@ describe('DiscoveryStore', () => {
       // and with state unreadable there is nothing to confirm they belong to "kubernetes".
       expect(resumed.size).toBe(0);
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ key: discoveryKeys.state }),
+        expect.objectContaining({ key: keys.state }),
         expect.stringContaining('fresh sweep'),
       );
     });
 
     it('starts a fresh sweep when the state file fails schema validation (missing pending_windows)', async () => {
-      await cache.putJSON(discoveryKeys.state, { query: 'kubernetes', started_at: 'now' });
+      await cache.putJSON(keys.state, { query: 'kubernetes', started_at: 'now' });
 
       const logger = { warn: vi.fn() };
       const resumed = await DiscoveryStore.open(cache, 'kubernetes', { logger });
@@ -237,7 +304,7 @@ describe('DiscoveryStore', () => {
     it('starts a fresh sweep rather than crashing on a pending window with the wrong field types', async () => {
       // { base: 'k', stars: null } used to reach queryOf()/split() unvalidated and throw —
       // before this file's try/catch even runs, per the review that flagged this.
-      await cache.putJSON(discoveryKeys.state, {
+      await cache.putJSON(keys.state, {
         query: 'kubernetes',
         started_at: 'now',
         pending_windows: [{ base: 'k', stars: null, created: null }],
@@ -255,7 +322,7 @@ describe('DiscoveryStore', () => {
     });
 
     it('starts a fresh sweep rather than silently rendering `created:undefined` for an unknown Created kind', async () => {
-      await cache.putJSON(discoveryKeys.state, {
+      await cache.putJSON(keys.state, {
         query: 'kubernetes',
         started_at: 'now',
         pending_windows: [{ base: 'k', stars: '0', created: { kind: 'bogus' } }],
@@ -277,8 +344,8 @@ describe('DiscoveryStore', () => {
       await store.record(item(), 'q');
       await store.flush();
 
-      const raw = (await cache.getText(discoveryKeys.hashes))!;
-      await cache.putText(discoveryKeys.hashes, raw.slice(0, Math.floor(raw.length * 0.6)));
+      const raw = (await cache.getText(keys.hashes))!;
+      await cache.putText(keys.hashes, raw.slice(0, Math.floor(raw.length * 0.6)));
 
       const logger = { warn: vi.fn() };
       const resumed = await DiscoveryStore.open(cache, 'kubernetes', { logger });
@@ -286,7 +353,7 @@ describe('DiscoveryStore', () => {
       expect(resumed.size).toBe(1); // list.yaml still loaded fine
       expect(await resumed.record(item(), 'q')).toBe('changed'); // known, but hash is gone
       expect(logger.warn).toHaveBeenCalledWith(
-        expect.objectContaining({ key: discoveryKeys.hashes }),
+        expect.objectContaining({ key: keys.hashes }),
         expect.any(String),
       );
     });
@@ -299,7 +366,7 @@ describe('DiscoveryStore', () => {
       // Simulates a torn write leaving a row without `path` — this used to throw inside
       // flush()'s sort once it made it back onto disk.
       await cache.putText(
-        discoveryKeys.fullList,
+        keys.fullList,
         stringify([
           { id: 1, path: 'ahmetb/kubectx', name: 'kubectx' },
           { id: 2, name: 'incomplete' },
@@ -311,7 +378,7 @@ describe('DiscoveryStore', () => {
       expect(resumed.size).toBe(1);
 
       await resumed.flush();
-      expect(parse((await cache.getText(discoveryKeys.fullList))!)).toEqual([
+      expect(parse((await cache.getText(keys.fullList))!)).toEqual([
         { id: 1, path: 'ahmetb/kubectx', name: 'kubectx' },
       ]);
       expect(logger.warn).toHaveBeenCalledWith(
@@ -323,7 +390,7 @@ describe('DiscoveryStore', () => {
     it('drops non-object rows without crashing (the corpus index reduced to one garbage string)', async () => {
       const store = await DiscoveryStore.open(cache, 'kubernetes');
       await store.flush();
-      await cache.putText(discoveryKeys.fullList, stringify(['i']));
+      await cache.putText(keys.fullList, stringify(['i']));
 
       const logger = { warn: vi.fn() };
       const resumed = await DiscoveryStore.open(cache, 'kubernetes', { logger });
@@ -342,7 +409,7 @@ describe('DiscoveryStore', () => {
       for (let i = 0; i < 24; i += 1) {
         expect(await store.windowCompleted(at('2026-08-02T00:00:05Z'))).toBe(false);
       }
-      expect(await cache.getText(discoveryKeys.fullList)).toBeNull();
+      expect(await cache.getText(keys.fullList)).toBeNull();
     });
 
     it('flushes on the 25th completed window', async () => {
@@ -354,7 +421,7 @@ describe('DiscoveryStore', () => {
         flushed = await store.windowCompleted(at('2026-08-02T00:00:05Z'));
       }
       expect(flushed).toBe(true);
-      expect(await cache.getText(discoveryKeys.fullList)).not.toBeNull();
+      expect(await cache.getText(keys.fullList)).not.toBeNull();
     });
 
     it('flushes once 30 seconds have passed, even with only one window done', async () => {
@@ -362,7 +429,7 @@ describe('DiscoveryStore', () => {
       await store.record(item(), 'q');
 
       expect(await store.windowCompleted(at('2026-08-02T00:00:31Z'))).toBe(true);
-      expect(await cache.getText(discoveryKeys.fullList)).not.toBeNull();
+      expect(await cache.getText(keys.fullList)).not.toBeNull();
     });
 
     it('resets the window count after a flush, so the next 25 start counting from zero', async () => {
@@ -379,7 +446,7 @@ describe('DiscoveryStore', () => {
       const store = await DiscoveryStore.open(cache, 'kubernetes');
       await store.record(item(), 'q');
       await store.flush();
-      expect(await cache.getText(discoveryKeys.fullList)).not.toBeNull();
+      expect(await cache.getText(keys.fullList)).not.toBeNull();
     });
   });
 
@@ -404,11 +471,7 @@ describe('DiscoveryStore', () => {
         })),
       ].sort((a, b) => a.order - b.order);
 
-      expect(calls.map((c) => c.key)).toEqual([
-        discoveryKeys.fullList,
-        discoveryKeys.hashes,
-        discoveryKeys.state,
-      ]);
+      expect(calls.map((c) => c.key)).toEqual([keys.fullList, keys.hashes, keys.state]);
 
       putText.mockRestore();
       putJSON.mockRestore();
@@ -431,7 +494,7 @@ describe('DiscoveryStore', () => {
       putJSON.mockRestore();
 
       // list.yaml already has both repos — that put ran, for real, before the mocked failure.
-      expect(parse((await cache.getText(discoveryKeys.fullList))!)).toHaveLength(2);
+      expect(parse((await cache.getText(keys.fullList))!)).toHaveLength(2);
 
       // The orchestrator's window retry re-records the same item on resume; nothing must be
       // lost, and the store must correctly see it needs rewriting since its hash never landed.
@@ -442,7 +505,7 @@ describe('DiscoveryStore', () => {
       );
       await resumed.flush();
 
-      const finalList = parse((await cache.getText(discoveryKeys.fullList))!) as {
+      const finalList = parse((await cache.getText(keys.fullList))!) as {
         path: string;
       }[];
       expect(finalList.map((e) => e.path).sort()).toEqual(['a/a', 'b/b']);

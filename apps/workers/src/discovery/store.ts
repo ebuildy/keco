@@ -1,13 +1,24 @@
 import { createHash } from 'node:crypto';
-import { type Cache, discoveryKeys } from '@keco/cache';
+import {
+  type Cache,
+  type DiscoveryKeys,
+  discoveryKeys,
+  legacyDiscoveryStateKey,
+} from '@keco/cache';
 import type { SearchItem } from '@keco/github';
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 import type { Created, Window } from './windows';
 
 /**
- * Everything discovery reads and writes (design 2026-08-02, hardened 2026-08-05 after
- * review). All of it through the Storage port — no fs, no path building (AGENTS.md §14).
+ * Everything discovery reads and writes (design 2026-08-02, hardened 2026-08-05 after review,
+ * namespaced per query 2026-08-16). All of it through the Storage port — no fs, no path
+ * building (AGENTS.md §14): `discoveryKeys(query)` owns the layout, this file owns the
+ * meaning of what lands there.
+ *
+ * Every key belongs to one query's namespace (`discovery/{slug}/…`), so two keywords can be
+ * swept into the same cache dir without meeting. Nothing here has to *check* which query a
+ * file belongs to — it cannot read another query's file at all.
  *
  * The full list and the hash index are held in memory for the length of a run, which is what
  * makes change detection a map lookup instead of re-reading 100k YAML files per sweep. At
@@ -145,8 +156,12 @@ const HashesSchema = z.record(z.string(), z.string());
  * caller treats `null` as "start a fresh sweep," which is always safe — GitHub Search is the
  * source of truth; this file is only ever a resume optimisation.
  */
-async function loadState(cache: Cache, logger: DiscoveryLogger): Promise<DiscoveryState | null> {
-  const raw = await cache.getText(discoveryKeys.state);
+async function loadState(
+  cache: Cache,
+  keys: DiscoveryKeys,
+  logger: DiscoveryLogger,
+): Promise<DiscoveryState | null> {
+  const raw = await cache.getText(keys.state);
   if (raw === null) return null;
 
   let parsed: unknown;
@@ -154,7 +169,7 @@ async function loadState(cache: Cache, logger: DiscoveryLogger): Promise<Discove
     parsed = JSON.parse(raw);
   } catch (error) {
     logger.warn(
-      { key: discoveryKeys.state, error: String(error) },
+      { key: keys.state, error: String(error) },
       'discovery: state file is corrupt JSON — starting a fresh sweep instead of wedging',
     );
     return null;
@@ -163,7 +178,7 @@ async function loadState(cache: Cache, logger: DiscoveryLogger): Promise<Discove
   const result = DiscoveryStateSchema.safeParse(parsed);
   if (!result.success) {
     logger.warn(
-      { key: discoveryKeys.state, issues: result.error.issues.slice(0, 5) },
+      { key: keys.state, issues: result.error.issues.slice(0, 5) },
       'discovery: state file failed validation — starting a fresh sweep instead of wedging',
     );
     return null;
@@ -178,8 +193,12 @@ async function loadState(cache: Cache, logger: DiscoveryLogger): Promise<Discove
  * "drop what's unusable, keep what parses," logged, rather than crashing or silently
  * round-tripping a bad row back to disk on the next flush.
  */
-async function loadList(cache: Cache, logger: DiscoveryLogger): Promise<ListEntry[]> {
-  const text = await cache.getText(discoveryKeys.fullList);
+async function loadList(
+  cache: Cache,
+  keys: DiscoveryKeys,
+  logger: DiscoveryLogger,
+): Promise<ListEntry[]> {
+  const text = await cache.getText(keys.fullList);
   if (text === null) return [];
 
   let raw: unknown;
@@ -187,14 +206,14 @@ async function loadList(cache: Cache, logger: DiscoveryLogger): Promise<ListEntr
     raw = parse(text);
   } catch (error) {
     logger.warn(
-      { key: discoveryKeys.fullList, error: String(error) },
+      { key: keys.fullList, error: String(error) },
       'discovery: full list is unreadable YAML — treating it as empty',
     );
     return [];
   }
   if (!Array.isArray(raw)) {
     logger.warn(
-      { key: discoveryKeys.fullList, got: typeof raw },
+      { key: keys.fullList, got: typeof raw },
       'discovery: full list did not parse to an array — treating it as empty',
     );
     return [];
@@ -209,7 +228,7 @@ async function loadList(cache: Cache, logger: DiscoveryLogger): Promise<ListEntr
   }
   if (dropped > 0) {
     logger.warn(
-      { dropped, kept: entries.length, key: discoveryKeys.fullList },
+      { dropped, kept: entries.length, key: keys.fullList },
       'discovery: dropped malformed rows from the full list on load',
     );
   }
@@ -220,8 +239,12 @@ async function loadList(cache: Cache, logger: DiscoveryLogger): Promise<ListEntr
  * Reads `_hashes.json`. Corrupt JSON or the wrong shape degrades to an empty map — every
  * repo looks changed once, which costs a rewrite, not a crash or a lost repo.
  */
-async function loadHashes(cache: Cache, logger: DiscoveryLogger): Promise<Map<string, string>> {
-  const text = await cache.getText(discoveryKeys.hashes);
+async function loadHashes(
+  cache: Cache,
+  keys: DiscoveryKeys,
+  logger: DiscoveryLogger,
+): Promise<Map<string, string>> {
+  const text = await cache.getText(keys.hashes);
   if (text === null) return new Map();
 
   let parsed: unknown;
@@ -229,7 +252,7 @@ async function loadHashes(cache: Cache, logger: DiscoveryLogger): Promise<Map<st
     parsed = JSON.parse(text);
   } catch (error) {
     logger.warn(
-      { key: discoveryKeys.hashes, error: String(error) },
+      { key: keys.hashes, error: String(error) },
       'discovery: hash index is corrupt JSON — treating it as empty',
     );
     return new Map();
@@ -238,7 +261,7 @@ async function loadHashes(cache: Cache, logger: DiscoveryLogger): Promise<Map<st
   const result = HashesSchema.safeParse(parsed);
   if (!result.success) {
     logger.warn(
-      { key: discoveryKeys.hashes },
+      { key: keys.hashes },
       'discovery: hash index failed validation — treating it as empty',
     );
     return new Map();
@@ -344,6 +367,8 @@ export class DiscoveryStore {
 
   private constructor(
     private readonly cache: Cache,
+    /** This query's namespace, resolved once in `open()` — see `discoveryKeys`. */
+    private readonly keys: DiscoveryKeys,
     private readonly entries: Map<number, ListEntry>,
     private readonly hashes: Map<string, string>,
     readonly state: DiscoveryState,
@@ -353,12 +378,12 @@ export class DiscoveryStore {
   }
 
   /**
-   * Loads prior artifacts unless `fresh`. Refuses — throws — to open state written for a
-   * *different* query, because silently proceeding would overwrite that corpus's full list
-   * and hash index the moment this run flushes; `{ fresh: true }` is the explicit escape
-   * hatch for "yes, start over in this cache dir." Unreadable or schema-invalid state (as
-   * opposed to valid state for the wrong query) is a different failure and degrades instead
-   * of throwing — see `loadState`.
+   * Loads this query's prior artifacts unless `fresh`. Every key is namespaced by the query
+   * (`discovery/{slug}/…`), so a sweep can only ever read and write its own corpus: two
+   * keywords coexist in one cache dir, and `--fresh` starts *this* query over without
+   * touching any other. A query with no usable slug throws here, before any I/O.
+   *
+   * Unreadable or schema-invalid state degrades rather than throwing — see `loadState`.
    */
   static async open(
     cache: Cache,
@@ -367,30 +392,33 @@ export class DiscoveryStore {
   ): Promise<DiscoveryStore> {
     const now = options.now ?? new Date();
     const logger = options.logger ?? noopLogger;
+    const keys = discoveryKeys(query);
 
-    const storedState = options.fresh ? null : await loadState(cache, logger);
-
-    if (storedState !== null && storedState.query !== query) {
-      throw new Error(
-        `discovery state at "${discoveryKeys.state}" belongs to query "${storedState.query}", ` +
-          `not "${query}". Opening it as-is would overwrite that corpus's ` +
-          `${discoveryKeys.fullList} and ${discoveryKeys.hashes} with this query's results. ` +
-          'Pass { fresh: true } (or --fresh) to start a new sweep in this cache dir, or point ' +
-          'CACHE_DIR at a different directory.',
+    // Transitional: a cache from before namespacing has its artifacts at the old global keys,
+    // where nothing will ever read them again. Left in place (they are rebuildable and the
+    // cache is disposable), but named out loud — the alternative is a run that reports an
+    // empty corpus and re-sweeps for hours with no clue why.
+    if (await cache.has(legacyDiscoveryStateKey)) {
+      logger.warn(
+        { key: legacyDiscoveryStateKey, now_under: keys.state },
+        'discovery: found artifacts from before per-query namespacing — they are ignored, and ' +
+          'this sweep starts a fresh corpus. Delete the stale files under .cache/discovery/ ' +
+          '(everything not inside a query directory) to reclaim the space.',
       );
     }
+
+    const storedState = options.fresh ? null : await loadState(cache, keys, logger);
 
     const entries = new Map<number, ListEntry>();
     const hashes = new Map<string, string>();
 
     if (storedState !== null) {
-      // Only load the corpus once we have validated, matching state to resume — list.yaml
-      // and hashes.json carry no query of their own, so without state confirming they're
-      // for *this* query, trusting them could silently mix two corpora. Unreadable state
-      // (loadState's degrade path) means a full resweep, not a best-effort partial load of a
-      // corpus this run can no longer attribute to a query.
-      for (const entry of await loadList(cache, logger)) entries.set(entry.id, entry);
-      for (const [repo, hash] of await loadHashes(cache, logger)) hashes.set(repo, hash);
+      // Only load the corpus once we have validated state to resume: list.yaml and
+      // hashes.json carry no bookkeeping of their own, so state is what says how far this
+      // sweep got. Unreadable state (loadState's degrade path) means a full resweep, not a
+      // best-effort partial load of a corpus whose progress this run cannot account for.
+      for (const entry of await loadList(cache, keys, logger)) entries.set(entry.id, entry);
+      for (const [repo, hash] of await loadHashes(cache, keys, logger)) hashes.set(repo, hash);
     }
 
     const state: DiscoveryState = storedState ?? {
@@ -404,7 +432,7 @@ export class DiscoveryStore {
       dropped: 0,
     };
 
-    return new DiscoveryStore(cache, entries, hashes, state, now);
+    return new DiscoveryStore(cache, keys, entries, hashes, state, now);
   }
 
   get size(): number {
@@ -425,11 +453,7 @@ export class DiscoveryStore {
       return 'unchanged';
     }
 
-    await this.cache.putText(
-      discoveryKeys.detail(doc.full_name),
-      stringify(doc),
-      'application/yaml',
-    );
+    await this.cache.putText(this.keys.detail(doc.full_name), stringify(doc), 'application/yaml');
     this.hashes.set(doc.full_name, doc.payload_hash);
     this.entries.set(doc.id, { id: doc.id, path: doc.full_name, name: doc.name });
     this.seenThisRun.add(doc.id);
@@ -492,9 +516,9 @@ export class DiscoveryStore {
     // could drift from what's actually about to be persisted below.
     this.state.repos_seen = this.entries.size;
     const list = [...this.entries.values()].sort(byPath);
-    await this.cache.putText(discoveryKeys.fullList, stringify(list), 'application/yaml');
-    await this.cache.putJSON(discoveryKeys.hashes, Object.fromEntries(this.hashes));
-    await this.cache.putJSON(discoveryKeys.state, this.state);
+    await this.cache.putText(this.keys.fullList, stringify(list), 'application/yaml');
+    await this.cache.putJSON(this.keys.hashes, Object.fromEntries(this.hashes));
+    await this.cache.putJSON(this.keys.state, this.state);
     this.windowsSinceFlush = 0;
     this.lastFlushAt = now.getTime();
   }
