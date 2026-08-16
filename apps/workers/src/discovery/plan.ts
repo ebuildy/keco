@@ -54,6 +54,14 @@ export function planWindow(
   return { lastPage: pagesFor(MAX_RESULTS_PER_QUERY, perPage), children: [], truncated: true };
 }
 
-/** At least 1 — the probe page is always spent, even on an empty result set. */
+/**
+ * At least 1 — the probe page is always spent, even on an empty result set — and never so far
+ * that `page * perPage` crosses the 1000-result cap, which `SearchClient.page()` rejects
+ * outright.
+ *
+ * The ceiling has to be a *floor* division, and only `PER_PAGE === 100` hides it: at
+ * `perPage: 30`, `ceil(1000/30)` is 34 and `34 * 30` is 1020, so every truncated window would
+ * throw and be recorded as failed instead of yielding its 990 reachable repos.
+ */
 const pagesFor = (count: number, perPage: number): number =>
-  Math.max(1, Math.ceil(Math.min(count, MAX_RESULTS_PER_QUERY) / perPage));
+  Math.max(1, Math.min(Math.ceil(count / perPage), Math.floor(MAX_RESULTS_PER_QUERY / perPage)));

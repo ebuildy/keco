@@ -85,7 +85,7 @@ run = "pnpm prettier --write ."
 # ── write side: the three workers ────────────────────────────────────────────
 
 [tasks.discovery]
-description = "Enumerate GitHub repos matching a keyword into discovery/*.yaml. Args: --query kubernetes --limit 500 --fresh"
+description = "Enumerate every GitHub repo matching a keyword into discovery/*.yaml. Resumes by default. Args: --query kubernetes --fresh --limit 500 (stops at the first window boundary past 500 total repos, so it overshoots and is for dev runs only)"
 run = "pnpm -F @keco/workers discovery"
 
 [tasks.crawler]

@@ -54,6 +54,16 @@ describe('toDetail', () => {
     expect(a.payload_hash).not.toBe(b.payload_hash);
   });
 
+  it('excludes discovered_via from the hash, so a re-sighting is not a rewrite', () => {
+    // A window over 1000 contributes its probe items under the parent's query and then
+    // subdivides, so a child re-sees them under a different query. With `via` hashed, a resume
+    // rewrote every one of those documents. The stored value stays the first sighting's.
+    const a = toDetail(item(), 'kubernetes stars:>5000', 'now');
+    const b = toDetail(item(), 'kubernetes stars:>5000 created:2020-01-01..2020-12-31', 'now');
+    expect(a.payload_hash).toBe(b.payload_hash);
+    expect(a.discovered_via).toBe('kubernetes stars:>5000');
+  });
+
   it('sorts topics so their order cannot churn the hash', () => {
     const a = toDetail(item({ topics: ['a', 'b'] }), 'q', 'now');
     const b = toDetail(item({ topics: ['b', 'a'] }), 'q', 'now');
@@ -234,7 +244,7 @@ describe('DiscoveryStore', () => {
         completed_windows: [],
         failed_windows: [],
         repos_seen: 0,
-        requests: 0,
+        pages_fetched: 0,
       });
 
       const logger = { warn: vi.fn() };
@@ -252,7 +262,7 @@ describe('DiscoveryStore', () => {
         completed_windows: [],
         failed_windows: [],
         repos_seen: 0,
-        requests: 0,
+        pages_fetched: 0,
       });
 
       const logger = { warn: vi.fn() };

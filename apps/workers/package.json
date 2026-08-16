@@ -6,7 +6,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "crawler": "tsx src/crawler/index.ts",
-    "discovery": "tsx src/discovery/index.ts",
+    "discovery": "node --import tsx src/discovery/index.ts",
     "analyzer": "tsx src/analyzer/index.ts",
     "projector": "tsx src/projector/index.ts",
     "replay": "tsx src/replay/index.ts"

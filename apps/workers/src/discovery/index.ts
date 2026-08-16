@@ -2,11 +2,13 @@ import { parseArgs } from 'node:util';
 import { SearchClient, type SearchItem } from '@keco/github';
 import { config } from '../lib/config';
 import { workerLogger } from '../lib/logger';
-import { createProgress, type Progress } from '../lib/progress';
+import { createProgress } from '../lib/progress';
 import { createRuntime } from '../lib/runtime';
+import { installShutdown } from '../lib/shutdown';
 import { MAX_RESULTS_PER_QUERY, PER_PAGE, planWindow } from './plan';
 import { DiscoveryStore, type RecordOutcome } from './store';
-import { initialWindows, queryOf } from './windows';
+import { beginSweep } from './sweep';
+import { queryOf } from './windows';
 
 /**
  * discovery — GitHub Search → `discovery/**` YAML (design 2026-08-02).
@@ -19,8 +21,10 @@ import { initialWindows, queryOf } from './windows';
  * events" note. It writes only under `discovery/`, only through the Storage port.
  *
  * Thin by construction: the window algebra is `windows.ts`, the split/paginate decision is
- * `plan.ts`, all persistence is `store.ts`. What is left here is the loop, the CLI and the
- * shutdown story.
+ * `plan.ts`, the resume-vs-new-sweep decision is `sweep.ts`, the signal handling is
+ * `lib/shutdown.ts`, all persistence is `store.ts`. This file executes `main()` on import, so
+ * nothing declared here can be unit-tested — anything that carries a decision belongs in one
+ * of those modules, and every one of them exists because a bug was found in it.
  */
 const log = workerLogger('discovery');
 
@@ -75,19 +79,7 @@ async function main(): Promise<void> {
   const search = SearchClient.fromToken(config.GITHUB_TOKEN, { logger: log });
   const progress = createProgress({ log });
 
-  // A non-empty queue means the last sweep was interrupted, so continue it. An empty one means
-  // the last sweep finished (or there was none): start a new sweep over every window. Only the
-  // window bookkeeping and the per-sweep counters reset — the repo list and the hashes carry
-  // over, which is what makes a second sweep re-check the corpus while still skipping unchanged
-  // documents.
-  const resuming = store.state.pending_windows.length > 0;
-  if (!resuming) {
-    store.state.pending_windows = initialWindows(query);
-    store.state.completed_windows = [];
-    store.state.failed_windows = [];
-    store.state.started_at = now.toISOString();
-    store.state.requests = 0;
-  }
+  const resuming = beginSweep(store.state, query, now);
 
   // The queue *is* `state.pending_windows`, aliased on purpose. Two properties make that safe:
   // `Cache.putJSON` stringifies synchronously, so a flush can never observe a half-mutated
@@ -108,15 +100,21 @@ async function main(): Promise<void> {
     'discovery start',
   );
 
-  installShutdown(store, progress);
+  installShutdown({
+    log,
+    flush: () => store.flush(),
+    done: () => progress.done(),
+  });
 
   let stopped = false;
-  // Items GitHub returned that failed per-item validation. Nothing is dropped silently (§13):
-  // `SearchClient` warns per page, and this is the run-level total for the summary line.
-  let droppedItems = 0;
-  // Per-run write outcomes. The design's definition of done is "re-running writes zero detail
-  // files and reports every repo as unchanged" — without these counters that is only checkable
-  // by stat-ing the cache, so the summary carries it instead.
+  // Per-*process* write outcomes, as opposed to the per-*sweep* counters on `store.state`,
+  // which accumulate across every resume. The summary below names the two scopes apart
+  // (`run_` vs `sweep_`): reporting "76 pages, 0 dropped" when the 76 covers two runs and the
+  // 0 covers one is worse than reporting neither.
+  //
+  // These exist because the design's definition of done is "re-running writes zero detail files
+  // and reports every repo as unchanged", which is otherwise only checkable by stat-ing the
+  // cache.
   const outcomes: Record<RecordOutcome, number> = { new: 0, changed: 0, unchanged: 0 };
 
   try {
@@ -133,9 +131,9 @@ async function main(): Promise<void> {
       // enqueued twice by subdivision.
       if (!completed.has(q)) {
         try {
-          store.state.requests += 1;
+          store.state.pages_fetched += 1;
           const probe = await search.page(q, 1, PER_PAGE);
-          droppedItems += probe.dropped;
+          store.state.dropped += probe.dropped;
           await recordAll(store, probe.items, q, outcomes);
 
           const plan = planWindow(window, probe.total_count, now);
@@ -147,9 +145,9 @@ async function main(): Promise<void> {
           }
 
           for (let page = 2; page <= plan.lastPage; page += 1) {
-            store.state.requests += 1;
+            store.state.pages_fetched += 1;
             const next = await search.page(q, page, PER_PAGE);
-            droppedItems += next.dropped;
+            store.state.dropped += next.dropped;
             await recordAll(store, next.items, q, outcomes);
           }
 
@@ -183,7 +181,7 @@ async function main(): Promise<void> {
         repos: store.size,
         windowsDone: completed.size,
         windowsKnown: completed.size + queue.length,
-        requests: store.state.requests,
+        requests: store.state.pages_fetched,
       });
 
       if (limit !== null && store.size >= limit) stopped = true;
@@ -196,21 +194,40 @@ async function main(): Promise<void> {
     progress.done();
   }
 
-  log.info(
-    {
-      repos: store.size,
-      windows_completed: completed.size,
-      windows_failed: store.state.failed_windows.length,
-      windows_pending: queue.length,
-      requests: store.state.requests,
-      repos_new: outcomes.new,
-      repos_changed: outcomes.changed,
-      repos_unchanged: outcomes.unchanged,
-      dropped_items: droppedItems,
-      stopped_at_limit: stopped,
-    },
-    'discovery complete',
-  );
+  const failed = store.state.failed_windows.length;
+  const summary = {
+    // `sweep_` fields accumulate across every resume of this sweep; `run_` fields cover only
+    // this process. They are not comparable, so they are not named alike.
+    sweep_repos: store.size,
+    sweep_windows_completed: completed.size,
+    sweep_windows_failed: failed,
+    sweep_windows_pending: queue.length,
+    sweep_pages_fetched: store.state.pages_fetched,
+    sweep_dropped_items: store.state.dropped,
+    run_docs_written_new: outcomes.new,
+    run_docs_written_changed: outcomes.changed,
+    // Sightings, not repos: `record()` answers 'unchanged' both for "the payload hash matched"
+    // and for "already seen earlier in this run", and a cold sweep reports plenty of the
+    // second. Counting distinct repos here would mean a second set the size of the corpus.
+    run_sightings_skipped: outcomes.unchanged,
+    stopped_at_limit: stopped,
+  };
+
+  if (failed > 0) {
+    // A failed window is a silently truncated corpus: it is dropped from the queue, is not
+    // retried in-run, and does not come back on resume — it only returns on the next full
+    // sweep. `SearchClient` already retries throttles and transient statuses, so what reaches
+    // this point is the non-retryable class. Exiting 0 here would let a scheduled sweep hand
+    // the crawler a corpus missing an entire star band and call it a success.
+    process.exitCode = 1;
+    log.error(
+      { ...summary, failed_windows: store.state.failed_windows },
+      'discovery finished with failed windows — the corpus is incomplete',
+    );
+    return;
+  }
+
+  log.info(summary, 'discovery complete');
 }
 
 async function recordAll(
@@ -229,46 +246,6 @@ async function recordAll(
       );
     }
   }
-}
-
-/**
- * A cold sweep runs one to two hours, so Ctrl-C is normal operation, not an incident — and the
- * `finally` above cannot help, because a signal tears the process down without unwinding.
- *
- * Flushing straight from the handler, rather than asking the loop to stop and unwind, is safe
- * and it is what keeps the interruption cheap: `pending_windows` still lists the in-flight
- * window (the loop peeks), so a resume simply refetches it, and every repo already recorded
- * from it is skipped by its unchanged hash. Racing an in-flight `record()` is harmless in both
- * directions — the detail file write is atomic, and a repo that lands in `hashes` a moment
- * after the list was serialised just looks new again next run and is rewritten.
- *
- * A second signal means the operator wants out now, flush or no flush.
- */
-function installShutdown(store: DiscoveryStore, progress: Progress): void {
-  let shuttingDown = false;
-
-  const handle = (signal: 'SIGINT' | 'SIGTERM'): void => {
-    const code = signal === 'SIGINT' ? 130 : 143;
-    if (shuttingDown) process.exit(code);
-    shuttingDown = true;
-    log.warn({ signal }, 'discovery interrupted — flushing artifacts, signal again to abort');
-
-    void (async () => {
-      try {
-        await store.flush();
-      } catch (error) {
-        log.error(
-          { signal, error: error instanceof Error ? error.message : String(error) },
-          'flush on shutdown failed',
-        );
-      }
-      progress.done();
-      process.exit(code);
-    })();
-  };
-
-  process.on('SIGINT', () => handle('SIGINT'));
-  process.on('SIGTERM', () => handle('SIGTERM'));
 }
 
 try {

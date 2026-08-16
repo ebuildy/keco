@@ -62,6 +62,27 @@ describe('planWindow', () => {
     expect(plan.truncated).toBe(true);
   });
 
+  it('never plans a page past the 1000-result cap, at any page size', () => {
+    // `SearchClient.page()` rejects `page * perPage > 1000` before spending a rate slot, so a
+    // plan that crosses the cap turns every truncated window into a failed one. Only
+    // perPage=100 divides 1000 evenly, which is what hid this.
+    for (const perPage of [1, 7, 30, 33, 50, 64, 100]) {
+      for (const total of [0, 1, 99, 100, 999, 1000, 1001, 40_000]) {
+        const plan = planWindow(window({ kind: 'day', date: '2020-04-17' }), total, NOW, perPage);
+        expect(plan.lastPage * perPage).toBeLessThanOrEqual(MAX_RESULTS_PER_QUERY);
+        expect(plan.lastPage).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
+  it('takes as many whole pages as fit under the cap at an uneven page size', () => {
+    const plan = planWindow(window({ kind: 'day', date: '2020-04-17' }), 4_200, NOW, 30);
+
+    // ceil(1000/30) is 34, and 34*30 = 1020 would be rejected; 33 pages is 990 repos.
+    expect(plan.lastPage).toBe(33);
+    expect(plan.truncated).toBe(true);
+  });
+
   it('carries base and stars through to every child', () => {
     const plan = planWindow(window({ kind: 'quarter', year: 2022, quarter: 3 }), 2_000, NOW);
 

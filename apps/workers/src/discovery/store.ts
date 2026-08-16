@@ -72,7 +72,14 @@ export type DiscoveryState = {
   completed_windows: string[];
   failed_windows: FailedWindow[];
   repos_seen: number;
-  requests: number;
+  /**
+   * Pages asked for, not HTTP requests made: `SearchClient.page()` retries throttles and
+   * transient failures internally, so this reads low exactly when the budget is under the most
+   * pressure. Named for what it actually counts.
+   */
+  pages_fetched: number;
+  /** Search items GitHub returned that failed per-item validation. Nothing drops silently (§13). */
+  dropped: number;
 };
 
 export type RecordOutcome = 'new' | 'changed' | 'unchanged';
@@ -115,7 +122,11 @@ const DiscoveryStateSchema: z.ZodType<DiscoveryState> = z.object({
   completed_windows: z.array(z.string()),
   failed_windows: z.array(FailedWindowSchema),
   repos_seen: z.number(),
-  requests: z.number(),
+  pages_fetched: z.number(),
+  // `.default(0)` rather than required: a counter added after the fact must not invalidate a
+  // state file mid-sweep. zod backfills it, so an older `_state.json` resumes instead of being
+  // rejected by `loadState` and degraded to a full resweep.
+  dropped: z.number().default(0),
 });
 
 const ListEntrySchema: z.ZodType<ListEntry> = z.object({
@@ -236,8 +247,19 @@ async function loadHashes(cache: Cache, logger: DiscoveryLogger): Promise<Map<st
 }
 
 /**
- * Covers every field except `discovered_at` and `payload_hash` itself. Including
- * `discovered_at` would make every document look changed on every run.
+ * Covers every field except `discovered_via`, `discovered_at` and `payload_hash` itself.
+ *
+ * `discovered_at` is excluded because including it would make every document look changed on
+ * every run, defeating the rewrite policy outright.
+ *
+ * `discovered_via` is excluded because it is provenance, not content, and it is *unstable by
+ * construction*: a window over 1000 results contributes its 100 probe items under the parent's
+ * query and then subdivides, so a child window re-sees those same repos under a different
+ * query string. With `via` in the hash, a resumed sweep rewrote every one of them — measured at
+ * 100 spurious `changed` documents on a 3000-repo corpus, which is tens of thousands of
+ * pointless writes at real scale. Excluding it makes the documented first-wins rule actually
+ * hold: the stored `discovered_via` is the first sighting's window and is deliberately never
+ * updated, even when a later window re-sees the repo.
  *
  * `stars` IS included, unlike `contentHash` in @keco/cache which deliberately excludes it.
  * The two serve different purposes: contentHash gates expensive re-analysis, so star churn
@@ -247,7 +269,7 @@ async function loadHashes(cache: Cache, logger: DiscoveryLogger): Promise<Map<st
  * reason the skip mostly pays off on same-day re-runs and resumes.
  */
 export function toDetail(item: SearchItem, via: string, discoveredAt: string): DetailDoc {
-  const core = {
+  const content = {
     id: item.id,
     full_name: item.full_name,
     name: item.name,
@@ -266,13 +288,13 @@ export function toDetail(item: SearchItem, via: string, discoveredAt: string): D
     created_at: item.created_at,
     updated_at: item.updated_at,
     pushed_at: item.pushed_at ?? null,
-    discovered_via: via,
   };
   const payload_hash = createHash('sha256')
-    .update(JSON.stringify(core))
+    .update(JSON.stringify(content))
     .digest('hex')
     .slice(0, 32);
-  return { ...core, discovered_at: discoveredAt, payload_hash };
+  // Field order is the documented document shape; `discovered_via` stays where it was.
+  return { ...content, discovered_via: via, discovered_at: discoveredAt, payload_hash };
 }
 
 /**
@@ -288,9 +310,10 @@ export class DiscoveryStore {
   /**
    * Repos already recorded during this process. Star bands and date windows do not overlap
    * in principle, but a window that exceeded 1000 contributes its first 100 results and then
-   * subdivides, so its children re-yield those same repos. Without this set the second
-   * sighting would differ only in `discovered_via`, hash differently, and rewrite the
-   * document — one wasted write per duplicate, across the whole corpus.
+   * subdivides, so its children re-yield those same repos. This set is what makes the
+   * documented first-wins rule hold *within* a run; `payload_hash` (which deliberately excludes
+   * `discovered_via`) is what makes it hold *across* runs, so a resume cannot rewrite a
+   * document just because a child window re-sighted it.
    *
    * First-wins also means a document can be up to one sweep stale: if a repo's real data
    * changes between its first (owning) window recording it and a later window that would
@@ -307,6 +330,17 @@ export class DiscoveryStore {
 
   private windowsSinceFlush = 0;
   private lastFlushAt: number;
+
+  /**
+   * Serialises overlapping `flush()` calls — the shutdown handler's and the loop's can be in
+   * flight at once. Without it the two interleave *within* one flush: the list is snapshotted
+   * before the first await but `hashes` and `state` are read after it, so if the earlier
+   * flush's list write lands last you get a list missing a window's repos alongside a state
+   * that marks that window complete. Nothing would ever refetch them. Same shape as
+   * `RatePacer.queue` in packages/github/src/search.ts, including the `.catch` so one failed
+   * flush cannot poison every later one.
+   */
+  private flushing: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly cache: Cache,
@@ -366,7 +400,8 @@ export class DiscoveryStore {
       completed_windows: [],
       failed_windows: [],
       repos_seen: 0,
-      requests: 0,
+      pages_fetched: 0,
+      dropped: 0,
     };
 
     return new DiscoveryStore(cache, entries, hashes, state, now);
@@ -447,6 +482,12 @@ export class DiscoveryStore {
    * recovery.
    */
   async flush(now = new Date()): Promise<void> {
+    const turn = this.flushing.then(() => this.writeAll(now));
+    this.flushing = turn.catch(() => undefined);
+    return turn;
+  }
+
+  private async writeAll(now: Date): Promise<void> {
     // Read at the instant of the write, not cached from an earlier record() — anything else
     // could drift from what's actually about to be persisted below.
     this.state.repos_seen = this.entries.size;
