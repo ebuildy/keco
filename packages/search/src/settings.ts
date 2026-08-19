@@ -1,8 +1,16 @@
-import { TAXONOMY } from '@keco/core';
+import { TAXONOMY, TOOLS_INDEX, familyAttribute } from '@keco/core';
 import type { Settings } from 'meilisearch';
 
-/** The public search corpus. `tools` is an alias onto `tools_<ts>` (AGENTS.md §5). */
-export const TOOLS_ALIAS = 'tools';
+/**
+ * The public search corpus. `tools` is an alias onto `tools_<ts>` (AGENTS.md §5).
+ *
+ * The name and the family→attribute mapping are defined in @keco/core, because the portal
+ * needs both and §7 bars a browser bundle from importing this package. Re-exported here so
+ * every existing caller keeps its import.
+ */
+export const TOOLS_ALIAS = TOOLS_INDEX;
+export { familyAttribute };
+
 export const REPOS_STATE_INDEX = 'repos_state';
 export const TRACES_INDEX = 'traces';
 
@@ -23,14 +31,6 @@ const NON_TAXONOMY_FILTERABLE = [
   'has_scorecard',
   'owner',
 ];
-
-/**
- * One filterable attribute per taxonomy family, derived from the file so that adding a
- * family is a YAML edit plus a rebuild — never an edit here that someone forgets (§5, §6).
- * `install_methods` is an array of objects, so it filters on the nested `.method`.
- */
-export const familyAttribute = (familyId: string): string =>
-  familyId === 'install_methods' ? 'install_methods.method' : familyId;
 
 export const TOOLS_SETTINGS: Settings = {
   // Weight order matters: a name match must outrank a README mention.

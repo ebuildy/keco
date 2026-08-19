@@ -1,7 +1,15 @@
-import { fromDocumentId, toDocumentId, type ToolDocument } from '@keco/core';
-import { TOOLS_ALIAS } from '@keco/search';
+import {
+  TOOLS_INDEX,
+  buildFilters,
+  defaultFacets,
+  fromDocumentId,
+  sortSpec,
+  toDocumentId,
+  type FacetSelection,
+  type SortKey,
+  type ToolDocument,
+} from '@keco/core';
 import { Meilisearch } from 'meilisearch';
-import { buildFilters, defaultFacets, type FacetSelection } from './filters';
 
 /**
  * The single retrieval implementation (AGENTS.md §11). The portal, the REST API, the MCP
@@ -15,20 +23,19 @@ export type QueryClient = { meili: Meilisearch; index?: string };
 export function createQueryClient(env: NodeJS.ProcessEnv = process.env): QueryClient {
   return {
     meili: new Meilisearch({
-      host: env.MEILI_HOST || env.NEXT_PUBLIC_MEILI_HOST || 'http://localhost:7700',
-      // Search-only key, scoped to `tools`. `||` and not `??`: an unset variable in a
-      // .env file is an empty string, not undefined, and nullish coalescing would hand
-      // Meilisearch an empty key.
+      host: env.MEILI_HOST || 'http://localhost:7700',
+      // Server-side only: apps/api holds the master key, and no bundler ever sees this file.
+      // The browser has its own client with a search-only key (§9, §12) — Vite inlines only
+      // `VITE_`-prefixed variables, and none of them are read here.
       //
-      // The master key is only ever a server-side fallback for local dev. It cannot leak
-      // into a browser bundle: Next inlines NEXT_PUBLIC_* only, so on the client this
-      // expression reads undefined (§12).
-      apiKey: env.NEXT_PUBLIC_MEILI_SEARCH_KEY || env.MEILI_MASTER_KEY,
+      // `||` and not `??`: an unset variable in a .env file is an empty string, not
+      // undefined, and nullish coalescing would hand Meilisearch an empty key.
+      apiKey: env.MEILI_MASTER_KEY,
     }),
   };
 }
 
-const index = (client: QueryClient) => client.meili.index<ToolDocument>(client.index ?? TOOLS_ALIAS);
+const index = (client: QueryClient) => client.meili.index<ToolDocument>(client.index ?? TOOLS_INDEX);
 
 export type SearchParams = {
   q?: string;
@@ -42,7 +49,7 @@ export type SearchParams = {
   includeArchived?: boolean;
   /** Courses, blogs and dotfiles are demoted at projection; filtered out here (§14). */
   minRelevance?: number;
-  sort?: 'relevance' | 'stars' | 'score' | 'momentum' | 'recent';
+  sort?: SortKey;
   page?: number;
   hitsPerPage?: number;
   /** Attributes to compute a facet distribution for. Defaults to every facetable family. */
@@ -58,18 +65,10 @@ export type SearchResult = {
   processingTimeMs: number;
 };
 
-const SORTS: Record<NonNullable<SearchParams['sort']>, string[]> = {
-  relevance: [],
-  stars: ['stars:desc'],
-  score: ['score.total:desc'],
-  momentum: ['score.momentum:desc'],
-  recent: ['pushed_at:desc'],
-};
-
 export async function searchTools(client: QueryClient, params: SearchParams = {}): Promise<SearchResult> {
   const response = await index(client).search(params.q ?? '', {
     filter: buildFilters(params),
-    sort: SORTS[params.sort ?? 'relevance'],
+    sort: sortSpec(params.sort),
     page: params.page ?? 1,
     hitsPerPage: params.hitsPerPage ?? 20,
     // Facet distribution is the only aggregation this system has (§5).
@@ -140,6 +139,13 @@ export async function whatsHot(
 }
 
 export { fromDocumentId, toDocumentId };
-export { buildFilters, defaultFacets, familyAttribute, paramForFamily, selectionFromParams } from './filters';
-export type { FacetSelection } from './filters';
-export type { ToolDocument };
+export {
+  buildFilters,
+  defaultFacets,
+  familyAttribute,
+  isSortKey,
+  paramForFamily,
+  selectionFromParams,
+  sortSpec,
+} from '@keco/core';
+export type { FacetSelection, SortKey, ToolDocument };

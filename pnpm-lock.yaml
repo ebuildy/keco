@@ -191,9 +191,6 @@ importers:
       '@keco/core':
         specifier: workspace:*
         version: link:../core
-      '@keco/search':
-        specifier: workspace:*
-        version: link:../search
       meilisearch:
         specifier: ^0.60.0
         version: 0.60.0
