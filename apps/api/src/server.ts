@@ -22,7 +22,9 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: options.env.LOG_LEVEL },
     // owner/repo paths are the public identifier; nothing here needs a trailing-slash variant.
-    ignoreTrailingSlash: true,
+    // Nested under routerOptions deliberately: the top-level spelling is deprecated in
+    // Fastify 5 (FSTDEP022) and gone in 6, and it warns on every instance a test builds.
+    routerOptions: { ignoreTrailingSlash: true },
   });
 
   app.get('/api/health', async () => ({ status: 'ok' }));
