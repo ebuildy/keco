@@ -11,7 +11,12 @@ const env = loadEnv({
 
 const app = await build({
   env,
-  retrieval: { searchTools: async () => { throw new Error('unused'); }, getTool: async () => null },
+  retrieval: {
+    searchTools: async () => {
+      throw new Error('unused');
+    },
+    getTool: async () => null,
+  },
   cache: { getText: async () => null, getJSON: async () => null },
 });
 
@@ -22,6 +27,14 @@ const post = (url: string, token?: string) =>
     method: 'POST',
     url,
     headers: token ? { authorization: `Bearer ${token}` } : {},
+    payload: { repo: 'ahmetb/kubectx' },
+  });
+
+const postWithAuthHeader = (url: string, authorization: string) =>
+  app.inject({
+    method: 'POST',
+    url,
+    headers: { authorization },
     payload: { repo: 'ahmetb/kubectx' },
   });
 
@@ -51,6 +64,16 @@ describe('POST /api/commands/:command', () => {
   it('is not CORS-open, unlike /api/v1', async () => {
     const response = await post('/api/commands/recrawl', 'right-token');
     expect(response.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('rejects a bare token with no `Bearer ` scheme', async () => {
+    const response = await postWithAuthHeader('/api/commands/recrawl', 'right-token');
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects a token presented under a different auth scheme', async () => {
+    const response = await postWithAuthHeader('/api/commands/recrawl', 'Basic right-token');
+    expect(response.statusCode).toBe(401);
   });
 });
 

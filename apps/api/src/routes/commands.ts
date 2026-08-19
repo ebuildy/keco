@@ -16,13 +16,25 @@ import { hasAdminSession } from '../session';
 const COMMANDS = ['recrawl', 'reanalyze', 'reproject', 'rebuild', 'rollback'] as const;
 type Command = (typeof COMMANDS)[number];
 
-const isCommand = (value: string): value is Command => (COMMANDS as readonly string[]).includes(value);
+const isCommand = (value: string): value is Command =>
+  (COMMANDS as readonly string[]).includes(value);
+
+// Anchored to the exact `Bearer <token>` shape §12 documents. A `.replace(/^Bearer\s+/i, '')`
+// here would leave a header untouched when the prefix is absent, so a bare
+// `Authorization: <token>` (no scheme) would authenticate too — widening what counts as a
+// credential beyond what's documented. No match ⇒ no credential, never a fallback to the raw
+// header value.
+const BEARER_TOKEN = /^Bearer (.+)$/i;
+
+function bearerToken(header: string | undefined): string {
+  const match = header ? BEARER_TOKEN.exec(header) : null;
+  return match?.[1] ?? '';
+}
 
 function authorized(request: FastifyRequest, env: Env): boolean {
   // Re-checked here, inside the handler's plugin, rather than trusted from a hook (§12).
   if (hasAdminSession(request)) return true;
-  const provided = request.headers.authorization?.replace(/^Bearer\s+/i, '') ?? '';
-  return constantTimeEquals(provided, env.COMMAND_TOKEN ?? '');
+  return constantTimeEquals(bearerToken(request.headers.authorization), env.COMMAND_TOKEN ?? '');
 }
 
 export const commandRoutes: FastifyPluginAsync<{ env: Env }> = async (app, options) => {
@@ -38,7 +50,13 @@ export const commandRoutes: FastifyPluginAsync<{ env: Env }> = async (app, optio
 
     // TODO(commands): append the corresponding event to the journal (or reset a checkpoint)
     // through @keco/cache and return 202 immediately. The workers pick it up on their next
-    // pass. Tracked in ROADMAP.md under v1 → Read side → Backoffice.
+    // pass. The request body is currently ignored entirely — nothing here reads `repo` (or
+    // any other field). When the journal append lands, that body becomes attacker-controlled
+    // input flowing into a cache key on the *write* model, so it needs its own zod schema at
+    // this boundary (§13) that rejects path-traversal shapes (`../`, absolute paths,
+    // anything outside GitHub's own owner/repo character set) before it ever reaches
+    // @keco/cache — the same discipline routes/readme.ts's Params schema already applies on
+    // the read side. Tracked in ROADMAP.md under v1 → Read side → Backoffice.
     return reply.code(501).send({ error: 'not_implemented', command });
   });
 };
