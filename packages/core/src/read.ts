@@ -107,7 +107,12 @@ const SORTS: Record<SortKey, string[]> = {
   recent: ['pushed_at:desc'],
 };
 
-export const sortSpec = (sort: SortKey = 'relevance'): string[] => SORTS[sort];
+/**
+ * A fresh array each call. `SORTS` is a module singleton shared by the API and the portal
+ * bundle, and Meilisearch clients take the sort list as a plain mutable `string[]` — handing
+ * out the singleton means one caller's `.push()` reorders every later query in the process.
+ */
+export const sortSpec = (sort: SortKey = 'relevance'): string[] => [...SORTS[sort]];
 
 /** Narrows untrusted input — a `?sort=` value — before it reaches Meilisearch. */
 export const isSortKey = (value: string): value is SortKey => Object.hasOwn(SORTS, value);

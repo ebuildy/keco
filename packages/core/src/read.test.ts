@@ -143,3 +143,12 @@ describe('TOOLS_INDEX', () => {
     expect(TOOLS_INDEX).toBe('tools');
   });
 });
+
+describe('sortSpec aliasing', () => {
+  it('hands out a fresh array, so a caller cannot corrupt the table', () => {
+    // SORTS is a module singleton shared by apps/api and the portal bundle, and Meilisearch
+    // clients take a plain mutable string[].
+    sortSpec('stars').push('name:asc');
+    expect(sortSpec('stars')).toEqual(['stars:desc']);
+  });
+});
