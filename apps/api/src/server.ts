@@ -1,6 +1,7 @@
 import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './env';
+import { staticPlugin } from './plugins/static';
 import { liveCache, liveRetrieval, type ReadOnlyCache, type Retrieval } from './ports';
 import { adminRoutes } from './routes/admin';
 import { chatRoutes } from './routes/chat';
@@ -58,8 +59,12 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
   await app.register(mcpRoutes, { prefix: '/api/mcp' });
   await app.register(chatRoutes, { prefix: '/api/chat' });
 
-  // Replaced in Task 9 by the handler that also serves the SPA and the prerendered pages.
-  app.setNotFoundHandler(async (_request, reply) => reply.code(404).send({ error: 'not_found' }));
+  // Last, always: the static plugin owns the not-found handler, and it must see every route
+  // that did not match above (§14).
+  await app.register(staticPlugin, {
+    dist: options.env.WEB_DIST,
+    prerendered: options.prerendered ?? new Set<string>(),
+  });
 
   await app.ready();
   return app;
