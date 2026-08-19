@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_TOTAL_HITS,
   TOOLS_INDEX,
   buildFilters,
   defaultFacets,
@@ -150,5 +151,13 @@ describe('sortSpec aliasing', () => {
     // clients take a plain mutable string[].
     sortSpec('stars').push('name:asc');
     expect(sortSpec('stars')).toEqual(['stars:desc']);
+  });
+});
+
+describe('MAX_TOTAL_HITS', () => {
+  it('is the one deep-paging ceiling both the index and the API clamp against', () => {
+    // packages/search spends this in TOOLS_SETTINGS.pagination; apps/api derives its ?page=
+    // cap from it. A copy in either place would drift silently.
+    expect(MAX_TOTAL_HITS).toBe(10_000);
   });
 });

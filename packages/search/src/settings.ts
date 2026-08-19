@@ -1,4 +1,4 @@
-import { TAXONOMY, TOOLS_INDEX, familyAttribute } from '@keco/core';
+import { MAX_TOTAL_HITS, TAXONOMY, TOOLS_INDEX, familyAttribute } from '@keco/core';
 import type { Settings } from 'meilisearch';
 
 /**
@@ -57,8 +57,9 @@ export const TOOLS_SETTINGS: Settings = {
     'exactness',
     'score.total:desc',
   ],
-  // The default 1000 caps deep paging; raised deliberately (§5).
-  pagination: { maxTotalHits: 10_000 },
+  // The default 1000 caps deep paging; raised deliberately (§5). The same constant bounds
+  // the API's `?page=` clamp, so the two cannot drift.
+  pagination: { maxTotalHits: MAX_TOTAL_HITS },
   faceting: { maxValuesPerFacet: 200 },
   displayedAttributes: ['*'],
   typoTolerance: { enabled: true, minWordSizeForTypos: { oneTypo: 4, twoTypos: 8 } },

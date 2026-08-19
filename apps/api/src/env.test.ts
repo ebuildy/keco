@@ -25,8 +25,15 @@ describe('loadEnv', () => {
 
   it('parses TRUST_PROXY=true, unlike z.coerce.boolean() which would also accept "false"', () => {
     expect(loadEnv({ ...REQUIRED, TRUST_PROXY: 'true' }).TRUST_PROXY).toBe(true);
+    expect(loadEnv({ ...REQUIRED, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(true);
     expect(loadEnv({ ...REQUIRED, TRUST_PROXY: 'false' }).TRUST_PROXY).toBe(false);
-    expect(loadEnv({ ...REQUIRED, TRUST_PROXY: 'nonsense' }).TRUST_PROXY).toBe(false);
+  });
+
+  it('rejects a misspelled TRUST_PROXY instead of quietly reading it as false', () => {
+    // Silently defaulting `TRUE` or `yes` to false reinstates the single global rate-limit
+    // bucket this variable exists to prevent, with nothing in the logs to say so.
+    expect(() => loadEnv({ ...REQUIRED, TRUST_PROXY: 'TRUE' })).toThrow(/TRUST_PROXY/);
+    expect(() => loadEnv({ ...REQUIRED, TRUST_PROXY: 'yes' })).toThrow(/TRUST_PROXY/);
   });
 
   it('names the offending variable when one is missing', () => {

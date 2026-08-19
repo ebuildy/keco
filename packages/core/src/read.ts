@@ -18,6 +18,15 @@ import { TAXONOMY, facetableFamilies, family, isValue } from './taxonomy';
 export const TOOLS_INDEX = 'tools';
 
 /**
+ * The deep-paging ceiling (§5). Meilisearch's own default is 1000; `TOOLS_SETTINGS` raises it
+ * deliberately, and every read surface has to agree on the number — the API clamps `?page=`
+ * against it, and the index is configured with it. Declared here rather than in @keco/search
+ * because the portal bundle and apps/api both need it and neither may import that package for
+ * a constant (§7).
+ */
+export const MAX_TOTAL_HITS = 10_000;
+
+/**
  * One filterable attribute per taxonomy family, derived from the file so that adding a family
  * is a YAML edit — never an edit here that someone forgets (§5, §6). `install_methods` is an
  * array of objects, so it filters on the nested `.method`.

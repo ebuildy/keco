@@ -1,6 +1,6 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-import { isSortKey, selectionFromParams } from '@keco/core';
+import { MAX_TOTAL_HITS, isSortKey, selectionFromParams } from '@keco/core';
 import type { FastifyError, FastifyPluginAsync } from 'fastify';
 import type { Retrieval } from '../ports';
 
@@ -12,10 +12,6 @@ import type { Retrieval } from '../ports';
  * CORS and the rate limiter are registered inside this plugin, not globally: /api/commands/*
  * must have neither (§12).
  */
-// Mirrors `pagination.maxTotalHits` in packages/search/src/settings.ts (§5). Meilisearch
-// rejects a page past this bound, so deep paging is capped here before the request goes out.
-const MAX_TOTAL_HITS = 10_000;
-
 export const v1Routes: FastifyPluginAsync<{ retrieval: Retrieval }> = async (app, options) => {
   const { retrieval } = options;
 

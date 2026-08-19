@@ -26,7 +26,7 @@ const EnvSchema = z.object({
    * which is exactly wrong for an env var. Only the literal strings `"true"`/`"1"` count.
    */
   TRUST_PROXY: z
-    .string()
+    .enum(['true', 'false', '1', '0'])
     .default('false')
     .transform((value) => value === 'true' || value === '1'),
 
