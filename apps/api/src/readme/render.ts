@@ -63,3 +63,24 @@ export async function renderReadme(markdown: string, imageBaseUrl: string): Prom
   const file = await processor().use(rewriteUrls, { base: imageBaseUrl }).process(markdown);
   return String(file);
 }
+
+/**
+ * Pays Shiki's grammar and theme load up front.
+ *
+ * `processor` is built at module load, but Shiki resolves its languages and themes lazily on
+ * the first `.process()` — measured at seconds, not milliseconds, when the machine is busy.
+ * Without this the cost lands on whichever unlucky request arrives first after a deploy, on
+ * the same libuv threadpool that serves static files (see plugins/static.ts).
+ *
+ * Idempotent and safe to call concurrently: the promise is memoised, so N callers share one
+ * warm-up. Failure is not fatal — the next real render simply pays the cost instead.
+ */
+let warming: Promise<void> | null = null;
+
+export function warmReadmeRenderer(): Promise<void> {
+  warming ??= renderReadme('```bash\nkubectl get pods\n```', 'https://example.invalid/').then(
+    () => undefined,
+    () => undefined,
+  );
+  return warming;
+}

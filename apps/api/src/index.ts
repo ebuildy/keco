@@ -1,4 +1,5 @@
 import { loadEnv } from './env';
+import { warmReadmeRenderer } from './readme/render';
 import { loadPrerenderManifest, resolveDist } from './plugins/static';
 import { build } from './server';
 
@@ -45,3 +46,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 
 await app.listen({ port: env.PORT, host: env.HOST });
 app.log.info({ dist: resolveDist(env.WEB_DIST) }, 'serving the portal');
+
+// After listen, deliberately: readiness must not wait on it, but the first caller of
+// /api/readme should not be the one who pays Shiki's grammar load either (see render.ts).
+void warmReadmeRenderer().then(() => app.log.debug('readme renderer warm'));
