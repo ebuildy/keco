@@ -77,4 +77,27 @@ describe('renderReadme', () => {
     expect(html).toContain('<details>');
     expect(html).toContain('<summary>More</summary>');
   });
+
+  it('strips style/title/textarea/noembed/noframes content instead of leaving it as visible page text', async () => {
+    // defaultSchema.strip only lists `script`; these tags are removed but their text content
+    // is kept by default, which renders e.g. `.a{color:red}` as literal text on the page.
+    // Escaped, so not XSS — but a visible rendering bug worth pinning down.
+    const markdown = [
+      'Hello',
+      '',
+      '<style>.a{color:red}</style>',
+      '<title>evil title</title>',
+      '<textarea>leaked</textarea>',
+      '<noembed>leaked-embed</noembed>',
+      '<noframes>leaked-frames</noframes>',
+      '',
+      'World',
+    ].join('\n');
+    const html = await renderReadme(markdown, BASE);
+    expect(html).toContain('Hello');
+    expect(html).toContain('World');
+    expect(html).not.toContain('.a{color:red}');
+    expect(html).not.toContain('evil title');
+    expect(html).not.toContain('leaked');
+  });
 });

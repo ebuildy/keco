@@ -17,18 +17,31 @@ import { stripBadgeParagraph } from './strip-badges';
  *
  *   remark-rehype(allowDangerousHtml) → rehype-raw   parses the inline HTML READMEs contain
  *   rehype-sanitize                                  removes it if it is dangerous
- *   stripBadgeParagraph, rewriteUrls                 cosmetics, on already-safe markup
- *   rehype-shiki                                      generates its own markup from safe text
+ *   stripBadgeParagraph                               cosmetic, on already-safe markup
+ *   rehype-shiki                                       generates its own markup from safe text
  *
  * Sanitising before rehype-raw would sanitise a tree that does not yet contain the raw HTML,
- * which is the classic way to ship a hole that looks defended. Shiki runs last on purpose:
- * its `style` and `class` output would be stripped if sanitize came after it, and it only
- * ever emits markup derived from text content that sanitize has already cleared.
+ * which is the classic way to ship a hole that looks defended. Shiki runs after sanitize on
+ * purpose: its `style` and `class` output would be stripped if sanitize ran after it instead,
+ * and it only ever emits markup derived from text content that sanitize has already cleared.
+ *
+ * `rewriteUrls` is not in this shared chain — the base URL differs per repo, so `renderReadme`
+ * below `.use()`s it on a thawed copy of the processor, per call, which appends it *after*
+ * every plugin listed above, including Shiki. That is harmless (Shiki never emits `img`, `a`
+ * or `source`), but it means this is not a strict top-to-bottom diagram of everything that
+ * runs — don't reason from it as one.
  */
 const schema = {
   ...defaultSchema,
   // READMEs use these constantly for collapsible sections, and neither can execute anything.
   tagNames: [...(defaultSchema.tagNames ?? []), 'details', 'summary'],
+  // defaultSchema.strip only lists `script`. Everything else it doesn't allowlist gets its
+  // *tag* removed but its *text content* kept, which is right for e.g. an unknown element —
+  // and wrong for these: their content is meant to be invisible (or interpreted as code), so
+  // leaving it as page text renders `<style>.a{color:red}</style>` as the literal string
+  // `.a{color:red}`. Escaped, so not XSS — but a visible rendering bug on any README that has
+  // one, and `<style>` is common.
+  strip: [...(defaultSchema.strip ?? []), 'style', 'title', 'textarea', 'noembed', 'noframes'],
 };
 
 /**
