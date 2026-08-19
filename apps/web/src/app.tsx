@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router';
 import { HomePage } from './routes/home';
 import { NotFoundPage } from './routes/not-found';
+import { SearchPage } from './routes/search';
 
 /**
  * The route tree, and the one thing both `main.tsx` and `prerender/index.ts` import. Keeping
@@ -13,6 +14,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
+      <Route path="/search" element={<SearchPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
