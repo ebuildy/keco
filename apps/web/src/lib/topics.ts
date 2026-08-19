@@ -1,5 +1,4 @@
-import { facetableFamilies, family, values } from '@keco/core';
-import { familyAttribute, paramForFamily } from '@keco/query';
+import { facetableFamilies, family, familyAttribute, paramForFamily, values } from '@keco/core';
 
 /**
  * Turns a Meilisearch facet distribution into the chip rows the home page renders (§9).
