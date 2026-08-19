@@ -76,6 +76,117 @@ describe('GET /api/v1/search', () => {
     await app.inject({ method: 'GET', url: '/api/v1/search?limit=5000' });
     expect(calls.at(-1)).toMatchObject({ hitsPerPage: 50 });
   });
+
+  it('floors non-integer paging so Meilisearch never sees a fraction', async () => {
+    await app.inject({ method: 'GET', url: '/api/v1/search?page=2.9&limit=20.7' });
+    expect(calls.at(-1)).toMatchObject({ page: 2, hitsPerPage: 20 });
+  });
+
+  it("caps deep paging at the read model's pagination.maxTotalHits (§5), not just the page size", async () => {
+    // hitsPerPage defaults to 20; maxTotalHits is 10 000 (packages/search/src/settings.ts),
+    // so page 500 is the last one Meilisearch will serve — anything past it is clamped.
+    await app.inject({ method: 'GET', url: '/api/v1/search?page=1000000000' });
+    expect(calls.at(-1)).toMatchObject({ page: 500, hitsPerPage: 20 });
+  });
+});
+
+describe('rate limiting', () => {
+  const emptyRetrieval = {
+    searchTools: async () => ({
+      hits: [],
+      total: 0,
+      page: 1,
+      hitsPerPage: 20,
+      facets: {},
+      processingTimeMs: 1,
+    }),
+    getTool: async () => null,
+  };
+
+  it('answers 429, not 503, once a caller exceeds the per-IP limit, with retry-after intact', async () => {
+    // A fresh instance: the limiter counts per-process, and this must not be polluted by
+    // (or pollute) the requests the other cases in this file make against `app`.
+    const limited = await build({ env, retrieval: emptyRetrieval });
+
+    let last;
+    for (let i = 0; i < 121; i++) {
+      last = await limited.inject({ method: 'GET', url: '/api/v1/search' });
+    }
+
+    // This is the regression this suite exists to catch: the limiter's 429 must reach the
+    // caller as a 429, not be swallowed by the 503 branch below it (Finding 1).
+    expect(last?.statusCode).toBe(429);
+    expect(last?.headers['retry-after']).toBeDefined();
+    expect(last?.json()).toMatchObject({ error: 'rate_limited' });
+
+    await limited.close();
+  });
+});
+
+describe('TRUST_PROXY', () => {
+  const emptyRetrieval = {
+    searchTools: async () => ({
+      hits: [],
+      total: 0,
+      page: 1,
+      hitsPerPage: 20,
+      facets: {},
+      processingTimeMs: 1,
+    }),
+    getTool: async () => null,
+  };
+
+  // Same socket address, different forwarded client, sent one after the other — the rate
+  // limiter's bucket is how the wiring is observable from outside Fastify's internals, and
+  // the two requests must be strictly ordered or the counter race makes the assertion flaky.
+  const sameSocketDifferentForwardedFor = async (instance: Awaited<ReturnType<typeof build>>) => {
+    const first = await instance.inject({
+      method: 'GET',
+      url: '/api/v1/search',
+      remoteAddress: '10.0.0.1',
+      headers: { 'x-forwarded-for': '203.0.113.1' },
+    });
+    const second = await instance.inject({
+      method: 'GET',
+      url: '/api/v1/search',
+      remoteAddress: '10.0.0.1',
+      headers: { 'x-forwarded-for': '203.0.113.2' },
+    });
+    return [first, second] as const;
+  };
+
+  it('defaults to false: two callers behind one untrusted proxy share a single bucket', async () => {
+    const untrusted = await build({
+      env: loadEnv({ MEILI_MASTER_KEY: 'k', SESSION_SECRET: 'a'.repeat(32), LOG_LEVEL: 'fatal' }),
+      retrieval: emptyRetrieval,
+    });
+
+    const [first, second] = await sameSocketDifferentForwardedFor(untrusted);
+    // Same bucket: the second request is one further into it than the first.
+    expect(Number(second.headers['x-ratelimit-remaining'])).toBe(
+      Number(first.headers['x-ratelimit-remaining']) - 1,
+    );
+
+    await untrusted.close();
+  });
+
+  it('when true, keys the limiter off X-Forwarded-For so a trusted proxy does not collapse every caller into one bucket', async () => {
+    const trusted = await build({
+      env: loadEnv({
+        MEILI_MASTER_KEY: 'k',
+        SESSION_SECRET: 'a'.repeat(32),
+        LOG_LEVEL: 'fatal',
+        TRUST_PROXY: 'true',
+      }),
+      retrieval: emptyRetrieval,
+    });
+
+    const [first, second] = await sameSocketDifferentForwardedFor(trusted);
+    // Separate buckets: both requests are the first one seen for their own forwarded address.
+    expect(second.headers['x-ratelimit-remaining']).toBe(first.headers['x-ratelimit-remaining']);
+
+    await trusted.close();
+  });
 });
 
 describe('when Meilisearch is unreachable', () => {

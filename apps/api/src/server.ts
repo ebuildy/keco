@@ -31,6 +31,9 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
     // Nested under routerOptions deliberately: the top-level spelling is deprecated in
     // Fastify 5 (FSTDEP022) and gone in 6, and it warns on every instance a test builds.
     routerOptions: { ignoreTrailingSlash: true },
+    // See env.ts: only true when a trusted reverse proxy fronts this process. Determines
+    // where request.ip (and so the per-IP rate limiter in routes/v1.ts) reads its address from.
+    trustProxy: options.env.TRUST_PROXY,
   });
 
   app.get('/api/health', async () => ({ status: 'ok' }));

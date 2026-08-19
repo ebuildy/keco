@@ -15,10 +15,18 @@ describe('loadEnv', () => {
     expect(env.MEILI_HOST).toBe('http://localhost:7700');
     expect(env.CACHE_DIR).toBe('.cache');
     expect(env.LOG_LEVEL).toBe('info');
+    // Defaults closed: enabling trust in the proxy is an explicit opt-in, never ambient.
+    expect(env.TRUST_PROXY).toBe(false);
   });
 
   it('coerces PORT from the string the environment always gives it', () => {
     expect(loadEnv({ ...REQUIRED, PORT: '8080' }).PORT).toBe(8080);
+  });
+
+  it('parses TRUST_PROXY=true, unlike z.coerce.boolean() which would also accept "false"', () => {
+    expect(loadEnv({ ...REQUIRED, TRUST_PROXY: 'true' }).TRUST_PROXY).toBe(true);
+    expect(loadEnv({ ...REQUIRED, TRUST_PROXY: 'false' }).TRUST_PROXY).toBe(false);
+    expect(loadEnv({ ...REQUIRED, TRUST_PROXY: 'nonsense' }).TRUST_PROXY).toBe(false);
   });
 
   it('names the offending variable when one is missing', () => {

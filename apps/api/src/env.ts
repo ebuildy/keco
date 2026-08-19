@@ -14,6 +14,21 @@ const EnvSchema = z.object({
   HOST: z.string().min(1).default('0.0.0.0'),
   /** Absolute base for canonical links and the sitemap. */
   SITE_URL: z.url().default('http://localhost:3000'),
+  /**
+   * Trust `X-Forwarded-For` from the reverse proxy in front of this process, so the per-IP
+   * rate limiting in routes/v1.ts keys on the caller's address instead of the proxy's — every
+   * caller collapses into one bucket otherwise (§7's deployed shape puts something in front
+   * of this process). Only turn this on when apps/api genuinely sits behind a proxy you
+   * control: enabling it without one lets any caller set their own X-Forwarded-For header and
+   * evade the limiter entirely.
+   *
+   * Not `z.coerce.boolean()` on purpose — that coerces the *string* `"false"` to `true`,
+   * which is exactly wrong for an env var. Only the literal strings `"true"`/`"1"` count.
+   */
+  TRUST_PROXY: z
+    .string()
+    .default('false')
+    .transform((value) => value === 'true' || value === '1'),
 
   MEILI_HOST: z.url().default('http://localhost:7700'),
   /** Server-side only, and the only copy in the system (§12). */
