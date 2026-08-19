@@ -3,10 +3,28 @@
 Instructions for AI coding agents working in this repository. Read this fully before touching
 code.
 
+## 0. Where the code is vs. where this document points
+
+The write side (`packages/*`, `apps/workers`) matches this document today. The read side does
+not yet: `apps/web` is still a Next.js 16 App Router app, and `apps/api` / `apps/backoffice` do
+not exist. §7 and §9–§12 describe the **target** — three deployables behind one Fastify process
+— per `docs/keco-architecture-2.md`.
+
+Consequences while the migration is open:
+
+- **Do not add new Next.js surface.** New read-side work goes into the target shape, or waits.
+- **Nothing on the write side is affected.** §2–§6 are the contract regardless of which frontend
+  is running, and they are already implemented that way.
+- **The migration is a read-side rewrite, not a data migration.** The read model is disposable
+  (§2.3); the new frontends re-query the same `tools` index the old one did.
+- The one genuinely lost capability is server-rendered HTML per request. §9 says how the SEO
+  requirement survives without SSR; if that answer doesn't hold up in practice, reopen the
+  decision rather than quietly shipping a portal Google cannot read.
+
 ## 1. What Keco is
 
 Keco is a search portal for the **Kubernetes ecosystem**. Everything it shows is derived from
-public GitHub data: crawlers pull repositories into a raw cache, analyzers classify and score
+public GitHub data: workers pull repositories into a raw cache, analyzers classify and score
 them from that cache, and the result is projected into Meilisearch, which the portal, the API
 and the MCP endpoint read.
 
@@ -14,19 +32,21 @@ and the MCP endpoint read.
 worthless. When in doubt, invest in the analyzers, not the frontend.
 
 Non-goals — do not build these:
+
 - A database. There is none. See §2.
 - Human curation, overrides, moderation queues, editorial content.
 - Historical metrics, time series, star history.
 - End-user accounts, comments, votes. The portal is anonymous and read-only.
 - Hosting packages or proxying downloads.
+- Heavy infrastructure. No Redis, no queue system, no Turborepo, no SSR framework. If a problem
+  looks like it needs one at this scale, it usually needs a smaller loop instead.
 
 Everything is reproducible from GitHub. Nothing in this system is precious.
 
-## Workflow developper
+### Developer workflow
 
-Use mise to install tools, runtime.
-
-All dev scripts and tasks must run from mise task.
+Tools and runtimes are installed by **mise** (`mise.toml` pins Node and pnpm). Every dev script
+is a mise task; nothing is invoked ad-hoc. `mise tasks` lists them, §8 explains them.
 
 The roadmap — what is done, what is next, and what is deliberately not planned — is
 [ROADMAP.md](./ROADMAP.md). Check it before proposing work: several obvious-looking gaps
@@ -37,19 +57,19 @@ The roadmap — what is done, what is next, and what is deliberately not planned
 **Read this before writing any code. Every design question is answered by it.**
 
 ```
-        ┌──────────────── WRITE SIDE (commands) ────────────────┐
-        │                                                       │
- GitHub │  crawler ──▶ CACHE ──▶ analyzer ──▶ CACHE ──▶ projector│
-  API   │  (fetch)    (raw)     (classify)   (analysis)  (build) │
-        │                 └── journal of events ──┘              │
-        └───────────────────────────┬───────────────────────────┘
-                                    │ project
-        ┌───────────────────────────▼───────────────────────────┐
-        │  READ MODELS — Meilisearch                            │
-        │  `tools` (public)   `repos_state` (admin)  `traces`   │
-        └───────────────────────────┬───────────────────────────┘
-                                    │ query only
-              portal · REST API · MCP · chatbot · backoffice
+        ┌──────────────────── WRITE SIDE (commands) ─────────────────────┐
+        │                                                                │
+ GitHub │ discovery ─▶ crawler ─▶ CACHE ─▶ analyzer ─▶ CACHE ─▶ projector │
+  API   │ (enumerate)  (fetch)    (raw)   (classify)  (analysis) (build)  │
+        │                    └──── journal of events ────┘                │
+        └────────────────────────────────┬───────────────────────────────┘
+                                         │ project
+        ┌────────────────────────────────▼───────────────────────────────┐
+        │  READ MODELS — Meilisearch                                     │
+        │  `tools` (public)    `repos_state` (admin)    `traces` (v2)    │
+        └────────────────────────────────┬───────────────────────────────┘
+                                         │ query only
+              apps/web · apps/backoffice · apps/api (REST · MCP · chat)
 ```
 
 The rules, in priority order:
@@ -58,7 +78,9 @@ The rules, in priority order:
    what to work on has broken the pattern — it uses the journal and its own checkpoint. This is
    the mistake to watch for; it is subtle and it couples everything back together.
 2. **The read side never writes.** No page, API route or MCP tool mutates anything. If a read
-   path needs to write, the design is wrong.
+   path needs to write, the design is wrong. The two deliberate exceptions are named in §11
+   (command enqueue) and they only append an event or reset a checkpoint — they never touch a
+   read model.
 3. **Read models are disposable.** `tools` is rebuildable from the cache by replay, offline, in
    minutes, with zero GitHub calls. If a change can't be applied by re-projecting, it isn't
    done right.
@@ -80,15 +102,18 @@ The rules, in priority order:
 A directory on disk (`.cache/`, `CACHE_DIR`), behind the `Storage` port in `packages/cache`.
 No database, no index, no queries: keys only.
 
-**There is exactly one adapter today — the filesystem.** Object storage (R2/S3) is a v2 item
-and slots in behind the same port when a deployment needs it; see ROADMAP.md. Do not add an S3
-client "for later", and do not write code that assumes either backend: everything goes through
-`Storage`, so the swap must be a one-file change with no caller touched. A relative `CACHE_DIR`
-resolves against the workspace root, not the process's cwd, so every worker and the web app
-share one cache.
+**There is exactly one adapter today — the filesystem.** Object storage (R2/S3) is a v1
+operations item and slots in behind the same port when a deployment needs it; see ROADMAP.md.
+Do not add an S3 client "for later", and do not write code that assumes either backend:
+everything goes through `Storage`, so the swap must be a one-file change with no caller
+touched. A relative `CACHE_DIR` resolves against the workspace root, not the process's cwd, so
+every worker and `apps/api` share one cache.
 
 ```
 cache/
+├── discovery/                       # enumeration artifacts, keyed by query + window
+│   ├── {query}/state.json           # resume position: last completed window
+│   └── {query}/{window}.yaml        # the repos that window yielded
 ├── repos/{owner}/{repo}/
 │   ├── repo.json           # GitHub repo API response, verbatim
 │   ├── readme.md           # raw markdown, verbatim
@@ -105,6 +130,9 @@ cache/
 
 - **Verbatim means verbatim.** Never transform on write. Parsing happens downstream, so a
   parser bug is fixed by re-analyzing, not re-crawling.
+- **Writes are atomic.** Write to a temp key, then rename. A half-written `repo.json` is
+  indistinguishable from a complete one on the next run, and the next run is the whole recovery
+  story.
 - **`content_hash`** = hash(repo.json core fields + readme + tree). It is the change signal for
   the entire pipeline. Unchanged hash ⇒ no analysis, no LLM call, no re-projection. This is the
   single most important cost control in the system.
@@ -113,6 +141,7 @@ cache/
   read an ordered stream instead of scanning the cache.
 
 ### The journal
+
 Append-only, one small JSON per event, keys sortable by ULID so a consumer can resume from an
 offset:
 
@@ -131,14 +160,20 @@ delete one.
 
 ## 4. Workers (write side)
 
-Three independent processes. **They never talk to each other.** Each is a loop: read events
-from its checkpoint → do work → write cache → append events → advance checkpoint.
+Four independent processes. **They never talk to each other.** Each is a loop: read events from
+its checkpoint → do work → write cache → append events → advance checkpoint.
 
 | Worker | Consumes | Produces | Network | Cadence |
 |---|---|---|---|---|
-| **crawler** | seed lists, `RepoDiscovered` | `repos/**`, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
-| **analyzer** | `RepoFetched` where `changed` | `analysis/**`, `RepoAnalyzed` | signal providers + LLM, **all cached** | continuous |
+| **discovery** | keyword queries, search windows | `discovery/{query}/**` | GitHub Search (paced) | periodic sweep, resumable |
+| **crawler** | seed lists, `discovery/{query}/repos-full-list.yaml` | `repos/**`, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
+| **analyzer** | `RepoFetched` where `changed`, or an expired signal TTL | `analysis/**`, `RepoAnalyzed` | signal providers + LLM, **all cached** | continuous |
 | **projector** | `RepoAnalyzed` | Meilisearch `tools`, `repos_state` | none | continuous, batched |
+
+Concurrency is `p-queue` (≈8) with `p-retry` per task, in-process. There is no Redis, no BullMQ
+and no broker: the filesystem is the job state, and a crashed run resumes from its checkpoint.
+Scheduling is `node-cron` inside an always-on container next to Meilisearch (`infra/compose.yml`),
+not GitHub Actions — the cache lives on a real volume, not in git.
 
 Consequences that matter:
 
@@ -153,18 +188,40 @@ Consequences that matter:
 - Scale out by **deterministic sharding** (`hash(repo) % SHARD_COUNT == SHARD_INDEX`), not by
   locks or leases. There is no coordination primitive here and you must not invent one.
 - Every worker is safe to kill at any moment. Crash mid-batch ⇒ checkpoint not advanced ⇒
-  reprocess ⇒ same result. If a worker isn't crash-safe, it's wrong.
+  reprocess ⇒ same result. If a worker isn't crash-safe, it's wrong. `apps/workers/src/lib/
+  shutdown.ts` owns the signal handling; use it rather than adding another `process.on('SIGINT')`.
 
-### 4.1 crawler
-GitHub Search returns **at most 1000 results per query**, ~30 authenticated req/min. So
-discovery is sharded *and* seeded:
+### 4.1 discovery
 
-- Shard `topic:kubernetes`, `topic:k8s`, `topic:kubernetes-operator`, `topic:kubectl-plugin`,
-  `topic:helm-charts`, `kubernetes in:name,description,readme` by `stars:` ranges (`>5000`,
-  `1000..5000`, `500..999`, …) and `created:` year windows so each shard stays under 1000 hits.
-- Seed from registries — higher signal than keyword search: CNCF landscape (`cncf/landscape`),
-  krew index (`kubernetes-sigs/krew-index` → `plugins/*.yaml`), Artifact Hub API,
-  OperatorHub / `k8s-operatorhub/community-operators`, curated `awesome-*` lists.
+Enumerates candidate repos; it does not fetch them. GitHub Search returns **at most 1000 results
+per query**, so the unit of work is a *window*: a query narrowed by a `stars:` band and a
+`created:` range small enough to stay under the cap. `windows.ts` is the calendar algebra that
+builds and splits windows, `plan.ts` decides split-vs-paginate for a probed window, `sweep.ts`
+holds the resume-vs-new-sweep transition, `store.ts` writes the YAML artifacts and the resume
+state.
+
+**Discovery appends no journal events.** It publishes files, and the crawler reads
+`discovery/{query}/repos-full-list.yaml` directly. This is a deliberate exception to §2's
+event-flow contract: a weekly sweep would otherwise write ~100k tiny journal entries, and the
+artifact is directly inspectable. The delta is already computed in `_hashes.json`, so emitting
+`RepoDiscovered` later is a small additive change if the crawler ever needs a resumable offset.
+
+- **Resume by default.** A sweep continues from `discovery/{query}/state.json`; `--fresh` is the
+  explicit opt-out. `--limit` stops at the first window boundary past N, so it overshoots — it is
+  a dev-run convenience, not a budget.
+- **Change-gated writes.** A window whose result set is byte-identical is not rewritten, so a
+  re-sweep produces no journal churn.
+- Discovery has its own rate pacer in `@keco/github` — the GitHub Search API is limited far more
+  tightly (~30 req/min authenticated) than the core REST API, and mixing the two budgets stalls
+  both.
+
+### 4.2 crawler
+
+Fetches everything discovery and the seed lists named, into `repos/**`:
+
+- Seed from registries first — higher signal than keyword search: CNCF landscape
+  (`cncf/landscape`), krew index (`kubernetes-sigs/krew-index` → `plugins/*.yaml`), Artifact Hub
+  API, OperatorHub / `k8s-operatorhub/community-operators`, curated `awesome-*` lists.
 - GraphQL for bulk metadata (≤100 repos/query — far cheaper against the 5000 points/hour
   budget); REST only for README, tree, releases.
 - `ETag` / `If-None-Match` on everything: a 304 costs no quota and short-circuits to
@@ -175,11 +232,13 @@ discovery is sharded *and* seeded:
   stars), repos whose only Kubernetes link is a CI manifest. Emit `RepoSkipped` with a reason —
   never drop silently.
 
-### 4.2 analyzer — rules first, external signals, AI as fallback
+### 4.3 analyzer — rules first, external signals, AI as fallback
+
 Three passes over each repo, cheapest first. Local rules settle most of it; external providers
 add what GitHub metadata can't tell you; the LLM only sees what's left ambiguous.
 
 #### Pass 1 — local rules (cache only, free)
+
 Deterministic signals settle most repos, free and reproducible:
 
 - `topics[]`; name patterns (`kubectl-*`, `*-operator`, `*-controller`)
@@ -190,6 +249,7 @@ Deterministic signals settle most repos, free and reproducible:
 - README badges/headings → install *candidates*, to be verified in pass 2
 
 #### Pass 2 — external signals (`packages/signals`)
+
 Things GitHub's repo API cannot tell you. Every provider is a small adapter with a **fixed TTL**
 and a **hard timeout**, and every response lands in `external/{provider}/{key}.json`.
 
@@ -216,23 +276,26 @@ Rules, all mandatory:
   small repos have no score at all. Treat absence as *unknown* and renormalise the quality axis
   over the signals you actually have — never as a zero. Scoring a repo badly because a third
   party never looked at it is a silent, corpus-wide bias.
-- **GitHub calls here share the crawler's 5000 points/hour.** Split the budget explicitly in
-  config (e.g. 80 % crawler / 20 % analyzer) or use a separate token. Two components spending
-  the same quota without a contract is how crawls start failing at 3am.
+- **GitHub calls here share the crawler's 5000 points/hour**, split by
+  `GITHUB_QUOTA_CRAWLER_SHARE` (default 0.8). Change the split in config or use a second token;
+  two components spending the same quota without a contract is how crawls start failing at 3am.
 - Record every provider's `fetched_at` in the analysis document. A score you can't date is a
   score you can't defend.
 
 #### Pass 3 — LLM fallback
+
 Only when confidence < 0.7 or `kind` is ambiguous: README first 8 KB + topics + tree + the
 signals from pass 2, requiring **structured output validated by `AnalysisSchema`**. Invalid →
 retry once → fall back to `kind: 'service'`, `confidence: 0.3`, `needs_review: true`. Free text
-never leaves the analyzer.
+never leaves the analyzer. Model is `ANALYZER_MODEL`, and it is a cheap one on purpose — pass 3
+should be a minority of the corpus, and if it isn't, the fix is a rule, not a bigger model.
 
 Every analysis document records `method` (`rules` | `signals` | `llm`), `model`, `content_hash`,
 `signals_used[]` and `partial_signals[]` — so any classification can be explained, dated and
 reproduced.
 
-### 4.3 projector
+### 4.4 projector
+
 Reads `repos/**` + `analysis/**`, computes scores, builds the read model, upserts in batches of
 ≤1000, awaits the Meilisearch task, advances the checkpoint.
 
@@ -279,6 +342,7 @@ RAM, still filterable and retrievable. Use it for everything that isn't the sear
 the backoffice can exist without giving anyone write access to anything.
 
 ### `tools` settings
+
 - `searchableAttributes` in weight order: `name`, `full_name`, `summary`, `description`,
   `github_topics`, `readme_excerpt`.
 - `filterableAttributes`: `kind`, `domains`, `runtime`, `install_methods`, `language`, `license`,
@@ -290,6 +354,7 @@ the backoffice can exist without giving anyone write access to anything.
 - Embedder configured here for hybrid search (v2).
 
 ### Document shape
+
 ```ts
 {
   id, owner, name, full_name, description, homepage, repo_url,
@@ -301,13 +366,14 @@ the backoffice can exist without giving anyone write access to anything.
   score: { popularity, activity, adoption, quality, quality_coverage, total, momentum },
   signals: { scorecard: { score, checks, fetched_at } | null,
              osv: { open_vulns } | null, dependents: number | null },
-  readme_excerpt,              // ~1.5 KB — the full README comes from the cache
+  readme_excerpt,              // ~1.5 KB — the full README comes from the cache, via apps/api
   _vectors,                    // v2
   analysis_method, analysis_model, content_hash, signals_used[], indexed_at
 }
 ```
 
 ### Hard rules
+
 - **Writes are asynchronous.** Every write returns a task uid; the projector must `waitForTask`
   before advancing its checkpoint, or a crash will silently lose a batch.
 - **`updateDocuments` merges only at the top level** — sending `{score:{momentum:0.4}}` wipes
@@ -320,22 +386,23 @@ the backoffice can exist without giving anyone write access to anything.
   `facets: ['kind','domains']`.
 - **Admin listing uses `getDocuments`** (offset/limit/filter), not `search`, which is capped and
   relevance-ordered.
-- **The client key is search-only and scoped to `tools`.** Never issue a browser key with access
-  to `repos_state` or `traces`.
+- **The browser key is search-only and scoped to `tools`.** Never ship a bundle with a key that
+  can reach `repos_state` or `traces`, and never ship the master key at all.
 
 ## 6. Taxonomy — declared in YAML, never in code
 
 `packages/core/taxonomy.yaml`. Closed vocabulary; adding a value is a deliberate PR with
 rationale in `docs/taxonomy.md`, a rule that detects it and a fixture proving the rule — not an
 ad-hoc string. The file is loaded and fully validated at module init; a malformed taxonomy takes
-every worker and the web app down immediately rather than letting them classify into a vocabulary
-that does not exist.
+every worker and every frontend build down immediately rather than letting them classify into a
+vocabulary that does not exist. `mise run taxonomy:check` runs that validation standalone.
 
 Eight families, each declaring `id`, `label`, `param` (its URL query parameter), `cardinality`,
 `source` and its values. Each value declares `label`, `description`, optional `aliases` (GitHub
 topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
 
 **Assigned by the analyzer:**
+
 - **`kind`** — what the artifact *is* (exactly one): `cli` · `kubectl-plugin` · `operator` ·
   `controller` · `helm-chart` · `crd-library` · `admission-webhook` · `distribution` ·
   `dashboard-ui` · `library-sdk` · `terraform-provider` · `ide-extension` · `service` ·
@@ -348,6 +415,7 @@ topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
   `in-your-code` · `cluster-itself` · `hosted-service` · `unknown`
 
 **Proven against a registry:**
+
 - **`install_methods`** — detected, never guessed: `brew` · `mise` · `asdf` · `krew` · `helm` ·
   `kubectl-apply` · `go-install` · `cargo` · `npm` · `pip` · `nix` · `arkade` · `apt` ·
   `container-image` · `curl-script` · `github-release` · `operator-hub`
@@ -358,6 +426,7 @@ topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
   terminal.
 
 **Derived from cached metadata:**
+
 - **`license_class`** — `permissive` · `weak-copyleft` · `copyleft` · `source-available` ·
   `public-domain` · `unknown`
 - **`openness`** — `fully-open` · `open-core` · `source-available` · `unknown`
@@ -366,14 +435,14 @@ topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
 - **`governance`** — `foundation` · `vendor-backed` · `community` · `individual` · `unknown`
 
 **Unknown is a real answer.** Every family whose classification can fail declares `unknown` and
-defaults to it. Absence of evidence never becomes a positive claim — the same rule §4.2 applies to
+defaults to it. Absence of evidence never becomes a positive claim — the same rule §4.3 applies to
 a missing Scorecard. `unknown` values are hidden from the UI. `governance` in particular will
 report `unknown` for most real foundation projects (etcd-io, containerd, helm, prometheus,
 cilium) until the CNCF landscape crawler ships a cached seed — an org account alone proves
 nothing. `maturity` checks `archived` before the CNCF level, so an archived CNCF-graduated
 project reports `archived`; see `docs/taxonomy.md` for why.
 
-**The vocabulary is data, so the types are `string`.** `Kind` and `Domain` are no longer literal
+**The vocabulary is data, so the types are `string`.** `Kind` and `Domain` are not literal
 unions; validation is a zod refinement against the loaded file. The compile-time check is replaced
 by `packages/analyze/src/rules/pinning.test.ts`, which asserts every value a rule can emit exists
 in the file. If you add a rule, that test is how a typo gets caught.
@@ -387,109 +456,151 @@ page chip rows — loops over the file and needs no edit.
 ```
 keco/
 ├── apps/
-│   ├── web/                       # Next.js 16, App Router — read side only
-│   │   └── src/app/
-│   │       ├── (portal)/          # /, /search, /tools/[owner]/[repo], /c/[slug]
-│   │       ├── (admin)/admin/     # observability + command triggers
-│   │       └── api/
-│   │           ├── v1/            # public REST (anonymous, rate-limited, CORS *)
-│   │           ├── mcp/           # MCP streamable HTTP
-│   │           ├── chat/          # RAG chatbot (v2)
-│   │           └── commands/      # enqueue-only: recrawl, reanalyze, reproject (token)
+│   ├── web/                       # public portal — Vite + React, static SPA
+│   ├── backoffice/                # admin SPA — Vite + React, same build/serve shape
+│   ├── api/                       # Fastify — the only backend process
+│   │   └── src/routes/
+│   │       ├── v1/                # public REST (anonymous, rate-limited, CORS *)
+│   │       ├── mcp/               # MCP streamable HTTP
+│   │       ├── chat/              # RAG chatbot (v2)
+│   │       ├── readme/            # cached README → sanitised HTML, by key
+│   │       ├── admin/             # session login + read-only pipeline views
+│   │       └── commands/          # enqueue-only: recrawl, reanalyze, reproject (token)
 │   └── workers/
-│       └── src/{crawler,analyzer,projector}/
+│       └── src/{discovery,crawler,analyzer,projector,replay,lib}/
 ├── packages/
 │   ├── core/                      # zod schemas, taxonomy, scoring, event types
-│   ├── cache/                     # Storage port + fs adapter, journal, checkpoints
-│   ├── github/                    # GraphQL/REST client, shared quota governor, etags
+│   ├── cache/                     # Storage port + fs adapter, journal, checkpoints, keys
+│   ├── github/                    # GraphQL/REST client, search pacer, quota governor, etags
 │   ├── signals/                   # scorecard, deps.dev, osv, brew, krew, artifacthub adapters
 │   ├── analyze/                   # rule classifiers + signal fusion + LLM fallback
 │   ├── search/                    # Meilisearch client, index defs, settings, task helpers
 │   └── query/                     # read-side retrieval shared by portal, REST, MCP, chat
 ├── infra/                         # compose (dev), Dockerfiles, deploy manifests
-└── docs/                          # ADRs, taxonomy rationale
+└── docs/                          # ADRs, taxonomy rationale, design + implementation plans
 ```
 
-pnpm workspaces, TypeScript, ESM, `strict: true`.
+pnpm workspaces (no Turborepo), TypeScript, ESM, `strict: true`, Node 24, pnpm 11.
 
-**Import boundaries, enforced by lint:**
-- `packages/query` may import `@keco/search` (read) — never `@keco/cache` or `@keco/github`.
+**Three deployables, two of them static.** `apps/web` and `apps/backoffice` build to `dist/`;
+`apps/api` serves both with `@fastify/static` (portal at `/`, backoffice at `/admin`) alongside
+its JSON routes. One Node process in production, next to Meilisearch and the worker container.
+
+**Import boundaries, enforced by lint** (`eslint.config.mjs` — each rule encodes one line of the
+CQRS contract; if you need to relax one, re-read §2 first):
+
+- `packages/query` may import `@keco/search` (read) — never `@keco/cache`, `@keco/github`,
+  `@keco/signals` or `@keco/analyze`.
 - `apps/workers` may import `@keco/cache`, `@keco/github`, `@keco/signals`, `@keco/analyze`;
   only the projector may import `@keco/search` with a write key.
 - `@keco/signals` may only be imported by the analyzer, and every adapter in it must go through
   `@keco/cache` — a signal provider called without the cache in front of it is a bug.
-- `apps/web` may **not** import `@keco/github`, `@keco/signals` or `@keco/analyze`. The web app
-  never fetches from third parties.
+- `apps/api` may import `@keco/query`, `@keco/core`, `@keco/cache` (read, by key) and
+  `@keco/search` (for enqueue-side checkpoint writes only) — never `@keco/github`,
+  `@keco/signals` or `@keco/analyze`.
+- `apps/web` and `apps/backoffice` are **browser bundles**: they may import `@keco/core` (types
+  and taxonomy) and `meilisearch` only. Any import of `@keco/cache`, `@keco/github`,
+  `@keco/signals`, `@keco/analyze` or `node:*` from a frontend is a build-time bug and a
+  potential secret leak — the bundle ships to strangers.
 
 ## 8. Commands
 
 Every dev script is a **mise task** — `mise.toml` is the single entry point, and nothing is
-invoked ad-hoc. `mise tasks` lists them all.
+invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the source of truth.
 
 | Command | What it does |
 |---|---|
 | `mise run setup` | First run: `.env`, dependencies, Meilisearch, index settings |
-| `mise run dev` | Next.js on :3000 |
-| `mise run crawler -- --seed cncf,krew --limit 200` | Discover + fetch into cache |
+| `mise run dev` | Portal, backoffice and API together, with HMR |
+| `mise run build` | Build both SPAs and the API bundle |
+| `mise run discovery -- --query kubernetes --fresh` | Enumerate repos into `discovery/*.yaml` (resumes by default) |
+| `mise run crawler -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
 | `mise run analyzer` | Classify everything with a changed `content_hash` or an expired signal TTL |
 | `mise run analyzer -- --force-refresh scorecard` | Ignore TTL for one provider |
 | `mise run projector` | Project analyses into Meilisearch |
-| `mise run rebuild` | Full replay → new index → alias swap |
+| `mise run rebuild` | Full offline replay → new index → alias swap, zero GitHub calls |
 | `mise run replay -- --consumer analyzer` | Reset a checkpoint |
-| `mise run pipeline` | crawl → analyze → project, end to end |
+| `mise run pipeline` | crawl → analyze → project, end to end, on a small seeded set |
 | `mise run search:settings` | Apply index settings (idempotent) |
+| `mise run taxonomy:check` | Validate `taxonomy.yaml` — schema, duplicates, `unknown` defaults |
 | `mise run check` / `lint` / `test` | `tsc --noEmit` · eslint (incl. §7 boundaries) · vitest |
-| `mise run ci` | All three — the gate for §15 |
+| `mise run format` | prettier |
+| `mise run ci` | check + lint + test + taxonomy:check — the gate for §15 |
 | `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
 
-Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl.
+Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl. Wiping the read model is
+`mise run infra:reset`; it is rebuilt by `mise run rebuild`, offline.
 
 Always run `mise run ci` before declaring work done.
 
-## 9. Portal (read side)
+## 9. Portal (`apps/web`) — static SPA
 
-**Home** — RSC, `revalidate = 900`. A hero search form posting to `/search`, then **Browse**: one
-chip row per facetable taxonomy family (`facetableFamilies()` — currently all eight), built from
-the `tools` facet distribution fetched at `hitsPerPage: 0` so the page pays for facet counts and
-nothing else. A value with zero documents behind it renders no chip, so the row itself renders
-nothing until the first crawl fills the index — no dead links, no wall of zero-count chips. Each
-chip links to `/search?<param>=<value>` using the family's declared `param`. Below Browse,
-**Highest momentum** — the top results from `whatsHot()`, labelled "momentum" per §4.3, never
-"trending". Plain links throughout: the page, including Browse, works with JavaScript disabled.
+Vite + React, no SSR, no framework routing conventions. The build output is a `dist/` folder
+served by `apps/api`. `react-router` for client navigation.
 
-**Search** — client component querying Meilisearch directly, debounced, **URL-synced state**
-(`?q=&kind=&domain=&install=&sort=&view=`) so results are shareable and back/forward work;
-list/grid toggle; facet counts from Meili; keyboard navigable (`/` focuses, arrows move, enter
-opens). Empty and zero-result states must suggest something useful.
+**Search is browser → Meilisearch, directly.** `meilisearch-js` with the search-only key, ~80 ms
+debounce, no backend round-trip per keystroke — that is the whole reason the search key is
+public. State is **URL-synced** (`?q=&kind=&domain=&install=&sort=&view=`) so results are
+shareable and back/forward work; list/grid toggle; facet counts from Meilisearch; keyboard
+navigable (`/` focuses, arrows move, enter opens). Empty and zero-result states must suggest
+something useful. Hybrid queries (`hybrid: { embedder }`) land with v2.
 
-**Tool page** — RSC + ISR (`revalidate = 3600`), `generateStaticParams` for the top 1000 by
-score. The SEO surface: real `<h1>`, metadata, JSON-LD `SoftwareApplication`, `sitemap.ts`
-generated from the index. The **README is read from the cache**, not the index, and rendered
-server-side: **sanitise the HTML** (rehype-sanitize), rewrite relative image/link URLs against
-`image_base_url`, strip the top badge-only paragraph, highlight with Shiki. Sidebar: stars,
-forks, language, license, last commit, latest release, score breakdown, canonical repo link.
-Install block: one tab per verified method, copy button, proof link. **Related**: same `kind` +
-overlapping `domains`, ranked by score, excluding the same owner. **Who is using it**: only
-adopters extracted from the cached README/ADOPTERS.md with an `evidence_url` — no invented
-logos; hide the section when there's nothing real. Always show owner, license, and "data from
-GitHub, updated <indexed_at>".
+**Home** — a hero search field, then **Browse**: one chip row per facetable taxonomy family
+(`facetableFamilies()` — currently all eight), built from the `tools` facet distribution fetched
+at `hitsPerPage: 0` so the page pays for facet counts and nothing else. A value with zero
+documents renders no chip, so the row renders nothing until the first crawl fills the index — no
+dead links, no wall of zero-count chips. Each chip links to `/search?<param>=<value>` using the
+family's declared `param`. Below Browse, **Highest momentum** — the top results from `whatsHot()`,
+labelled "momentum" per §4.4, never "trending".
 
-Reading the cache from the web app is the one place the read side touches write-side storage —
-it is a **read**, by key, of an immutable blob. Never write, never list.
+**Tool page** — `/tools/{owner}/{repo}`. Sidebar: stars, forks, language, license, last commit,
+latest release, score breakdown with `quality_coverage`, canonical repo link. Install block: one
+tab per verified method, copy button, proof link. **Related**: same `kind` + overlapping
+`domains`, ranked by score, excluding the same owner. **Who is using it**: only adopters with an
+`evidence_url` — no invented logos; hide the section when there's nothing real. Always show
+owner, license, and "data from GitHub, updated `<indexed_at>`".
 
-`/` → RSC, `revalidate = 900`. `(admin)/*` → `force-dynamic`, `noindex`.
+**The README comes from the cache, never from the index** — and the browser cannot read the
+cache, so it comes through `apps/api`: `GET /api/readme/{owner}/{repo}` reads the cached
+markdown by key and returns **sanitised** HTML (rehype-sanitize), with relative image and link
+URLs rewritten against `image_base_url`, the top badge-only paragraph stripped, and Shiki
+highlighting applied server-side. Rendering untrusted README markdown in the browser without
+that server-side sanitise step is a stored-XSS hole across the whole corpus.
 
-## 10. Backoffice — observe and command, never edit
+### SEO without SSR
 
-There is no curation, so the backoffice has exactly two jobs: **show what the pipeline did**,
-and **issue commands**.
+Dropping Next.js drops server rendering, and a bare SPA is not indexable enough for a search
+portal whose acquisition channel is organic search. The replacement is **build-time prerender**,
+and it is not optional:
+
+- A build step queries `tools` for the top N (~1000) by `score_total` and emits a real static
+  HTML file per tool page — `<h1>`, `<title>`, meta description, JSON-LD `SoftwareApplication`,
+  and the rendered README inlined. Fastify serves that file when it exists and falls back to
+  `index.html` otherwise; the SPA hydrates over it either way.
+- `sitemap.xml` and `robots.txt` are generated in the same step, from the same query.
+- The prerender reads the read model and the cache **at build time only**. It is not a server
+  renderer, and no request path may acquire one.
+- Prerendered HTML is as stale as the last build. Rebuild on the same cadence as the projector's
+  full rebuild, and keep `indexed_at` visible so the staleness is honest.
+- `/admin` is `noindex` and never prerendered.
+
+If a change makes the top tool pages non-prerenderable, it has broken the SEO surface — treat
+that as a blocking regression, not a follow-up.
+
+## 10. Backoffice (`apps/backoffice`) — observe and command, never edit
+
+Vite + React static SPA, same build/serve shape as the portal, mounted at `/admin`.
+
+There is no curation, so the backoffice has exactly two jobs: **show what the pipeline did**, and
+**issue commands**.
 
 1. **Pipeline health** — from `repos_state`: counts by phase, repos failing, repos skipped and
    why, classification confidence distribution, GitHub quota remaining, checkpoint lag per
    consumer (the number that tells you whether the system is keeping up).
 2. **Repo inspector** — cached `repo.json`, README, tree, the analysis document with its rules
-   trace or LLM output, and the projected `tools` document side by side. When something is
-   misclassified, this screen shows exactly which stage got it wrong.
+   trace or LLM output, and the projected `tools` document side by side, served read-only by
+   `apps/api`. When something is misclassified, this screen shows exactly which stage got it
+   wrong.
 3. **Commands** — buttons that append an event or reset a checkpoint: re-crawl this repo,
    re-analyze this repo, re-analyze everything with `confidence < 0.7`, rebuild the index,
    promote/rollback an alias. They enqueue and return immediately; they never do the work in
@@ -498,21 +609,29 @@ and **issue commands**.
    taxonomy bug.
 5. **Chat traces** (v2) — weak-retrieval queries, to drive eval fixtures.
 
-If you find yourself adding an "edit this field" form, stop: the fix belongs in the analyzer's
-rules, where it improves every repo instead of one. That is the whole reason curation was cut.
+**There is no "edit this field" form, and adding one is out of scope.** The upstream architecture
+notes sketched a classification-correction UI writing back into the index; that is explicitly
+rejected here. A per-repo override is a second source of truth that survives no rebuild and
+silently diverges from the analyzer. The fix for a misclassification belongs in the analyzer's
+rules, where it improves every similar repo at once — and where a fixture can prove it. That is
+the whole reason curation was cut (§1, ROADMAP "Explicitly not planned").
 
-## 11. Machine surfaces — REST, MCP, chatbot
+## 11. `apps/api` — REST, MCP, chatbot, commands
 
-Three front doors, **one implementation**: `packages/query` holds all retrieval and exports
-`searchTools() · getTool() · compareTools() · findAlternatives() · whatsHot()`. REST, MCP and
-chat are thin adapters; the portal uses the same functions server-side. A capability in one and
-not the others is a bug.
+Fastify, TypeScript, ESM, JSON-only for its own endpoints, plus `@fastify/static` for the two
+SPA bundles. It holds the **only** copy of the Meilisearch master key and the only cache handle
+on the read side. Request bodies are validated with the zod schemas from `@keco/core`.
 
-**REST** — `/api/v1/*`, read-only, anonymous, CORS-open, IP rate-limited, responses typed by zod
-schemas in `@keco/core` (the same ones that generate MCP tool shapes). Public identifier is
-`owner/repo`; never leak internal ids.
+Three machine front doors, **one implementation**: `packages/query` holds all retrieval and
+exports `searchTools() · getTool() · compareTools() · findAlternatives() · whatsHot()`. REST, MCP
+and chat are thin adapters over it. A capability in one and not the others is a bug.
 
-**MCP** — `/api/mcp`, streamable HTTP, Node runtime, read tools only.
+**REST** — `/api/v1/*`, read-only, anonymous, CORS-open, IP rate-limited, responses typed by the
+same zod schemas that generate the MCP tool shapes. Public identifier is `owner/repo`; never leak
+internal ids.
+
+**MCP** — `/api/mcp`, streamable HTTP, read tools only.
+
 - Tool *descriptions* are the interface — an agent picks from the description alone. Say
   explicitly when not to use each tool.
 - Compact structured content: `search_tools` caps at 10 results with ~40-word summaries. A 50 KB
@@ -521,6 +640,7 @@ schemas in `@keco/core` (the same ones that generate MCP tool shapes). Public id
   know freshness — eventual consistency must be visible to callers.
 
 **Chatbot** — `/api/chat`, strictly retrieval-grounded:
+
 1. Retrieve first (Meilisearch hybrid: keyword + embeddings), answer only from what came back.
 2. Never name a tool outside the retrieved set. Never emit an install command not in that tool's
    verified `install_methods` — the model does not write shell commands from memory.
@@ -531,38 +651,61 @@ schemas in `@keco/core` (the same ones that generate MCP tool shapes). Public id
 7. Log `(query, retrieved_ids, answer)` to `traces`; evals in `packages/query/evals` with ~50
    real devops questions and expected tools. Retrieval quality you can't measure will rot.
 
+**Commands** — `/api/commands/*`, the only write path in the whole read side, and it writes to
+the *write* model: it appends a journal event or resets a checkpoint, then returns. It never
+touches Meilisearch and it never does the work inline. A route handler that loops over repos is
+always a bug (§14).
+
+**No `POST /log-search`.** The upstream notes proposed logging every query into a `search_logs`
+index for a backoffice "top searches" view. It is not in this design: it is a write on the read
+path (§2.2), it makes the browser's public key a write vector or forces a round-trip that
+defeats search-as-you-type, and it stores user-derived data in a system that otherwise holds
+nothing but public GitHub facts. If query analytics become necessary, they arrive as a separate
+decision with a retention policy, not as a side effect of search.
+
 ## 12. Auth & secrets
 
-- Backoffice: Auth.js, GitHub OAuth, allowlist in `ADMIN_LOGINS`. Guard `(admin)` in middleware
-  **and** re-check inside every server action — middleware alone is not authorization.
-- `/api/commands/*`: admin session **or** `Bearer $COMMAND_TOKEN`, `timingSafeEqual`, no CORS.
-- Meilisearch: master key server-side only. `NEXT_PUBLIC_MEILI_SEARCH_KEY` is search-only,
-  scoped to `tools`.
-- The cache is a local directory today, so the web app's read-only access is a convention the
-  lint rules and code review enforce, not a credential. When object storage lands, it becomes a
+- **Backoffice auth is a single admin credential**, not a full auth system: `POST /api/admin/login`
+  compares against `ADMIN_PASSWORD_HASH` with a constant-time comparison and sets a signed,
+  `HttpOnly`, `SameSite=Strict` session cookie. There is one admin, the backoffice can only read
+  and enqueue, and an OAuth provider would be more moving parts than the surface justifies. This
+  replaces the Auth.js + GitHub OAuth design that the Next.js layout assumed.
+- **Authorize inside every handler**, not only in a plugin hook. A route that trusts an upstream
+  guard is one refactor away from being unguarded.
+- `/api/commands/*`: admin session **or** `Bearer $COMMAND_TOKEN` compared with
+  `timingSafeEqual`, no CORS.
+- Meilisearch: master key server-side only, in `apps/api`'s environment. The browser bundles get
+  `VITE_MEILI_SEARCH_KEY` — search-only, scoped to `tools`.
+- **Vite inlines every `VITE_`-prefixed variable into the bundle at build time.** Anything with
+  that prefix is public, permanently, in every deployed artifact. Never prefix a secret; never
+  read `process.env` from frontend code expecting it to stay server-side.
+- The cache is a local directory today, so `apps/api`'s read-only access is a convention that
+  lint rules and code review enforce, not a credential. When object storage lands it becomes a
   read-only credential — write the code as if it already were one.
-- `.env.example` stays in sync, with a comment naming the surface that uses each variable.
+- `.env.example` stays in sync, with a comment naming the surface that reads each variable.
 
 ## 13. Conventions
 
-- Validate every external payload with **zod** at the boundary. `any` is banned outside verbatim
-  cached GitHub payloads.
+- Validate every external payload with **zod** at the boundary. `any` is banned (lint error)
+  outside verbatim cached GitHub payloads.
 - A single bad repo must never abort a run: catch per item, emit `RepoFailed`, continue.
 - Structured logging (pino): one debug line per repo, one info summary per batch, checkpoint
-  position in every summary.
+  position in every summary. The stderr progress bar falls back to plain lines on a non-TTY —
+  don't reintroduce ANSI writes that assume a terminal.
 - Tests: unit-test the analyzer against `packages/analyze/fixtures/*.json` — real cached
   payloads, committed. **A new classification rule requires a fixture proving it.** Fixtures are
   literally cache entries, which is the other reason the cache exists.
+- Design and implementation plans live in `docs/`; ADRs in `docs/adr/`. A decision that reverses
+  one of these gets an ADR, not a silent edit.
 - Conventional Commits scoped by package: `feat(analyzer): …`, `fix(projector): …`.
 
 ## 14. Things that will bite you
 
+**CQRS and the pipeline**
+
 - **Reading a read model from the write side.** The tempting shortcut is "let the analyzer query
   Meilisearch for repos needing work". Don't — checkpoints and the journal exist for this, and
   the coupling is very hard to unwind later.
-- **Meilisearch writes are async** — advance the checkpoint only after `waitForTask`, or a crash
-  loses a batch silently.
-- **Partial updates are a shallow merge** — whole sub-objects only.
 - **Listing the cache to find work** is slow now and billed per request once it is object
   storage; read the journal.
 - **Assuming the cache is a filesystem.** `fs.readFile` on a cache path, a glob, a `path.join`
@@ -571,35 +714,64 @@ schemas in `@keco/core` (the same ones that generate MCP tool shapes). Public id
 - **A third-party call without the cache in front of it** turns a replay into a 30k-request
   storm and gets your IP throttled by Scorecard or Artifact Hub. Every provider goes through
   `external/`.
-- **Scorecard coverage is partial** — OpenSSF only scans its weekly cron set, so most niche
-  repos have no score. Absence must renormalise the quality axis, never score as zero.
-- **The analyzer's GitHub calls come out of the crawler's quota.** Budget them explicitly or use
-  a second token, or a busy analyzer will starve the crawler.
 - **Signal freshness drifts from repo freshness**: a repo unchanged for a year still needs its
   Scorecard refreshed weekly. Analysis is triggered by `content_hash` change *or* by the oldest
   signal's TTL expiring — not by `content_hash` alone.
+
+**GitHub**
+
+- **The analyzer's GitHub calls come out of the crawler's quota** (`GITHUB_QUOTA_CRAWLER_SHARE`).
+  Budget them explicitly or use a second token, or a busy analyzer starves the crawler.
+- **Search and core REST have separate, very different limits.** ~30 req/min for Search vs 5000
+  points/hour for core. Discovery has its own pacer for exactly this reason; don't route
+  discovery calls through the core client.
+- The 5000 points/hour budget is shared by all shards. Don't parallelise past the configured
+  concurrency; give each shard its own token or divide the budget in config.
+- **Scorecard coverage is partial** — OpenSSF only scans its weekly cron set, so most niche
+  repos have no score. Absence must renormalise the quality axis, never score as zero.
+
+**Meilisearch**
+
+- **Writes are async** — advance the checkpoint only after `waitForTask`, or a crash loses a
+  batch silently.
+- **Partial updates are a shallow merge** — whole sub-objects only.
 - **Deep pagination is capped** by `pagination.maxTotalHits`; admin listing uses `getDocuments`.
+
+**Frontend and API**
+
+- **`VITE_`-prefixed variables are baked into the shipped bundle.** A secret with that prefix is
+  a published secret, and rotating it means rebuilding and redeploying.
+- **The SPA has no server.** A deep link like `/tools/argoproj/argo-cd` only resolves because
+  Fastify falls back to `index.html` (or to a prerendered file). Add a route in the client and
+  you must confirm the server fallback still covers it, or the URL 404s on hard refresh.
+- **SEO is prerender-only now.** A change that makes the tool page depend on runtime-only data
+  removes it from the index. See §9.
+- **README markdown is untrusted input.** Sanitise server-side in `apps/api`, never
+  `dangerouslySetInnerHTML` on raw markdown output in the browser.
 - README relative image paths break unless rewritten — test with `kubernetes/kubectl`.
+- **Long work cannot run inside a request handler** (timeouts, and Fastify has no background
+  runtime). Handlers enqueue; workers execute. A `for` loop over 10k repos in `apps/api` is
+  always a bug.
+- Static assets and JSON routes share one Fastify instance: register `@fastify/static` so it
+  cannot shadow `/api/*`, and keep the SPA fallback last.
+
+**Corpus quality**
+
 - Plenty of repos mention Kubernetes without being ecosystem tools (courses, blogs, dotfiles).
   `k8s_relevance` demotes them: keep them in cache, filter them out at projection time.
 - Homebrew formula names rarely match repo names (`ahmetb/kubectx` → `kubectx`). Verify against
   the Homebrew API, and cache that API response.
-- The GitHub 5000 points/hour budget is shared by all crawler shards. Don't parallelise past the
-  configured concurrency; give each shard its own token or divide the budget in config.
-- Next.js: `revalidate` on the tool page won't help if the route reads a `cookies()`-tainted
-  helper — it silently becomes dynamic. Keep portal routes free of request-scoped APIs.
-- Long work cannot run inside a route handler (timeouts). Handlers enqueue; workers execute. A
-  `for` loop over 10k repos in `app/api` is always a bug.
-- Server actions are POST endpoints: authorize inside them, always.
 
 ## 15. Definition of done
 
-1. `pnpm check && pnpm test` green.
+1. `mise run ci` green — check, lint, test, taxonomy:check.
 2. Analyzer changes: re-run over the fixture set, diff the classification output, no unexplained
    regressions. New signal provider ⇒ cached adapter, TTL, timeout, null-path tested.
 3. Read-model changes: applied by re-projecting from cache — **no network calls at all** — and
    promoted by alias swap, never in place.
 4. API changes: contract updated in `@keco/core`, REST + MCP both reflect it.
-5. Portal changes: tool page works with JS disabled (SEO), search is keyboard-navigable.
-6. Nothing on the read side writes; nothing on the write side reads a read model.
-7. Update this file when a contract changes; `docs/` when the taxonomy changes.
+5. Portal changes: the tool page still prerenders with a real `<h1>`, metadata and JSON-LD;
+   search is keyboard-navigable; no `VITE_`-prefixed secret entered the bundle.
+6. Nothing on the read side writes a read model; nothing on the write side reads one.
+7. Update this file when a contract changes; `docs/` when the taxonomy changes; `docs/adr/` when
+   a decision here is reversed.
