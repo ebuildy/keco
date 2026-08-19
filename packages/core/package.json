@@ -10,6 +10,9 @@
     "./schemas": "./src/schemas.ts",
     "./scoring": "./src/scoring.ts"
   },
+  "browser": {
+    "./src/taxonomy-source.ts": "./src/taxonomy-source.browser.ts"
+  },
   "scripts": {
     "check": "tsc --noEmit",
     "taxonomy:check": "tsx src/bin/check-taxonomy.ts"

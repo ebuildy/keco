@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { parseTaxonomy, type TaxonomyFamily, type TaxonomyFile, type TaxonomyValue } from './taxonomy-schema';
+import { readTaxonomySource } from './taxonomy-source';
 
 /**
  * The closed vocabulary (AGENTS.md §6), loaded from `packages/core/taxonomy.yaml`.
@@ -11,54 +9,24 @@ import { parseTaxonomy, type TaxonomyFamily, type TaxonomyFile, type TaxonomyVal
  * Cilium is a controller AND networking; a flat category list cannot say that.
  *
  * The file is read once at module load and validated in full. A malformed taxonomy takes
- * every worker and the web app down immediately rather than letting them classify into a
- * vocabulary that does not exist.
+ * every worker, the API and the portal bundle down immediately rather than letting them
+ * classify into a vocabulary that does not exist.
+ *
+ * Where the bytes come from is `taxonomy-source.ts`'s problem: Node reads the file off disk,
+ * and a Vite bundle gets it inlined by the `browser` field's swap to
+ * `taxonomy-source.browser.ts`. Parsing, validation and freezing are shared, so the two
+ * builds cannot disagree about the vocabulary.
  *
  * Because the vocabulary is data, `Kind` and friends are `string`, not literal unions. The
  * safety net that replaces compile-time checking is packages/analyze/src/rules/pinning.test.ts,
  * which asserts every value any rule can emit exists in this file.
  *
- * Import cost: this module reads the file, parses YAML and runs full zod validation
+ * Import cost: this module reads the source, parses YAML and runs full zod validation
  * synchronously at import time. `index.ts` re-exports it and `schemas.ts` imports value
- * bindings from it, so importing *anything* from `@keco/core` now pays that cost — including
- * consumers that only wanted, say, `CONSUMERS` from the events module. The cost is
- * sub-millisecond and not worth rewiring existing imports over, but if you're writing a new
- * consumer that has no need for the taxonomy, the `@keco/core/events` subpath export skips
- * it. `@keco/core/schemas` does not — `schemas.ts` imports value bindings from this module
- * to validate the taxonomy fields, so it pays the same cost.
+ * bindings from it, so importing *anything* from `@keco/core` pays that cost — including a
+ * browser bundle that only wanted a type. The cost is sub-millisecond; the `@keco/core/events`
+ * subpath export skips it for consumers that have no need for the taxonomy.
  */
-const FILENAME = 'taxonomy.yaml';
-
-/**
- * Resolves `packages/core/taxonomy.yaml` relative to this module's own compiled location.
- * Not exported: this resolution strategy is unverified under a bundler (see below), and
- * handing it out as public API would make that unverified logic something every future
- * caller in the workspace can depend on directly.
- *
- * Verified: plain Node ESM (workers) and vitest, both of which preserve `import.meta.url`
- * pointing at the real file on disk. Not verified: a bundler that rewrites or inlines
- * `import.meta.url` (e.g. a Next production bundle) would break this — that path is the
- * portal build task's job to prove, not guessed at here. No env-var override and no
- * fallback search are added speculatively; if the Next build needs one, add it with
- * evidence from that failure, not in advance of it.
- */
-function taxonomyPath(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return resolve(here, '..', FILENAME);
-}
-
-/**
- * Reads the taxonomy file at `path` (default: `taxonomyPath()`). The `path` parameter exists
- * so the not-found branch is reachable from a test without a filesystem mocking layer — by
- * the time any other test runs, module load has already succeeded once, so that branch would
- * otherwise be untestable.
- */
-export function readTaxonomyFile(path: string = taxonomyPath()): string {
-  if (!existsSync(path)) {
-    throw new Error(`taxonomy: ${FILENAME} not found. Looked in:\n  ${path}`);
-  }
-  return readFileSync(path, 'utf8');
-}
 
 /**
  * Recursively freezes the parsed file: the families array, each family object, each
@@ -83,7 +51,7 @@ function deepFreezeTaxonomy(file: TaxonomyFile): TaxonomyFile {
   return Object.freeze(file);
 }
 
-const FILE = deepFreezeTaxonomy(parseTaxonomy(readTaxonomyFile()));
+const FILE = deepFreezeTaxonomy(parseTaxonomy(readTaxonomySource()));
 
 /**
  * Every family, in declared order. Plain data — safe to pass to a client component.

@@ -17,10 +17,10 @@ import {
   isValue,
   listSchema,
   paramFor,
-  readTaxonomyFile,
   valueSchema,
   values,
 } from './taxonomy';
+import { readTaxonomyFile, readTaxonomySource } from './taxonomy-source';
 
 /** These run against the real committed packages/core/taxonomy.yaml. */
 describe('taxonomy accessors', () => {
@@ -112,6 +112,14 @@ describe('taxonomy accessors', () => {
     const missing = '/deliberately/absent/path/taxonomy.yaml';
     expect(() => readTaxonomyFile(missing)).toThrow(/^taxonomy: /);
     expect(() => readTaxonomyFile(missing)).toThrow(missing);
+  });
+
+  it('loads the same bytes through the source module the browser build uses', () => {
+    // The browser variant returns a Vite-inlined string instead of reading the disk, so the
+    // only thing that can drift between the two builds is the bytes. Pin them here: the
+    // parse, the zod validation and the freezing are shared code either way.
+    expect(readTaxonomySource()).toBe(readTaxonomyFile());
+    expect(readTaxonomySource()).toContain('families:');
   });
 
   it('does not let allValues() mutation leak into the shared taxonomy', () => {
