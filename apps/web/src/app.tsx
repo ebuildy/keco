@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router';
+import { HomePage } from './routes/home';
 import { NotFoundPage } from './routes/not-found';
 
 /**
@@ -11,6 +12,7 @@ import { NotFoundPage } from './routes/not-found';
 export function App() {
   return (
     <Routes>
+      <Route path="/" element={<HomePage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
