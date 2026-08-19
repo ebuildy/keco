@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './env';
-import { liveRetrieval, type Retrieval } from './ports';
+import { liveCache, liveRetrieval, type ReadOnlyCache, type Retrieval } from './ports';
+import { readmeRoutes } from './routes/readme';
 import { v1Routes } from './routes/v1';
 
 export type BuildOptions = {
@@ -13,6 +14,8 @@ export type BuildOptions = {
   prerendered?: Set<string>;
   /** Injected in tests so a route suite never needs a running Meilisearch (see ports.ts). */
   retrieval?: Retrieval;
+  /** Injected in tests so a route suite never needs a `.cache` directory on disk (see ports.ts). */
+  cache?: ReadOnlyCache;
 };
 
 /**
@@ -24,6 +27,7 @@ export type BuildOptions = {
  */
 export async function build(options: BuildOptions): Promise<FastifyInstance> {
   const retrieval = options.retrieval ?? liveRetrieval(options.env);
+  const cache = options.cache ?? liveCache(options.env);
 
   const app = Fastify({
     logger: { level: options.env.LOG_LEVEL },
@@ -39,6 +43,7 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ status: 'ok' }));
 
   await app.register(v1Routes, { prefix: '/api/v1', retrieval });
+  await app.register(readmeRoutes, { prefix: '/api/readme', cache });
 
   // Replaced in Task 9 by the handler that also serves the SPA and the prerendered pages.
   app.setNotFoundHandler(async (_request, reply) => reply.code(404).send({ error: 'not_found' }));
