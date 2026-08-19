@@ -4,26 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "check": "tsc --noEmit",
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prerender": "node --import tsx prerender/index.ts",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@keco/cache": "workspace:*",
     "@keco/core": "workspace:*",
-    "@keco/query": "workspace:*",
-    "next": "16.2.12",
+    "meilisearch": "^0.60.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "server-only": "^0.0.1"
+    "react-router": "^8.3.0"
   },
   "devDependencies": {
+    "@keco/query": "workspace:*",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "eslint-config-next": "16.2.12",
-    "typescript": "5.9.3"
+    "@vitejs/plugin-react": "^6.0.5",
+    "tsx": "^4.23.1",
+    "typescript": "5.9.3",
+    "vite": "^8.2.1"
   }
 }
