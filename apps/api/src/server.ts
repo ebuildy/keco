@@ -1,6 +1,8 @@
+import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Env } from './env';
 import { liveCache, liveRetrieval, type ReadOnlyCache, type Retrieval } from './ports';
+import { adminRoutes } from './routes/admin';
 import { readmeRoutes } from './routes/readme';
 import { v1Routes } from './routes/v1';
 
@@ -40,10 +42,15 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
     trustProxy: options.env.TRUST_PROXY,
   });
 
+  // Signed so a session cookie cannot be forged. HttpOnly and SameSite are set per-cookie
+  // by the admin routes (§12).
+  await app.register(cookie, { secret: options.env.SESSION_SECRET });
+
   app.get('/api/health', async () => ({ status: 'ok' }));
 
   await app.register(v1Routes, { prefix: '/api/v1', retrieval });
   await app.register(readmeRoutes, { prefix: '/api/readme', cache });
+  await app.register(adminRoutes, { prefix: '/api/admin', env: options.env });
 
   // Replaced in Task 9 by the handler that also serves the SPA and the prerendered pages.
   app.setNotFoundHandler(async (_request, reply) => reply.code(404).send({ error: 'not_found' }));
