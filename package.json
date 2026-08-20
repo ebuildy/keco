@@ -8,12 +8,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm -F @keco/api dev",
-    "build": "pnpm -F @keco/web build && pnpm -F @keco/web prerender",
-    "check": "pnpm -r --parallel check",
-    "lint": "eslint .",
-    "test": "vitest run",
-    "search:settings": "pnpm -F @keco/search settings"
+    "dev": "mise run dev",
+    "build": "mise run build",
+    "check": "mise run check",
+    "lint": "mise run lint",
+    "test": "mise run test",
+    "search:settings": "mise run search:settings"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
