@@ -1,6 +1,6 @@
-import { TAXONOMY } from '@keco/core';
+import { TAXONOMY, familyAttribute } from '@keco/core';
 import { describe, expect, it } from 'vitest';
-import { TOOLS_SETTINGS, familyAttribute } from './settings';
+import { TOOLS_SETTINGS } from './settings';
 
 describe('TOOLS_SETTINGS', () => {
   it('makes every taxonomy family filterable', () => {

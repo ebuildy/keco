@@ -5,11 +5,9 @@ import type { Settings } from 'meilisearch';
  * The public search corpus. `tools` is an alias onto `tools_<ts>` (AGENTS.md §5).
  *
  * The name and the family→attribute mapping are defined in @keco/core, because the portal
- * needs both and §7 bars a browser bundle from importing this package. Re-exported here so
- * every existing caller keeps its import.
+ * needs both and §7 bars a browser bundle from importing this package.
  */
 export const TOOLS_ALIAS = TOOLS_INDEX;
-export { familyAttribute };
 
 export const REPOS_STATE_INDEX = 'repos_state';
 export const TRACES_INDEX = 'traces';

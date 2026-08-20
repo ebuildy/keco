@@ -139,13 +139,4 @@ export async function whatsHot(
 }
 
 export { fromDocumentId, toDocumentId };
-export {
-  buildFilters,
-  defaultFacets,
-  familyAttribute,
-  isSortKey,
-  paramForFamily,
-  selectionFromParams,
-  sortSpec,
-} from '@keco/core';
 export type { FacetSelection, SortKey, ToolDocument };
