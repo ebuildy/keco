@@ -14,7 +14,6 @@ export default ts.config(
   {
     ignores: [
       '**/node_modules/**',
-      '**/.next/**',
       '**/dist/**',
       '**/coverage/**',
       'packages/analyze/fixtures/**',
@@ -38,13 +37,41 @@ export default ts.config(
     ]),
   },
 
-  // The web app never fetches from third parties. It reads Meilisearch, and the
-  // cache by key (tool page README) — nothing else.
+  // The portal bundle ships to strangers. Anything it imports is public, so the rule is not
+  // "no write-side packages" but "@keco/core and meilisearch, and nothing else" (§7).
+  // @keco/query and @keco/search are read-side and harmless in themselves, but @keco/search
+  // carries createAdminClient, which reads MEILI_MASTER_KEY — a bundle must not be one
+  // tree-shaking mistake away from that.
   {
-    files: ['apps/web/**/*.ts', 'apps/web/**/*.tsx'],
-    rules: boundary('apps/web must not import write-side packages (§7).', [
-      ['@keco/github', '@keco/signals', '@keco/analyze'],
-    ]),
+    files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
+    rules: boundary(
+      'apps/web/src is a browser bundle: @keco/core and meilisearch only, and no node:* (§7).',
+      [
+        ['@keco/cache', '@keco/cache/*', '@keco/github', '@keco/signals', '@keco/analyze'],
+        ['@keco/query', '@keco/search'],
+        ['node:*', 'fs', 'path', 'crypto', 'os'],
+      ],
+    ),
+  },
+
+  // Not bundle code: this is Node build tooling that reads the read model and writes files.
+  // It may hold a query client; it still may not touch the write side.
+  {
+    files: ['apps/web/prerender/**/*.ts'],
+    rules: boundary(
+      'apps/web/prerender is build tooling: it may read the read model, never the write side (§7).',
+      [['@keco/cache', '@keco/cache/*', '@keco/github', '@keco/signals', '@keco/analyze']],
+    ),
+  },
+
+  // The API reads Meilisearch and the cache by key. It never fetches from a third party —
+  // that is the write side's job, and its quota.
+  {
+    files: ['apps/api/**/*.ts'],
+    rules: boundary(
+      'apps/api may import @keco/query, @keco/core, @keco/cache and @keco/search — never a write-side fetcher (§7).',
+      [['@keco/github', '@keco/signals', '@keco/analyze']],
+    ),
   },
 
   // Only the projector writes to Meilisearch.
