@@ -4,10 +4,7 @@
     "lib": ["ES2023", "dom", "dom.iterable"],
     "jsx": "react-jsx",
     "types": ["vite/client", "node"],
-    "verbatimModuleSyntax": false,
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "verbatimModuleSyntax": false
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "prerender/**/*.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist"]
