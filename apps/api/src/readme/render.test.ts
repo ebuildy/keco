@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { renderReadme } from './render';
+import { renderReadme, warmReadmeRenderer } from './render';
 
 const BASE = 'https://raw.githubusercontent.com/kubernetes/kubectl/HEAD/';
+
+// Shiki loads its grammars and themes lazily on first render — up to 6.6s under full-suite
+// CPU contention, past vitest's 5s per-test default. Paying it during module import, not
+// inside a test, keeps that cost off any single test's clock (see vitest.config.ts).
+await warmReadmeRenderer();
 
 describe('renderReadme', () => {
   it('renders ordinary markdown', async () => {

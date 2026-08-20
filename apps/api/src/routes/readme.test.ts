@@ -1,6 +1,11 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { loadEnv } from '../env';
+import { warmReadmeRenderer } from '../readme/render';
 import { build } from '../server';
+
+// See render.test.ts: this route runs the full renderReadme pipeline, so it pays the same
+// Shiki warm-up during import rather than inside whichever test happens to render first.
+await warmReadmeRenderer();
 
 const env = loadEnv({ MEILI_MASTER_KEY: 'k', SESSION_SECRET: 'a'.repeat(32), LOG_LEVEL: 'fatal' });
 
