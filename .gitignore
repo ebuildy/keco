@@ -1,11 +1,6 @@
 node_modules/
 .pnpm-store/
 
-# next
-.next/
-out/
-next-env.d.ts
-
 # build / cache artifacts
 dist/
 *.tsbuildinfo

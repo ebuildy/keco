@@ -2,10 +2,9 @@ packages:
   - "apps/*"
   - "packages/*"
 
-# esbuild powers tsx/vitest; sharp is Next's image optimizer. unrs-resolver is not needed.
+# esbuild powers tsx/vitest. unrs-resolver is not needed.
 allowBuilds:
   esbuild: true
-  sharp: true
   unrs-resolver: false
 
 minimumReleaseAgeExclude:

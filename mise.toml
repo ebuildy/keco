@@ -7,9 +7,8 @@ node = "24.18.1"
 pnpm = "11.18.0"
 
 [env]
-# NODE_ENV is deliberately not set here: exporting "development" globally leaks into
-# `next build`, which then warns about a non-standard NODE_ENV and prerenders in dev mode.
-# Each tool sets its own (next dev → development, next build → production).
+# NODE_ENV is deliberately not set here. Vite and Fastify each set their own (vite dev →
+# development, vite build → production), and exporting one globally overrides both.
 #
 # Loaded from .env when present (created by `mise run setup`).
 #
@@ -44,13 +43,35 @@ outputs = { auto = true }
 
 # ── dev ──────────────────────────────────────────────────────────────────────
 
-[tasks.dev]
-description = "Next.js portal + backoffice on :3000"
+[tasks.web]
+description = "Portal dev server (Vite) on :5173, proxying /api to :3000"
 run = "pnpm -F @keco/web dev"
 
+[tasks.api]
+description = "Fastify API + static portal on :3000"
+run = "pnpm -F @keco/api dev"
+
+[tasks.dev]
+description = "Portal (:5173) and API (:3000) together"
+# depends runs these in parallel; `run` would chain them and the first would never exit.
+depends = ["web", "api"]
+
+[tasks.prerender]
+description = "Emit static tool pages, sitemap.xml and robots.txt from the read model"
+run = "pnpm -F @keco/web prerender"
+
 [tasks.build]
-description = "Build the web app"
-run = "pnpm -F @keco/web build"
+description = "Build the portal, prerender the top tool pages, typecheck the API"
+# Order matters: `vite build` empties dist/, which would delete a previous prerender.
+run = [
+  "pnpm -F @keco/web build",
+  "pnpm -F @keco/web prerender",
+  "pnpm -F @keco/api check",
+]
+
+[tasks."admin:hash"]
+description = "Hash a password for ADMIN_PASSWORD_HASH. Args: --password 'secret'"
+run = "pnpm -F @keco/api admin:hash"
 
 # ── quality gates (§15 definition of done) ───────────────────────────────────
 

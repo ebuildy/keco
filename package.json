@@ -8,8 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm -F @keco/web dev",
-    "build": "pnpm -F @keco/web build",
+    "dev": "pnpm -F @keco/api dev",
+    "build": "pnpm -F @keco/web build && pnpm -F @keco/web prerender",
     "check": "pnpm -r --parallel check",
     "lint": "eslint .",
     "test": "vitest run",
