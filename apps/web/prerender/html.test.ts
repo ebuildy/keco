@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolDocument } from '@keco/core';
-import { robotsTxt, sitemapXml, toolPageHtml } from './html';
+import { isSafeFullName, robotsTxt, sitemapXml, toolPageHtml } from './html';
 
 const SHELL = [
   '<!doctype html>',
@@ -117,5 +117,34 @@ describe('robotsTxt', () => {
     const txt = robotsTxt('https://keco.dev');
     expect(txt).toContain('Sitemap: https://keco.dev/sitemap.xml');
     expect(txt).toContain('Disallow: /admin');
+  });
+});
+
+describe('isSafeFullName', () => {
+  it('accepts real owner/repo names', () => {
+    for (const name of ['ahmetb/kubectx', 'kubernetes-sigs/krew-index', 'a/b.c', 'x/y_z-1']) {
+      expect(isSafeFullName(name), name).toBe(true);
+    }
+  });
+
+  it('rejects the traversal that escaped dist before this existed', () => {
+    // Verified: full_name '../../../../PWNED' wrote HTML outside apps/web/dist entirely.
+    // The prerender turns this field into a filename, so it is a boundary (AGENTS.md §13)
+    // even though the projector is the only writer of the read model.
+    for (const name of [
+      '../../../../PWNED',
+      'a/../../b',
+      '../x/y',
+      'a/b/../../../c',
+      'a/..',
+      '/etc/passwd',
+      'a//b',
+      'a/b/c',
+      '',
+      'a/',
+      '/b',
+    ]) {
+      expect(isSafeFullName(name), name).toBe(false);
+    }
   });
 });

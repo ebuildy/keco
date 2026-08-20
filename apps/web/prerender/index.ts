@@ -6,7 +6,7 @@ import { StaticRouter } from 'react-router';
 import { createQueryClient, searchTools } from '@keco/query';
 import { App } from '../src/app';
 import { setBootstrap } from '../src/lib/bootstrap';
-import { robotsTxt, sitemapXml, toolPageHtml } from './html';
+import { isSafeFullName, robotsTxt, sitemapXml, toolPageHtml } from './html';
 
 /**
  * Build-time prerender (AGENTS.md §9). Dropping Next.js dropped server rendering, and a bare
@@ -38,7 +38,21 @@ const shell = await readFile(join(dist, 'index.html'), 'utf8').catch(() => {
 const client = createQueryClient();
 const top = await searchTools(client, { sort: 'score', hitsPerPage: TOP_N });
 
+/**
+ * Only documents whose `full_name` is a real `owner/repo` are emitted. Anything else is
+ * skipped loudly rather than silently: a document that cannot be named cannot be linked
+ * either, so dropping it is the correct outcome, but it means the projector wrote something
+ * malformed and somebody should know.
+ */
+const prerenderRoot = join(dist, 'prerendered', 'tools');
+const emitted: typeof top.hits = [];
+
 for (const tool of top.hits) {
+  if (!isSafeFullName(tool.full_name)) {
+    console.warn(`prerender: skipping unsafe full_name ${JSON.stringify(tool.full_name)}`);
+    continue;
+  }
+
   // Single-threaded, one page at a time: the component tree reads this through readBootstrap().
   setBootstrap({ tool });
   const markup = renderToString(
@@ -46,18 +60,25 @@ for (const tool of top.hits) {
   );
   setBootstrap(null);
 
-  const file = join(dist, 'prerendered', 'tools', `${tool.full_name}.html`);
+  const file = join(prerenderRoot, `${tool.full_name}.html`);
+  // Belt and braces. isSafeFullName already makes this unreachable; if a future edit widens
+  // the vocabulary, the build fails here instead of writing somewhere it should not.
+  if (!resolve(file).startsWith(`${resolve(prerenderRoot)}/`)) {
+    throw new Error(`prerender: ${tool.full_name} resolves outside ${prerenderRoot}`);
+  }
+
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, toolPageHtml(shell, { tool, markup, siteUrl }), 'utf8');
+  emitted.push(tool);
 }
 
-await writeFile(join(dist, 'sitemap.xml'), sitemapXml(siteUrl, top.hits), 'utf8');
+await writeFile(join(dist, 'sitemap.xml'), sitemapXml(siteUrl, emitted), 'utf8');
 await writeFile(join(dist, 'robots.txt'), robotsTxt(siteUrl), 'utf8');
 // apps/api loads this at boot and serves a prerendered file only for a path it lists.
 await writeFile(
   join(dist, 'prerender-manifest.json'),
-  `${JSON.stringify({ paths: top.hits.map((tool) => `/tools/${tool.full_name}`) }, null, 2)}\n`,
+  `${JSON.stringify({ paths: emitted.map((tool) => `/tools/${tool.full_name}`) }, null, 2)}\n`,
   'utf8',
 );
 
-console.log(`prerender: ${top.hits.length} tool pages, sitemap and robots.txt → ${dist}`);
+console.log(`prerender: ${emitted.length} tool pages, sitemap and robots.txt → ${dist}`);

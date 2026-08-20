@@ -8,6 +8,24 @@ import type { ToolDocument } from '@keco/core';
  * pages with an empty `#root` and the generic title, which is exactly the blocking SEO
  * regression §9 describes; failing the build is the only acceptable behaviour.
  */
+/**
+ * `owner/repo` as GitHub actually permits it, and the guard on every path this build writes.
+ *
+ * The prerender turns a document field into a filename. `full_name` reaches it from the read
+ * model, which is written by the projector from GitHub data — so in the normal case it is
+ * already well formed. That is not a reason to trust it: a projector bug or a tampered index
+ * would otherwise become an arbitrary file write during the build, with attacker-chosen HTML
+ * as the content. AGENTS.md §13 says validate every external payload at the boundary, and the
+ * read model is an external payload here exactly as it is for apps/api, which validates the
+ * same two fields before touching a cache key (routes/readme.ts).
+ *
+ * Verified escape before this existed: `full_name: '../../../../PWNED'` wrote outside dist/.
+ */
+const FULL_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/;
+
+export const isSafeFullName = (fullName: string): boolean =>
+  FULL_NAME.test(fullName) && !fullName.split('/').includes('..');
+
 const escapeText = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
