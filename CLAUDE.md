@@ -5,21 +5,22 @@ code.
 
 ## 0. Where the code is vs. where this document points
 
-The write side (`packages/*`, `apps/workers`) matches this document today. The read side does
-not yet: `apps/web` is still a Next.js 16 App Router app, and `apps/api` / `apps/backoffice` do
-not exist. §7 and §9–§12 describe the **target** — three deployables behind one Fastify process
-— per `docs/keco-architecture-2.md`.
+The write side (`packages/*`, `apps/workers`) and the read side (`apps/web`, `apps/api`) both
+match this document. One deployable named in §7 does not exist yet: **`apps/backoffice`**.
 
-Consequences while the migration is open:
+While it is missing:
 
-- **Do not add new Next.js surface.** New read-side work goes into the target shape, or waits.
-- **Nothing on the write side is affected.** §2–§6 are the contract regardless of which frontend
-  is running, and they are already implemented that way.
-- **The migration is a read-side rewrite, not a data migration.** The read model is disposable
-  (§2.3); the new frontends re-query the same `tools` index the old one did.
-- The one genuinely lost capability is server-rendered HTML per request. §9 says how the SEO
-  requirement survives without SSR; if that answer doesn't hold up in practice, reopen the
-  decision rather than quietly shipping a portal Google cannot read.
+- `/admin` is served as a `noindex` 404 by `apps/api`. The routes the backoffice will call —
+  `/api/admin/*` and `/api/commands/*` — already exist, because they are the contract, not
+  the UI.
+- §10 describes what that SPA must be when it lands. Nothing in it is built; nothing in it is
+  cancelled.
+- `/api/commands/*` authenticates and validates, then returns 501: the journal append is the
+  open piece.
+
+Two smaller gaps, both tracked in ROADMAP.md rather than here: `/api/mcp` and `/api/chat` are
+declared and unimplemented, and the portal's search page is the ported baseline — no facet
+sidebar, no keyboard navigation, no styling system.
 
 ## 1. What Keco is
 
@@ -457,15 +458,10 @@ page chip rows — loops over the file and needs no edit.
 keco/
 ├── apps/
 │   ├── web/                       # public portal — Vite + React, static SPA
-│   ├── backoffice/                # admin SPA — Vite + React, same build/serve shape
+│   │   ├── src/                   # the browser bundle
+│   │   └── prerender/             # Node build tooling: read model → static HTML
 │   ├── api/                       # Fastify — the only backend process
-│   │   └── src/routes/
-│   │       ├── v1/                # public REST (anonymous, rate-limited, CORS *)
-│   │       ├── mcp/               # MCP streamable HTTP
-│   │       ├── chat/              # RAG chatbot (v2)
-│   │       ├── readme/            # cached README → sanitised HTML, by key
-│   │       ├── admin/             # session login + read-only pipeline views
-│   │       └── commands/          # enqueue-only: recrawl, reanalyze, reproject (token)
+│   │   └── src/routes/            # v1 · mcp · chat · readme · admin · commands
 │   └── workers/
 │       └── src/{discovery,crawler,analyzer,projector,replay,lib}/
 ├── packages/
@@ -502,6 +498,9 @@ CQRS contract; if you need to relax one, re-read §2 first):
   and taxonomy) and `meilisearch` only. Any import of `@keco/cache`, `@keco/github`,
   `@keco/signals`, `@keco/analyze` or `node:*` from a frontend is a build-time bug and a
   potential secret leak — the bundle ships to strangers.
+- **`apps/web/prerender` is not bundle code.** It is a Node build step that reads the read
+  model and writes files, so it may import `@keco/query`. It may not touch the write side, and
+  lint scopes the browser rule to `apps/web/src` for exactly this reason.
 
 ## 8. Commands
 
@@ -575,11 +574,19 @@ and it is not optional:
 
 - A build step queries `tools` for the top N (~1000) by `score_total` and emits a real static
   HTML file per tool page — `<h1>`, `<title>`, meta description, JSON-LD `SoftwareApplication`,
-  and the rendered README inlined. Fastify serves that file when it exists and falls back to
-  `index.html` otherwise; the SPA hydrates over it either way.
+  and the tool's `readme_excerpt` as indexable prose. It renders the *same* React route tree
+  the browser mounts (`renderToString` under a static router), so what a crawler sees and what
+  a reader sees cannot drift. Fastify serves that file when the build manifest lists the path
+  and falls back to `index.html` otherwise; the SPA hydrates over it either way.
+- **The full README is not inlined.** The markdown pipeline lives in `apps/api`, so the
+  prerender stays a pure read-model consumer with no cache access and no second copy of the
+  renderer. `readme_excerpt` (~1.5 KB, already in the document) is what a crawler indexes; the
+  full sanitised README arrives client-side from `/api/readme/{owner}/{repo}`. This is a
+  deliberate reduction of the SEO surface — if organic traffic shows it was the wrong trade,
+  the fix is a shared renderer package, recorded as an ADR.
 - `sitemap.xml` and `robots.txt` are generated in the same step, from the same query.
-- The prerender reads the read model and the cache **at build time only**. It is not a server
-  renderer, and no request path may acquire one.
+- The prerender reads the read model **at build time only**. It is not a server renderer, and
+  no request path may acquire one.
 - Prerendered HTML is as stale as the last build. Rebuild on the same cadence as the projector's
   full rebuild, and keep `indexed_at` visible so the staleness is honest.
 - `/admin` is `noindex` and never prerendered.
@@ -623,8 +630,16 @@ SPA bundles. It holds the **only** copy of the Meilisearch master key and the on
 on the read side. Request bodies are validated with the zod schemas from `@keco/core`.
 
 Three machine front doors, **one implementation**: `packages/query` holds all retrieval and
-exports `searchTools() · getTool() · compareTools() · findAlternatives() · whatsHot()`. REST, MCP
-and chat are thin adapters over it. A capability in one and not the others is a bug.
+exports `searchTools() · getTool() · compareTools() · findAlternatives() · whatsHot()`. REST,
+MCP and chat are thin adapters over it. A capability in one and not the others is a bug.
+
+The portal is the deliberate exception. §9 has it querying Meilisearch from the browser with
+the search-only key, and §7 bars a browser bundle from importing `@keco/query`. What the two
+sides share is the *algebra* — `buildFilters`, `selectionFromParams`, `defaultFacets`,
+`familyAttribute`, the sort specs — which lives in `@keco/core` precisely so both can reach it.
+The portal's own client is `apps/web/src/lib/search.ts`, about sixty lines of `.search()` calls
+over that shared algebra. Duplicating a filter mapping would drift; duplicating a `.search()`
+call cannot.
 
 **REST** — `/api/v1/*`, read-only, anonymous, CORS-open, IP rate-limited, responses typed by the
 same zod schemas that generate the MCP tool shapes. Public identifier is `owner/repo`; never leak

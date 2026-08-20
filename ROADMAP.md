@@ -19,6 +19,7 @@ The skeleton, the contracts and the guard rails, with nothing faked.
 - ✅ `@keco/query` — the five retrieval functions shared by portal, REST and MCP
 - ✅ Import boundaries of §7 enforced by lint, and proven by deliberate violations
 - ✅ Portal, admin and API route skeletons; `mise run ci` green
+- ✅ Read side on Vite + Fastify: static SPA, build-time prerender, one Node process
 
 ---
 
@@ -46,16 +47,17 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
 
 ### Read side
 
-- ⬜ **Search** — interactive client component over the URL-synced state, facet counts from
-  Meilisearch, keyboard navigation, useful empty and zero-result states.
-- ⬜ **Tool page** — `generateStaticParams` for the top 1000; README rendered from the cache,
-  sanitised, relative URLs rewritten, badge paragraph stripped, Shiki highlighting; install tabs
-  with proof links; related tools; adopters only with an `evidence_url`.
+- 🚧 **Search** — ported to the Vite SPA with URL-synced state and browser-direct Meilisearch
+  queries. Still to do: facet sidebar, list/grid toggle, keyboard navigation, richer empty
+  states.
+- 🚧 **Tool page** — ported, prerendered for the top 1000 by score, README rendered from the
+  cache by `apps/api` (sanitised, relative URLs rewritten, badge paragraph stripped, Shiki).
+  Still to do: install tabs, adopters with an `evidence_url`, score breakdown UI.
 - ⬜ **Backoffice** — pipeline health from `repos_state` (phase counts, failures, skip reasons,
   confidence distribution, quota, checkpoint lag), repo inspector showing cache → analysis →
   projected document side by side, enqueue-only commands, taxonomy facet counts.
-- ⬜ **Auth** — Auth.js + GitHub OAuth, `ADMIN_LOGINS` allowlist, re-checked inside every server
-  action rather than in middleware alone.
+- ✅ **Auth** — single admin credential (`ADMIN_PASSWORD_HASH`, scrypt, signed HttpOnly
+  session), re-checked inside every handler. Replaces the Auth.js + GitHub OAuth plan.
 
 ### Operations
 

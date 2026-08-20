@@ -126,7 +126,7 @@ wrong `brew install` line is worse than no line at all — people paste these in
 
 | Layer | Choice | Why |
 |---|---|---|
-| App | **Next.js 15**, App Router, RSC | Portal, backoffice and APIs in one codebase; ISR gives static-fast tool pages |
+| App | **Vite + React** (portal), **Fastify** (API) | Two static SPA bundles behind one Node process; build-time prerender gives static-fast tool pages |
 | Read model | **Meilisearch** | Instant, typo-tolerant, first-class faceting; alias-swapped rebuilds |
 | Write model | **A directory** (`.cache/`), behind a storage port | Raw GitHub JSON, READMEs and third-party responses, verbatim + TTL'd. Keys only, no queries, no database. Object storage swaps in for v2 |
 | Signals | Scorecard · deps.dev · OSV · brew · krew · Artifact Hub | Real maintenance and security data instead of star-counting |
@@ -172,7 +172,7 @@ GITHUB_TOKEN=                    # classic PAT, public_repo scope — workers on
 CACHE_DIR=.cache                 # the write model; workers write, web only reads
 MEILI_HOST=
 MEILI_MASTER_KEY=                # server + projector only, never shipped to the browser
-NEXT_PUBLIC_MEILI_SEARCH_KEY=    # search-only key, scoped to the `tools` index
+VITE_MEILI_SEARCH_KEY=           # search-only key, scoped to the `tools` index
 COMMAND_TOKEN=                   # /api/commands/* (backoffice triggers)
 AUTH_GITHUB_ID= / AUTH_SECRET=   # backoffice login
 ADMIN_LOGINS=                    # comma-separated GitHub logins allowed in /admin
