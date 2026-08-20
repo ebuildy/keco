@@ -131,7 +131,7 @@ wrong `brew install` line is worse than no line at all — people paste these in
 | Write model | **A directory** (`.cache/`), behind a storage port | Raw GitHub JSON, READMEs and third-party responses, verbatim + TTL'd. Keys only, no queries, no database. Object storage swaps in for v2 |
 | Signals | Scorecard · deps.dev · OSV · brew · krew · Artifact Hub | Real maintenance and security data instead of star-counting |
 | Coordination | Append-only journal + checkpoints | No queue server, no locks — workers are idempotent and shard deterministically |
-| Auth | Auth.js, GitHub OAuth | Backoffice only, allowlisted logins |
+| Auth | Single admin credential — scrypt + signed HttpOnly session cookie | Backoffice only, one admin, checked inside every handler |
 | Agents | MCP over streamable HTTP | Same query layer as the REST API |
 
 ## Quickstart
@@ -140,16 +140,20 @@ wrong `brew install` line is worse than no line at all — people paste these in
 
 ```bash
 mise install                                 # node + pnpm, pinned in mise.toml
-mise run setup                               # .env, dependencies, Meilisearch, index settings
+mise run setup                               # .env, dependencies, Meilisearch, index settings + search key
                                              # then add GITHUB_TOKEN to .env
 
-mise run dev                                 # http://localhost:3000
+mise run dev                                 # portal http://localhost:5173 (proxies /api to :3000)
 
 # fill a small corpus (~200 repos, a few minutes)
 mise run crawler -- --seed cncf,krew --limit 200
 mise run analyzer
 mise run projector
 ```
+
+`mise run build` builds the portal and prerenders its top tool pages into `apps/web/dist`;
+`mise run api` then serves that directory (and the JSON routes) on `http://localhost:3000` —
+that combined, single-process address is the one a deployment actually answers on.
 
 Re-classify everything from cache, without re-fetching:
 
@@ -158,7 +162,8 @@ mise run replay -- --consumer analyzer
 mise run analyzer && mise run rebuild
 ```
 
-`mise tasks` lists the rest — `check`, `lint`, `test`, `ci`, `search:settings`, `infra:up|down|reset`.
+`mise tasks` lists the rest — `check`, `lint`, `test`, `ci`, `search:settings`, `search:key`,
+`infra:up|down|reset`.
 
 The only service you need locally is Meilisearch. The cache is a directory, so wiping the write
 model is `rm -rf .cache` and rebuilding it is a crawl.
@@ -169,13 +174,17 @@ Full list with per-variable notes in [`.env.example`](./.env.example); the ones 
 
 ```ini
 GITHUB_TOKEN=                    # classic PAT, public_repo scope — workers only
-CACHE_DIR=.cache                 # the write model; workers write, web only reads
+CACHE_DIR=.cache                 # the write model; workers write, apps/api reads by key
 MEILI_HOST=
-MEILI_MASTER_KEY=                # server + projector only, never shipped to the browser
-VITE_MEILI_SEARCH_KEY=           # search-only key, scoped to the `tools` index
-COMMAND_TOKEN=                   # /api/commands/* (backoffice triggers)
-AUTH_GITHUB_ID= / AUTH_SECRET=   # backoffice login
-ADMIN_LOGINS=                    # comma-separated GitHub logins allowed in /admin
+MEILI_MASTER_KEY=                # apps/api + projector only, never shipped to the browser
+VITE_MEILI_HOST=                 # apps/web — the browser talks to Meilisearch directly (§9)
+VITE_MEILI_SEARCH_KEY=           # search-only key, scoped to `tools` — `mise run setup` mints this for you
+SITE_URL=                        # canonical links, the sitemap, and the admin cookie's Secure flag
+WEB_DIST=                        # where `vite build` put the portal; apps/api serves it
+PORT= / HOST= / TRUST_PROXY=     # apps/api's listener — TRUST_PROXY only true behind a proxy you control
+SESSION_SECRET=                  # signs the admin session cookie — 32 characters minimum
+ADMIN_PASSWORD_HASH=             # scrypt$salt$key — generate with `mise run admin:hash`
+COMMAND_TOKEN=                   # /api/commands/* in place of an admin session
 ANTHROPIC_API_KEY=               # analyzer fallback + chatbot
 ```
 
