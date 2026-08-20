@@ -10,6 +10,7 @@ import {
 } from './settings';
 
 export * from './settings';
+export * from './keys';
 
 /** Server-side client. The master key never reaches a browser (§12). */
 export function createAdminClient(env: NodeJS.ProcessEnv = process.env): Meilisearch {

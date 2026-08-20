@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { ToolDocument } from '@keco/core';
 import { TopicChips } from '../components/topic-chips';
-import { browseFacets, whatsHot } from '../lib/search';
+import { browseFacets, searchErrorMessage, whatsHot } from '../lib/search';
 import { chipRows, type ChipRow } from '../lib/topics';
 
 /**
@@ -27,8 +27,9 @@ export function HomePage() {
         setRows(chipRows(facets));
         setHot(tools);
       })
-      // A blank SPA tells the reader nothing. Say what failed (§9 empty states).
-      .catch(() => !cancelled && setError('Search is unavailable right now.'));
+      // A blank SPA tells the reader nothing. Say what failed (§9 empty states) — and say it
+      // precisely: "not configured" and "down" are different problems (§12).
+      .catch((error: unknown) => !cancelled && setError(searchErrorMessage(error)));
     return () => {
       cancelled = true;
     };

@@ -24,11 +24,12 @@ experimental = true
 # ── setup ────────────────────────────────────────────────────────────────────
 
 [tasks.setup]
-description = "First-run bootstrap: .env, dependencies, Meilisearch, index settings"
+description = "First-run bootstrap: .env, dependencies, Meilisearch, index settings, browser search key"
 depends = ["env:init", "install"]
 run = [
   "mise run infra:up",
   "mise run search:settings",
+  "mise run search:key",
 ]
 
 [tasks."env:init"]
@@ -142,6 +143,10 @@ run = [
 [tasks."search:settings"]
 description = "Apply Meilisearch index settings (idempotent)"
 run = "pnpm -F @keco/search settings"
+
+[tasks."search:key"]
+description = "Mint or fetch the browser's search-only Meilisearch key (tools index) and write VITE_MEILI_SEARCH_KEY into .env — idempotent, never overwrites a value already set"
+run = "pnpm -F @keco/search ensure-search-key"
 
 [tasks."infra:up"]
 description = "Start Meilisearch"

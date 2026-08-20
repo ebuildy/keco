@@ -7,6 +7,7 @@ import {
   type SortKey,
   type ToolDocument,
 } from '@keco/core';
+import { MeilisearchApiError } from 'meilisearch';
 import { toolsIndex } from './meili';
 
 /**
@@ -103,4 +104,19 @@ export async function findAlternatives(tool: ToolDocument, limit = 6): Promise<T
   return response.hits
     .filter((hit) => hit.full_name !== tool.full_name && hit.owner !== tool.owner)
     .slice(0, limit);
+}
+
+/**
+ * A missing or invalid `VITE_MEILI_SEARCH_KEY` and a genuinely offline Meilisearch both
+ * reject a search — but they are not the same problem, and showing the reader the same
+ * "unavailable" message for both hides a build-time misconfiguration behind what looks like
+ * an outage nobody can act on. Meilisearch answers a missing/invalid key with 401 and every
+ * other failure some other way, so the HTTP status is the signal: a search-only key scoped to
+ * `tools` (§12) never gets a 401 for any reason *other* than being absent or wrong.
+ */
+export function searchErrorMessage(error: unknown): string {
+  if (error instanceof MeilisearchApiError && error.response.status === 401) {
+    return 'Search is not configured — VITE_MEILI_SEARCH_KEY is missing or invalid. Run `mise run setup`.';
+  }
+  return 'Search is unavailable right now.';
 }

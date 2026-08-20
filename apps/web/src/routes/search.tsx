@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { isSortKey, selectionFromParams } from '@keco/core';
-import { searchTools, type PortalSearchResult } from '../lib/search';
+import { searchErrorMessage, searchTools, type PortalSearchResult } from '../lib/search';
 
 /**
  * Search (AGENTS.md §9). State lives in the URL (`?q=&kind=&domain=&install=&sort=&view=`) so
@@ -38,7 +38,7 @@ export function SearchPage() {
         page,
       })
         .then((next) => !cancelled && (setResults(next), setError(null)))
-        .catch(() => !cancelled && setError('Search is unavailable right now.'));
+        .catch((error: unknown) => !cancelled && setError(searchErrorMessage(error)));
     }, DEBOUNCE_MS);
 
     return () => {
