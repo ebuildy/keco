@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { StaticRouter } from 'react-router';
+import { PRERENDER_MANIFEST_FILE } from '@keco/core';
 import { createQueryClient, searchTools } from '@keco/query';
 import { App } from '../src/app';
 import { setBootstrap } from '../src/lib/bootstrap';
@@ -76,7 +77,7 @@ await writeFile(join(dist, 'sitemap.xml'), sitemapXml(siteUrl, emitted), 'utf8')
 await writeFile(join(dist, 'robots.txt'), robotsTxt(siteUrl), 'utf8');
 // apps/api loads this at boot and serves a prerendered file only for a path it lists.
 await writeFile(
-  join(dist, 'prerender-manifest.json'),
+  join(dist, PRERENDER_MANIFEST_FILE),
   `${JSON.stringify({ paths: emitted.map((tool) => `/tools/${tool.full_name}`) }, null, 2)}\n`,
   'utf8',
 );

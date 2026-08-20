@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { PRERENDER_MANIFEST_FILE } from '@keco/core';
 import fastifyStatic from '@fastify/static';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
@@ -26,7 +27,8 @@ import { z } from 'zod';
  */
 const Manifest = z.object({ paths: z.array(z.string()) });
 
-const MANIFEST_FILE = 'prerender-manifest.json';
+/** Minimal shape this module needs to log — satisfied by both `console` and a pino instance. */
+export type ManifestLoadLogger = { info: (message: string) => void; warn: (message: string) => void };
 
 /**
  * The set of paths the prerender emitted, read once at boot.
@@ -35,16 +37,47 @@ const MANIFEST_FILE = 'prerender-manifest.json';
  * faster, and it means a crafted URL can never be turned into a path lookup — nothing outside
  * this set is ever used to build a filename.
  *
- * A missing manifest is normal (a dev server, or a build before the first prerender run) and
- * yields an empty set: every route then falls back to the SPA shell.
+ * A missing manifest is a normal state (a dev server, or a build before the first prerender
+ * run) and yields an empty set: every route then falls back to the SPA shell. A *present but
+ * unreadable or malformed* manifest is not normal — it means a build produced a broken
+ * artifact — and used to be swallowed into the exact same empty set with no signal at all, so
+ * a silently-broken prerender was indistinguishable from an empty index at every layer above
+ * this one. Both cases still degrade to the SPA shell (§9: never fail the boot over this), but
+ * only the absent case is logged as expected.
  */
-export async function loadPrerenderManifest(distDir: string): Promise<Set<string>> {
+export async function loadPrerenderManifest(
+  distDir: string,
+  logger: ManifestLoadLogger = console,
+): Promise<Set<string>> {
+  const path = join(distDir, PRERENDER_MANIFEST_FILE);
+
+  let raw: string;
   try {
-    const raw = await readFile(join(distDir, MANIFEST_FILE), 'utf8');
-    return new Set(Manifest.parse(JSON.parse(raw)).paths);
-  } catch {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      logger.info(`${path} not found — every route falls back to the SPA shell (run \`mise run prerender\`)`);
+    } else {
+      logger.warn(`${path} could not be read (${(error as Error).message}) — every route falls back to the SPA shell`);
+    }
     return new Set();
   }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch (error) {
+    logger.warn(`${path} is not valid JSON (${(error as Error).message}) — every route falls back to the SPA shell`);
+    return new Set();
+  }
+
+  const parsed = Manifest.safeParse(json);
+  if (!parsed.success) {
+    logger.warn(`${path} does not match the expected manifest shape — every route falls back to the SPA shell`);
+    return new Set();
+  }
+
+  return new Set(parsed.data.paths);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { PRERENDER_MANIFEST_FILE } from '@keco/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { loadEnv } from '../env';
@@ -19,7 +20,7 @@ beforeAll(async () => {
     '<!doctype html><h1>ahmetb/kubectx</h1>PRERENDERED',
   );
   await writeFile(
-    join(dist, 'prerender-manifest.json'),
+    join(dist, PRERENDER_MANIFEST_FILE),
     JSON.stringify({ paths: ['/tools/ahmetb/kubectx'] }),
   );
   await writeFile(join(dist, 'sitemap.xml'), '<urlset/>');
@@ -101,14 +102,46 @@ describe('the not-found fallback', () => {
   });
 });
 
+/** Captures what a manifest load logged, so a test can assert on the distinction. */
+function captureLogger() {
+  const info: string[] = [];
+  const warn: string[] = [];
+  return { info, warn, logger: { info: (m: string) => info.push(m), warn: (m: string) => warn.push(m) } };
+}
+
 describe('loadPrerenderManifest', () => {
   it('reads the paths the prerender emitted', async () => {
     expect(await loadPrerenderManifest(dist)).toEqual(new Set(['/tools/ahmetb/kubectx']));
   });
 
-  it('returns an empty set when there is no manifest', async () => {
+  it('returns an empty set when there is no manifest, and logs it as an expected state', async () => {
     // A dev server with no prerender run must still boot; every route just falls back.
-    expect(await loadPrerenderManifest(join(tmpdir(), 'keco-does-not-exist'))).toEqual(new Set());
+    const capture = captureLogger();
+    const missingDir = join(tmpdir(), 'keco-does-not-exist');
+    expect(await loadPrerenderManifest(missingDir, capture.logger)).toEqual(new Set());
+    expect(capture.info).toHaveLength(1);
+    expect(capture.warn).toHaveLength(0);
+  });
+
+  it('returns an empty set for malformed JSON, but logs it as a warning, not silence', async () => {
+    // A silently-broken prerender used to be indistinguishable from an empty index — this is
+    // the case that must not go unlogged.
+    const broken = await mkdtemp(join(tmpdir(), 'keco-broken-manifest-'));
+    await writeFile(join(broken, PRERENDER_MANIFEST_FILE), '{not json');
+    const capture = captureLogger();
+    expect(await loadPrerenderManifest(broken, capture.logger)).toEqual(new Set());
+    expect(capture.warn).toHaveLength(1);
+    expect(capture.info).toHaveLength(0);
+    await rm(broken, { recursive: true, force: true });
+  });
+
+  it('returns an empty set for a manifest that does not match the expected shape, and warns', async () => {
+    const wrongShape = await mkdtemp(join(tmpdir(), 'keco-wrong-shape-manifest-'));
+    await writeFile(join(wrongShape, PRERENDER_MANIFEST_FILE), JSON.stringify({ oops: true }));
+    const capture = captureLogger();
+    expect(await loadPrerenderManifest(wrongShape, capture.logger)).toEqual(new Set());
+    expect(capture.warn).toHaveLength(1);
+    await rm(wrongShape, { recursive: true, force: true });
   });
 });
 

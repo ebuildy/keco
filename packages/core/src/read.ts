@@ -27,6 +27,15 @@ export const TOOLS_INDEX = 'tools';
 export const MAX_TOTAL_HITS = 10_000;
 
 /**
+ * The build-time prerender (`apps/web/prerender/index.ts`) writes this file into `dist/`
+ * listing every path it emitted; `apps/api/src/plugins/static.ts` reads it at boot to decide
+ * which paths get the prerendered file instead of the SPA shell (§9). The two sides used to
+ * agree on the filename only because both happened to type the same string literal — declared
+ * here so there is exactly one spelling to change.
+ */
+export const PRERENDER_MANIFEST_FILE = 'prerender-manifest.json';
+
+/**
  * One filterable attribute per taxonomy family, derived from the file so that adding a family
  * is a YAML edit — never an edit here that someone forgets (§5, §6). `install_methods` is an
  * array of objects, so it filters on the nested `.method`.
