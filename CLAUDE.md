@@ -509,9 +509,11 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 
 | Command | What it does |
 |---|---|
-| `mise run setup` | First run: `.env`, dependencies, Meilisearch, index settings |
-| `mise run dev` | Portal, backoffice and API together, with HMR |
-| `mise run build` | Build both SPAs and the API bundle |
+| `mise run setup` | First run: `.env`, dependencies, Meilisearch, index settings, browser search key |
+| `mise run dev` | Portal (`:5173`, HMR) and API (`:3000`) together — `apps/backoffice` doesn't exist yet, so this is the two deployables that do (§0, §7) |
+| `mise run web` / `mise run api` | Either half of `dev` alone |
+| `mise run build` | Build the portal, prerender its top tool pages, typecheck the API |
+| `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from the read model (§9) — `build` already runs this after `vite build`; run it alone to re-prerender without a fresh bundle |
 | `mise run discovery -- --query kubernetes --fresh` | Enumerate repos into `discovery/*.yaml` (resumes by default) |
 | `mise run crawler -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
 | `mise run analyzer` | Classify everything with a changed `content_hash` or an expired signal TTL |
@@ -521,11 +523,17 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run replay -- --consumer analyzer` | Reset a checkpoint |
 | `mise run pipeline` | crawl → analyze → project, end to end, on a small seeded set |
 | `mise run search:settings` | Apply index settings (idempotent) |
+| `mise run search:key` | Mint or fetch the browser's search-only Meilisearch key and write it into `.env` (§12) — idempotent, never overwrites a value already set |
+| `mise run admin:hash -- --password '…'` | Hash a password into `ADMIN_PASSWORD_HASH` (§12) |
 | `mise run taxonomy:check` | Validate `taxonomy.yaml` — schema, duplicates, `unknown` defaults |
 | `mise run check` / `lint` / `test` | `tsc --noEmit` · eslint (incl. §7 boundaries) · vitest |
 | `mise run format` | prettier |
 | `mise run ci` | check + lint + test + taxonomy:check — the gate for §15 |
 | `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
+
+`package.json`'s own `scripts` exist only so `pnpm <script>` works from muscle memory; each one
+delegates straight to the matching mise task rather than re-implementing it, so there is exactly
+one definition of what `dev` or `build` means.
 
 Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl. Wiping the read model is
 `mise run infra:reset`; it is rebuilt by `mise run rebuild`, offline.
@@ -627,7 +635,11 @@ the whole reason curation was cut (§1, ROADMAP "Explicitly not planned").
 
 Fastify, TypeScript, ESM, JSON-only for its own endpoints, plus `@fastify/static` for the two
 SPA bundles. It holds the **only** copy of the Meilisearch master key and the only cache handle
-on the read side. Request bodies are validated with the zod schemas from `@keco/core`.
+on the read side. Request and response validation is local to each route — `z.object` schemas
+in `routes/admin.ts` and `routes/readme.ts` today — not centralised in `@keco/core`; what
+`@keco/core` supplies instead is the shared read-side vocabulary both REST and the portal need
+(`ToolDocument`, `MAX_TOTAL_HITS`, `isSortKey`, `selectionFromParams`), which is a different
+thing from a per-route body schema.
 
 Three machine front doors, **one implementation**: `packages/query` holds all retrieval and
 exports `searchTools() · getTool() · compareTools() · findAlternatives() · whatsHot()`. REST,
@@ -641,9 +653,11 @@ The portal's own client is `apps/web/src/lib/search.ts`, about sixty lines of `.
 over that shared algebra. Duplicating a filter mapping would drift; duplicating a `.search()`
 call cannot.
 
-**REST** — `/api/v1/*`, read-only, anonymous, CORS-open, IP rate-limited, responses typed by the
-same zod schemas that generate the MCP tool shapes. Public identifier is `owner/repo`; never leak
-internal ids.
+**REST** — `/api/v1/*`, read-only, anonymous, CORS-open, IP rate-limited. Public identifier is
+`owner/repo`; never leak internal ids. *(Aspirational, not yet true: the plan was for responses
+to be typed by the same zod schemas that generate the MCP tool shapes. Today `routes/v1.ts`
+hand-shapes its response objects and `routes/mcp.ts` is a stub returning plain string
+descriptions — see the TODO in that file. Land it when MCP grows past that stub, not before.)*
 
 **MCP** — `/api/mcp`, streamable HTTP, read tools only.
 
