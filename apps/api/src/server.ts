@@ -1,5 +1,6 @@
 import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { rootErrorHandler } from './error-handler';
 import type { Env } from './env';
 import { staticPlugin } from './plugins/static';
 import { liveCache, liveRetrieval, type ReadOnlyCache, type Retrieval } from './ports';
@@ -22,6 +23,12 @@ export type BuildOptions = {
   retrieval?: Retrieval;
   /** Injected in tests so a route suite never needs a `.cache` directory on disk (see ports.ts). */
   cache?: ReadOnlyCache;
+  /**
+   * Test-only: registers a route that always throws, in the same (unscoped) error-handling
+   * context as admin and commands, so a test can assert the root handler never leaks
+   * `error.message` for a genuine unhandled throw. Never set by `index.ts`.
+   */
+  registerThrowingTestRoute?: boolean;
 };
 
 /**
@@ -46,11 +53,22 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
     trustProxy: options.env.TRUST_PROXY,
   });
 
+  // The fallback for every route group below that does not set its own scoped handler
+  // (admin, commands, mcp, chat) — set before any of them register, so none of them is ever
+  // one refactor away from falling through to Fastify's default serializer (§14).
+  app.setErrorHandler(rootErrorHandler);
+
   // Signed so a session cookie cannot be forged. HttpOnly and SameSite are set per-cookie
   // by the admin routes (§12).
   await app.register(cookie, { secret: options.env.SESSION_SECRET });
 
   app.get('/api/health', async () => ({ status: 'ok' }));
+
+  if (options.registerThrowingTestRoute) {
+    app.get('/api/admin/__throws_for_tests', async () => {
+      throw new Error('internal detail that must never reach a caller');
+    });
+  }
 
   await app.register(v1Routes, { prefix: '/api/v1', retrieval });
   await app.register(readmeRoutes, { prefix: '/api/readme', cache });
