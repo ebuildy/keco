@@ -49,3 +49,18 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ...REQUIRED, MEILI_HOST: 'not-a-url' })).toThrow(/MEILI_HOST/);
   });
 });
+
+describe('blank optional variables', () => {
+  it('reads an empty ADMIN_PASSWORD_HASH or COMMAND_TOKEN as unset, not as invalid', () => {
+    // mise loads .env by exporting every key it finds, so a variable left blank arrives as
+    // '' rather than absent. Failing min(1) there would stop a fresh setup from booting on
+    // a variable the operator deliberately left empty.
+    const env = loadEnv({ ...REQUIRED, ADMIN_PASSWORD_HASH: '', COMMAND_TOKEN: '' });
+    expect(env.ADMIN_PASSWORD_HASH).toBeUndefined();
+    expect(env.COMMAND_TOKEN).toBeUndefined();
+  });
+
+  it('still rejects a blank required variable', () => {
+    expect(() => loadEnv({ ...REQUIRED, MEILI_MASTER_KEY: '' })).toThrow(/MEILI_MASTER_KEY/);
+  });
+});

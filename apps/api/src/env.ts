@@ -9,6 +9,13 @@ import { z } from 'zod';
  * Nothing here is `VITE_`-prefixed. Those are inlined into the browser bundle at build time
  * and are public forever (§12); the portal reads its own, and none of them are secrets.
  */
+/**
+ * Treats an empty string as absent. Only for genuinely optional variables — a required one
+ * left blank must still fail loudly.
+ */
+const blankToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema);
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().min(1).default('0.0.0.0'),
@@ -41,10 +48,17 @@ const EnvSchema = z.object({
 
   /** Signs the admin session cookie. 32 bytes minimum. */
   SESSION_SECRET: z.string().min(32),
-  /** `scrypt$<salt>$<key>` — produced by `mise run admin:hash` (§12). */
-  ADMIN_PASSWORD_HASH: z.string().min(1).optional(),
-  /** Accepted by /api/commands/* in place of an admin session (§12). */
-  COMMAND_TOKEN: z.string().min(1).optional(),
+  /**
+   * `scrypt$<salt>$<key>` — produced by `mise run admin:hash` (§12).
+   *
+   * `blankToUndefined` because mise loads .env by exporting every key it finds, so a variable
+   * left empty in .env arrives as `''`, not as absent. Without it a fresh `mise run setup`
+   * followed by `mise run api` fails to boot on a variable the operator deliberately left
+   * unset. Empty means "no admin exists", which the login route already fails closed on.
+   */
+  ADMIN_PASSWORD_HASH: blankToUndefined(z.string().min(1).optional()),
+  /** Accepted by /api/commands/* in place of an admin session (§12). Blank means unset. */
+  COMMAND_TOKEN: blankToUndefined(z.string().min(1).optional()),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });

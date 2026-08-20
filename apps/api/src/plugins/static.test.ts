@@ -1,11 +1,11 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { loadEnv } from '../env';
 import { build } from '../server';
-import { loadPrerenderManifest } from './static';
+import { loadPrerenderManifest, resolveDist } from './static';
 
 let dist: string;
 let app: FastifyInstance;
@@ -109,5 +109,21 @@ describe('loadPrerenderManifest', () => {
   it('returns an empty set when there is no manifest', async () => {
     // A dev server with no prerender run must still boot; every route just falls back.
     expect(await loadPrerenderManifest(join(tmpdir(), 'keco-does-not-exist'))).toEqual(new Set());
+  });
+});
+
+describe('resolveDist', () => {
+  it('leaves an absolute path alone', () => {
+    expect(resolveDist('/srv/keco/dist')).toBe('/srv/keco/dist');
+  });
+
+  it('anchors a relative path at the workspace root, not the cwd', () => {
+    // `pnpm -F @keco/api dev` runs with cwd set to apps/api. Resolving against cwd turned
+    // WEB_DIST=apps/web/dist into apps/api/apps/web/dist and every request 500'd.
+    const root = resolve(import.meta.dirname, '..', '..', '..', '..');
+    expect(resolveDist('apps/web/dist', join(root, 'apps', 'api'))).toBe(
+      join(root, 'apps', 'web', 'dist'),
+    );
+    expect(resolveDist('apps/web/dist', root)).toBe(join(root, 'apps', 'web', 'dist'));
   });
 });

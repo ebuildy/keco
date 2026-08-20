@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import fastifyStatic from '@fastify/static';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
@@ -46,9 +47,22 @@ export async function loadPrerenderManifest(distDir: string): Promise<Set<string
   }
 }
 
-/** Relative WEB_DIST resolves against the workspace root, like CACHE_DIR does (§3). */
-export const resolveDist = (dist: string, from = process.cwd()): string =>
-  isAbsolute(dist) ? dist : resolve(from, dist);
+/**
+ * Relative WEB_DIST resolves against the workspace root, like CACHE_DIR does (§3) — and for
+ * the same reason: `pnpm -F @keco/api dev` runs with cwd set to `apps/api`, so resolving
+ * against cwd turns `apps/web/dist` into `apps/api/apps/web/dist` and every request 500s.
+ * That is the documented dev command, so cwd is exactly the wrong anchor.
+ *
+ * Mirrors `resolveCacheDir` in packages/cache: walk up for the workspace marker, and fall
+ * back to cwd only if there is none.
+ */
+export function resolveDist(dist: string, from = process.cwd()): string {
+  if (isAbsolute(dist)) return dist;
+  for (let current = from; ; current = dirname(current)) {
+    if (existsSync(resolve(current, 'pnpm-workspace.yaml'))) return resolve(current, dist);
+    if (dirname(current) === current) return resolve(from, dist);
+  }
+}
 
 export type StaticOptions = { dist: string; prerendered: Set<string> };
 
