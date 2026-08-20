@@ -110,6 +110,13 @@ describe('sitemapXml', () => {
     expect(xml.startsWith('<?xml')).toBe(true);
     expect(xml.match(/<urlset/g)).toHaveLength(1);
   });
+
+  it('ends with a trailing newline, with or without tool pages', () => {
+    // A blanket `.filter(line => line !== '')` used to eat the intentional trailing '' along
+    // with the legitimately-empty entries slot.
+    expect(sitemapXml('https://keco.dev', [tool]).endsWith('\n')).toBe(true);
+    expect(sitemapXml('https://keco.dev', []).endsWith('\n')).toBe(true);
+  });
 });
 
 describe('robotsTxt', () => {

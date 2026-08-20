@@ -131,16 +131,19 @@ export function sitemapXml(siteUrl: string, tools: ToolDocument[]): string {
     )
     .join('\n');
 
+  // `entries` is filtered out when empty (no tool pages yet) so the join doesn't leave a
+  // blank line between the home <url> and </urlset>. The trailing '' is not that same kind of
+  // blank line — it is what makes join('\n') end the file with a newline, and a blanket
+  // `.filter(line => line !== '')` ate it too, shipping a sitemap.xml with no trailing
+  // newline. Filter only the slot that can legitimately be empty.
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     `  <url>\n    <loc>${escapeText(siteUrl)}</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>`,
-    entries,
+    ...(entries === '' ? [] : [entries]),
     '</urlset>',
     '',
-  ]
-    .filter((line) => line !== '')
-    .join('\n');
+  ].join('\n');
 }
 
 /** /admin is noindex and never prerendered (§9). */
