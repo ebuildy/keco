@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import type { ToolDocument } from '@keco/core';
-import { readBootstrap } from '../lib/bootstrap';
+import { bootstrapToolFor } from '../lib/bootstrap';
+import { formatUtcDate } from '../lib/dates';
 import { findAlternatives, getTool } from '../lib/search';
 import { NotFoundPage } from './not-found';
 
@@ -22,7 +23,8 @@ export function ToolPage() {
   const fullName = `${owner}/${repo}`;
 
   // Prerendered pages already have the document; only a client-side navigation fetches it.
-  const [tool, setTool] = useState<ToolDocument | null>(() => readBootstrap().tool ?? null);
+  // `bootstrapToolFor` refuses a bootstrap left over from a different route (§6, §9).
+  const [tool, setTool] = useState<ToolDocument | null>(() => bootstrapToolFor(fullName));
   const [loading, setLoading] = useState(tool === null);
   const [related, setRelated] = useState<ToolDocument[]>([]);
   const [readmeHtml, setReadmeHtml] = useState<string | null>(null);
@@ -109,7 +111,9 @@ export function ToolPage() {
           <li>★ {tool.stars}</li>
           <li>{tool.language ?? 'unknown language'}</li>
           <li>{tool.license ?? 'no license'}</li>
-          <li>Last commit {new Date(tool.pushed_at).toDateString()}</li>
+          {/* UTC-pinned so the prerender build machine and the reader's browser agree on the
+              calendar day — a bare toDateString() hydration-mismatches near midnight (§9). */}
+          <li>Last commit {formatUtcDate(tool.pushed_at)}</li>
           <li>
             <a href={tool.repo_url} rel="noreferrer">
               Source on GitHub
