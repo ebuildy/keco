@@ -1,7 +1,7 @@
-import { buildFilters } from '@keco/core';
+import { buildFilters, MAX_TOTAL_HITS } from '@keco/core';
 import { describe, expect, it } from 'vitest';
 import { makeTool } from './corpus/builder';
-import { runSearch } from './engine';
+import { runSearch, valuesAt } from './engine';
 
 const corpus = [
   makeTool({ repo: 'a/cli-tool', kind: 'cli', domains: ['security'], stars: 100, k8s_relevance: 0.9 }),
@@ -56,6 +56,27 @@ describe('runSearch filters', () => {
     const result = runSearch(corpus, { filter: buildFilters({ filters: { domains: ['security'] } }) });
     expect(names(result.hits)).toEqual(['a/cli-tool']);
   });
+
+  it('throws on an unrecognised filter clause rather than ignoring it', () => {
+    expect(() => runSearch(corpus, { filter: ['kind EXISTS'] })).toThrow();
+  });
+
+  it('throws when a filter clause names an attribute that is not filterable in production', () => {
+    // `forks` is neither a taxonomy family nor in the non-taxonomy filterable list —
+    // production would reject this with `invalid_search_filter`.
+    expect(() => runSearch(corpus, { filter: ['forks >= 5'] })).toThrow();
+  });
+
+  it('treats a quoted IN value as a string literal, never coerced to a number', () => {
+    const licensed = [
+      makeTool({ repo: 'a/dotted', license: '1.0', k8s_relevance: 0.9 }),
+      makeTool({ repo: 'b/bare', license: '1', k8s_relevance: 0.9 }),
+    ];
+    const result = runSearch(licensed, {
+      filter: buildFilters({ includeArchived: true, license: ['1.0'] }),
+    });
+    expect(names(result.hits)).toEqual(['a/dotted']);
+  });
 });
 
 describe('runSearch matching, sorting and pagination', () => {
@@ -96,6 +117,36 @@ describe('runSearch matching, sorting and pagination', () => {
     expect(runSearch(sortable, { sort: ['pushed_at:desc'] }).hits[0]?.full_name).toBe('b/two');
   });
 
+  it('orders an empty query by score.total descending, the index tie-break (§5)', () => {
+    const scored = [
+      makeTool({ repo: 'a/low', score: { popularity: 0, activity: 0, adoption: 0, quality: 0, quality_coverage: 1, total: 0.2, momentum: 0 } }),
+      makeTool({ repo: 'b/high', score: { popularity: 0, activity: 0, adoption: 0, quality: 0, quality_coverage: 1, total: 0.9, momentum: 0 } }),
+    ];
+    const hits = runSearch(scored, { q: '' }).hits;
+    expect(hits.map((hit) => hit.full_name)).toEqual(['b/high', 'a/low']);
+  });
+
+  it('keeps match rank primary under an explicit sort — sort only orders within a rank bucket', () => {
+    // Real Meilisearch applies `sort` as its fifth ranking rule, after word/typo/proximity/
+    // attribute: it orders *within* relevance buckets, never overrides them.
+    const mixed = [
+      makeTool({ repo: 'x/kubectx', summary: 'context switcher', stars: 5, k8s_relevance: 0.9 }),
+      makeTool({ repo: 'y/other', summary: 'mentions kubectx in passing', stars: 900, k8s_relevance: 0.9 }),
+    ];
+    const hits = runSearch(mixed, { q: 'kubectx', sort: ['stars:desc'] }).hits;
+    expect(hits.map((hit) => hit.full_name)).toEqual(['x/kubectx', 'y/other']);
+  });
+
+  it('throws when a sort clause names an attribute that is not sortable in production', () => {
+    expect(() => runSearch(corpus, { sort: ['forks:desc'] })).toThrow();
+  });
+
+  it('throws when page is less than 1', () => {
+    const many = Array.from({ length: 5 }, (_, i) => makeTool({ repo: `org/tool-${i}`, k8s_relevance: 0.9 }));
+    expect(() => runSearch(many, { page: -1, hitsPerPage: 20 })).toThrow();
+    expect(() => runSearch(many, { page: 0, hitsPerPage: 20 })).toThrow();
+  });
+
   it('paginates, and reports totals over the whole match set', () => {
     const many = Array.from({ length: 45 }, (_, i) => makeTool({ repo: `org/tool-${i}`, k8s_relevance: 0.9 }));
     const second = runSearch(many, { page: 2, hitsPerPage: 20 });
@@ -106,11 +157,39 @@ describe('runSearch matching, sorting and pagination', () => {
     expect(runSearch(many, { page: 3, hitsPerPage: 20 }).hits).toHaveLength(5);
   });
 
+  it('clamps the total to MAX_TOTAL_HITS, so paging cannot reach past what totalPages advertises', () => {
+    const huge = Array.from({ length: MAX_TOTAL_HITS + 5 }, (_, i) => makeTool({ repo: `org/tool-${i}`, k8s_relevance: 0.9 }));
+    const result = runSearch(huge, { hitsPerPage: 20 });
+    expect(result.totalHits).toBe(MAX_TOTAL_HITS);
+    expect(result.totalPages).toBe(Math.ceil(MAX_TOTAL_HITS / 20));
+    const lastPage = runSearch(huge, { hitsPerPage: 20, page: Math.ceil(MAX_TOTAL_HITS / 20) + 1 });
+    expect(lastPage.hits).toEqual([]);
+  });
+
   it('returns counts but no hits when hitsPerPage is 0, as browseFacets() requires', () => {
     const many = Array.from({ length: 10 }, (_, i) => makeTool({ repo: `org/t-${i}`, k8s_relevance: 0.9 }));
     const result = runSearch(many, { hitsPerPage: 0 });
     expect(result.hits).toEqual([]);
     expect(result.totalHits).toBe(10);
+    expect(result.totalPages).toBe(0);
+  });
+});
+
+describe('runSearch multi-word query matching', () => {
+  const multiWord = [
+    makeTool({ repo: 'argoproj/argo-cd', summary: 'Argo CD is a GitOps tool', k8s_relevance: 0.9 }),
+    makeTool({ repo: 'z/unrelated', summary: 'nothing to see here', k8s_relevance: 0.9 }),
+  ];
+
+  it('matches every query token regardless of order, across fields', () => {
+    expect(names(runSearch(multiWord, { q: 'argo cd' }).hits)).toEqual(['argoproj/argo-cd']);
+    expect(names(runSearch(multiWord, { q: 'cd argo' }).hits)).toEqual(['argoproj/argo-cd']);
+    expect(names(runSearch(multiWord, { q: 'gitops argo' }).hits)).toEqual(['argoproj/argo-cd']);
+  });
+
+  it('requires every token to appear somewhere — a doc matching only one token does not match', () => {
+    const partial = [makeTool({ repo: 'y/only-argo', summary: 'argo only, no other word here', k8s_relevance: 0.9 })];
+    expect(runSearch(partial, { q: 'argo nonexistentterm' }).hits).toEqual([]);
   });
 });
 
@@ -145,7 +224,48 @@ describe('runSearch facet distribution', () => {
     expect(result.facetDistribution.domains).toEqual({ storage: 1 });
   });
 
+  it('counts over the query-matched set, not the whole corpus — searchTools facets on every keystroke', () => {
+    const queryFaceted = [
+      makeTool({ repo: 'x/kubectx-cli', kind: 'cli', summary: 'kubectx context switcher', k8s_relevance: 0.9 }),
+      makeTool({ repo: 'y/unrelated-op', kind: 'operator', summary: 'nothing to do with it', k8s_relevance: 0.9 }),
+    ];
+    const result = runSearch(queryFaceted, { q: 'kubectx', facets: ['kind'] });
+    expect(result.facetDistribution.kind).toEqual({ cli: 1 });
+  });
+
+  it('counts a document with the same facet value twice only once', () => {
+    const dup = [
+      makeTool({
+        repo: 'a/dup', k8s_relevance: 0.9,
+        install_methods: [
+          { method: 'brew', command: 'brew install dup', source_url: 'https://formulae.brew.sh/formula/dup', verified_at: '2026-08-20T00:00:00.000Z' },
+          { method: 'brew', command: 'brew install dup-again', source_url: 'https://formulae.brew.sh/formula/dup-again', verified_at: '2026-08-20T00:00:00.000Z' },
+        ],
+      }),
+    ];
+    const result = runSearch(dup, { facets: ['install_methods.method'] });
+    expect(result.facetDistribution['install_methods.method']).toEqual({ brew: 1 });
+  });
+
+  it('drops a null value from a facet distribution instead of counting a "null" bucket', () => {
+    const withNull = [makeTool({ repo: 'a/one', language: null, k8s_relevance: 0.9 })];
+    const result = runSearch(withNull, { facets: ['language'] });
+    expect(result.facetDistribution.language).toEqual({});
+  });
+
+  it('throws when a facet names an attribute that is not filterable/facetable in production', () => {
+    expect(() => runSearch(faceted, { facets: ['summary'] })).toThrow();
+  });
+
   it('omits nothing and invents nothing when no facets are requested', () => {
     expect(runSearch(faceted, {}).facetDistribution).toEqual({});
+  });
+});
+
+describe('valuesAt', () => {
+  it('does not walk the prototype chain for an unset/typo attribute', () => {
+    const tool = makeTool({ repo: 'a/one', k8s_relevance: 0.9 });
+    expect(valuesAt(tool, 'constructor')).toEqual([]);
+    expect(valuesAt(tool, 'toString')).toEqual([]);
   });
 });
