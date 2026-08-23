@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "prerender": "node --import tsx prerender/index.ts",
+    "assert:no-mocks": "node --import tsx scripts/assert-no-mocks.ts dist",
     "check": "tsc --noEmit"
   },
   "dependencies": {

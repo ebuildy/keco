@@ -71,6 +71,7 @@ description = "Build the portal, prerender the top tool pages, typecheck the API
 run = [
   "pnpm -F @keco/web build",
   "pnpm -F @keco/web prerender",
+  "pnpm -F @keco/web assert:no-mocks",
   "pnpm -F @keco/api check",
 ]
 
