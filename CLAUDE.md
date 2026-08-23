@@ -512,6 +512,7 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run setup` | First run: `.env`, dependencies, Meilisearch, index settings, browser search key |
 | `mise run dev` | Portal (`:5173`, HMR) and API (`:3000`) together — `apps/backoffice` doesn't exist yet, so this is the two deployables that do (§0, §7) |
 | `mise run web` / `mise run api` | Either half of `dev` alone |
+| `mise run web:mock` | Portal alone on `:5173` against the in-browser mock backend — fabricated data, **dev and test only**, provably absent from production builds (§14) |
 | `mise run build` | Build the portal, prerender its top tool pages, typecheck the API |
 | `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from the read model (§9) — `build` already runs this after `vite build`; run it alone to re-prerender without a fresh bundle |
 | `mise run discovery -- --query kubernetes --fresh` | Enumerate repos into `discovery/*.yaml` (resumes by default) |
@@ -770,6 +771,17 @@ decision with a retention policy, not as a side effect of search.
 
 - **`VITE_`-prefixed variables are baked into the shipped bundle.** A secret with that prefix is
   a published secret, and rotating it means rebuilding and redeploying.
+- **The mock backend is development and test only** (`apps/web/src/mocks`, `mise run web:mock`).
+  It serves fabricated repos, scores and `install_methods` — shipping it would put invented
+  `brew install` lines in front of real readers, which §6 names as the worst bug this project
+  can ship. Five layers keep it out: the `import.meta.env.DEV` guard in `main.tsx`, `msw` as a
+  `devDependency`, a lint rule barring `src/mocks/**` imports outside `main.tsx` and tests, a
+  `dist/` scan wired into `mise run build`, and the generated worker script being gitignored.
+  That last one only covers a clean checkout, CI and deployments — `vite build` copies `public/`
+  into `dist/` verbatim no matter what, so a machine that has run `mise run web:mock` keeps
+  regenerating the file locally; `mise run build` deletes it before building for exactly that
+  reason, and the `dist/` scan is what actually verifies the invariant either way. Adding a
+  production path to the mock reverses a recorded decision and needs an ADR.
 - **The SPA has no server.** A deep link like `/tools/argoproj/argo-cd` only resolves because
   Fastify falls back to `index.html` (or to a prerendered file). Add a route in the client and
   you must confirm the server fallback still covers it, or the URL 404s on hard refresh.

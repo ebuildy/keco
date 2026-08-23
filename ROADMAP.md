@@ -58,6 +58,8 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
   projected document side by side, enqueue-only commands, taxonomy facet counts.
 - ✅ **Auth** — single admin credential (`ADMIN_PASSWORD_HASH`, scrypt, signed HttpOnly
   session), re-checked inside every handler. Replaces the Auth.js + GitHub OAuth plan.
+- ✅ **Portal mock backend** — dev-and-test-only MSW corpus so frontend work needs no crawl.
+  Never in a production build; see `docs/superpowers/specs/2026-08-23-portal-mock-backend-design.md`.
 
 ### Operations
 

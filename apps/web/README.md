@@ -143,3 +143,41 @@ Four of these are enforced by `mise run lint`; the rest by review.
   week" — there is no time series behind it.
 - **Adding a taxonomy family needs no edit here.** The home page and the search page loop over
   `packages/core/taxonomy.yaml`. If you find yourself hardcoding a facet name, stop.
+
+## Development mock backend
+
+`mise run web:mock` runs the portal on `:5173` with an in-browser mock backend — no Docker, no
+Meilisearch, no API process, no GitHub token. MSW intercepts the portal's real requests and
+answers them from ~300 fixture documents (~30 real projects, the rest deterministically
+generated).
+
+**It is for development and test only, and never ships.** The data is fabricated: invented
+repositories, invented scores and — for generated entries — invented install commands.
+`mise run build` runs `assert:no-mocks`, which fails the build if any mock artifact reaches
+`dist/`.
+
+**What it covers:** search, facet distributions, momentum, single-document lookup, and
+`GET /api/readme/{owner}/{repo}` for curated repos.
+
+**What it does not cover:** `/api/v1`, `/api/mcp`, `/api/chat`, `/api/admin/*`,
+`/api/commands/*`, and the backoffice. The portal does not call them.
+
+**What it must not be trusted for:** relevance ordering, `searchableAttributes` weighting, and
+validating a filter expression. The engine approximates Meilisearch over the closed grammar
+`buildFilters()` and `sortSpec()` emit; it is not Meilisearch. Verify anything ranking-related
+against a real index (`mise run infra:up`).
+
+Generated repos deliberately have no README fixture, so the tool page's "no cached README"
+state — ordinary before the crawler reaches a repo — shows up in normal use.
+
+**Known limitations:**
+
+- The generator does not populate `install_methods`, so only the handful of curated repos with
+  real registry entries contribute to that facet — currently just `brew` and `krew` out of the
+  17 possible values. This is deliberate: CLAUDE.md §6 forbids fabricated install commands, and
+  inventing a `brew install <fake-repo>` line for a generated fixture is exactly the shape it
+  warns against. Anyone building out the install-tab UI should add a curated entry with a real
+  registry proof rather than expect variety from the generator.
+- `mise run web:mock` generates `apps/web/public/mockServiceWorker.js` locally (via `msw init`).
+  If you see it appear after running the mock backend, that's expected — `mise run build`
+  deletes it before building, so it never reaches `dist/`.
