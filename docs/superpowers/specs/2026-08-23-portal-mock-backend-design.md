@@ -1,7 +1,7 @@
 # Portal mock backend for development and test — design
 
 Date: 2026-08-23
-Status: designed, not implemented
+Status: implemented
 
 ## The governing invariant
 
@@ -376,8 +376,12 @@ take it from the curated corpus instead of hand-rolling one that can drift from 
 The invariant gets its own coverage, because a guard nobody tests is a guard that quietly
 stops working:
 
-- **`assert-no-mocks` is exercised in CI** by running it against a real `dist/` produced by a
-  production `vite build`. A green run is evidence about the artifact, not about the config.
+- **`assert-no-mocks` is exercised by `mise run build`**, which runs a production `vite build`
+  and then scans the resulting `dist/` before the build can succeed. There is no CI in this
+  repo (`mise run ci` is `check` + `lint` + `test` + `taxonomy:check`, and none of those build);
+  the scan's only enforcement point today is a local `mise run build`, so a change that never
+  gets built locally before merge would not be caught by it. A green run is evidence about the
+  artifact, not about the config.
 - **A negative test** asserts the scanner actually fails when it should: point it at a fixture
   directory containing the sentinel and require a non-zero exit. Without this, a scanner with a
   broken glob passes forever and proves nothing.

@@ -91,7 +91,7 @@ set — not a general Meilisearch implementation.
 - Modify: `apps/web/package.json`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Add msw to devDependencies**
+- [x] **Step 1: Add msw to devDependencies**
 
 This is Layer 2 of the invariant. `msw` goes in `devDependencies` and must never appear in
 `dependencies` — a production install then cannot resolve it even if an import survived.
@@ -100,12 +100,12 @@ This is Layer 2 of the invariant. `msw` goes in `devDependencies` and must never
 pnpm -F @keco/web add -D msw@^2.7.0
 ```
 
-- [ ] **Step 2: Verify it landed in the right section**
+- [x] **Step 2: Verify it landed in the right section**
 
 Run: `node -e "const p=require('./apps/web/package.json'); console.log('dep:', p.dependencies.msw, 'dev:', p.devDependencies.msw)"`
 Expected: `dep: undefined dev: ^2.7.0`
 
-- [ ] **Step 3: Gitignore the generated service worker**
+- [x] **Step 3: Gitignore the generated service worker**
 
 This is Layer 5. `vite build` copies `public/` verbatim into `dist/`, regardless of `DEV` or
 `VITE_MOCK`, so the worker script must never exist in a clean checkout, a CI checkout or a
@@ -121,7 +121,7 @@ Append to `.gitignore`, after the `.data/` line:
 apps/web/public/mockServiceWorker.js
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/web/package.json pnpm-lock.yaml .gitignore
@@ -139,7 +139,7 @@ instead of forty repeated fields. It derives identity from a single `repo: 'owne
 - Create: `apps/web/src/mocks/corpus/builder.ts`
 - Test: `apps/web/src/mocks/corpus/builder.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/web/src/mocks/corpus/builder.test.ts
@@ -174,12 +174,12 @@ describe('makeTool', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `pnpm vitest run apps/web/src/mocks/corpus/builder.test.ts`
 Expected: FAIL — `Failed to resolve import "./builder"`
 
-- [ ] **Step 3: Write the builder**
+- [x] **Step 3: Write the builder**
 
 ```ts
 // apps/web/src/mocks/corpus/builder.ts
@@ -268,12 +268,12 @@ export function makeTool(overrides: ToolOverrides): ToolDocument {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm vitest run apps/web/src/mocks/corpus/builder.test.ts`
 Expected: PASS, 3 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/mocks/corpus/builder.ts apps/web/src/mocks/corpus/builder.test.ts
@@ -291,7 +291,7 @@ they recognise.
 **Files:**
 - Create: `apps/web/src/mocks/corpus/curated.ts`
 
-- [ ] **Step 1: Write the curated documents**
+- [x] **Step 1: Write the curated documents**
 
 Note the deliberate variety at the end of the list: an archived project, one with no verified
 install method, one with no Scorecard, one needing review, and several with
@@ -647,13 +647,13 @@ export const CURATED: ToolDocument[] = [
 ];
 ```
 
-- [ ] **Step 2: Typecheck it**
+- [x] **Step 2: Typecheck it**
 
 Run: `pnpm -F @keco/web check`
 Expected: no errors. A taxonomy typo surfaces here only if it is a type error; Task 5's schema
 test is what catches an invalid *value*.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/web/src/mocks/corpus/curated.ts
@@ -671,7 +671,7 @@ momentum tail are exercised, without hand-maintaining hundreds of entries.
 - Create: `apps/web/src/mocks/corpus/generate.ts`
 - Test: `apps/web/src/mocks/corpus/generate.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/web/src/mocks/corpus/generate.test.ts
@@ -708,12 +708,12 @@ describe('generateTools', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `pnpm vitest run apps/web/src/mocks/corpus/generate.test.ts`
 Expected: FAIL — `Failed to resolve import "./generate"`
 
-- [ ] **Step 3: Write the generator**
+- [x] **Step 3: Write the generator**
 
 `allValues()` reads the taxonomy file, so a new family value is populated automatically rather
 than needing an edit here.
@@ -819,12 +819,12 @@ export function generateTools(count: number, seed = 20260823): ToolDocument[] {
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm vitest run apps/web/src/mocks/corpus/generate.test.ts`
 Expected: PASS, 5 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/mocks/corpus/generate.ts apps/web/src/mocks/corpus/generate.test.ts
@@ -839,7 +839,7 @@ git commit -m "feat(web): add a deterministic mock corpus generator"
 - Create: `apps/web/src/mocks/corpus/index.ts`
 - Test: `apps/web/src/mocks/corpus/corpus.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 This is the schema drift guard: change the read model and the fixtures fail immediately instead
 of rendering something impossible.
@@ -883,12 +883,12 @@ describe('the mock corpus', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `pnpm vitest run apps/web/src/mocks/corpus/corpus.test.ts`
 Expected: FAIL — `Failed to resolve import "./index"`
 
-- [ ] **Step 3: Write the assembly**
+- [x] **Step 3: Write the assembly**
 
 ```ts
 // apps/web/src/mocks/corpus/index.ts
@@ -917,12 +917,12 @@ export const MOCK_CORPUS: ToolDocument[] = [
 ];
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm vitest run apps/web/src/mocks/corpus/corpus.test.ts`
 Expected: PASS, 5 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/mocks/corpus/index.ts apps/web/src/mocks/corpus/corpus.test.ts
@@ -940,7 +940,7 @@ filter forms `buildFilters()` can emit.
 - Create: `apps/web/src/mocks/engine.ts`
 - Test: `apps/web/src/mocks/engine.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // apps/web/src/mocks/engine.test.ts
@@ -1005,12 +1005,12 @@ describe('runSearch filters', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.test.ts`
 Expected: FAIL — `Failed to resolve import "./engine"`
 
-- [ ] **Step 3: Write the engine's filter half**
+- [x] **Step 3: Write the engine's filter half**
 
 ```ts
 // apps/web/src/mocks/engine.ts
@@ -1136,12 +1136,12 @@ export function runSearch(corpus: ToolDocument[], request: MockSearchRequest): M
 }
 ```
 
-- [ ] **Step 4: Run the test and confirm it passes**
+- [x] **Step 4: Run the test and confirm it passes**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.test.ts`
 Expected: PASS, 8 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/mocks/engine.ts apps/web/src/mocks/engine.test.ts
@@ -1156,7 +1156,7 @@ git commit -m "feat(web): implement the mock engine's filter evaluation"
 - Modify: `apps/web/src/mocks/engine.ts`
 - Modify: `apps/web/src/mocks/engine.test.ts`
 
-- [ ] **Step 1: Add the failing tests**
+- [x] **Step 1: Add the failing tests**
 
 Append to `apps/web/src/mocks/engine.test.ts`:
 
@@ -1218,12 +1218,12 @@ describe('runSearch matching, sorting and pagination', () => {
 });
 ```
 
-- [ ] **Step 2: Run and confirm the new tests fail**
+- [x] **Step 2: Run and confirm the new tests fail**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.test.ts`
 Expected: FAIL — the query is ignored, so `q: 'KUBECTX'` returns all 3 and sorting is a no-op.
 
-- [ ] **Step 3: Add matching and sorting to the engine**
+- [x] **Step 3: Add matching and sorting to the engine**
 
 Insert above `runSearch` in `apps/web/src/mocks/engine.ts`:
 
@@ -1308,12 +1308,12 @@ this task's tests can run; Task 8 replaces it:
 const facetDistribution = (_tools: ToolDocument[], _facets: string[]): Record<string, Record<string, number>> => ({});
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.test.ts`
 Expected: PASS, 15 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/mocks/engine.ts apps/web/src/mocks/engine.test.ts
@@ -1331,7 +1331,7 @@ page. Meilisearch computes it over the **filtered** set.
 - Modify: `apps/web/src/mocks/engine.ts`
 - Modify: `apps/web/src/mocks/engine.test.ts`
 
-- [ ] **Step 1: Add the failing tests**
+- [x] **Step 1: Add the failing tests**
 
 Append to `apps/web/src/mocks/engine.test.ts`:
 
@@ -1373,12 +1373,12 @@ describe('runSearch facet distribution', () => {
 });
 ```
 
-- [ ] **Step 2: Run and confirm they fail**
+- [x] **Step 2: Run and confirm they fail**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.test.ts`
 Expected: FAIL — the stub returns `{}` for every request.
 
-- [ ] **Step 3: Replace the stub with the real implementation**
+- [x] **Step 3: Replace the stub with the real implementation**
 
 Replace the one-line `facetDistribution` stub in `apps/web/src/mocks/engine.ts` with:
 
@@ -1409,12 +1409,12 @@ function facetDistribution(
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.test.ts`
 Expected: PASS, 20 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/mocks/engine.ts apps/web/src/mocks/engine.test.ts
@@ -1431,7 +1431,7 @@ in the same spirit as `packages/analyze/src/rules/pinning.test.ts`.
 **Files:**
 - Create: `apps/web/src/mocks/engine.pinning.test.ts`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 // apps/web/src/mocks/engine.pinning.test.ts
@@ -1486,7 +1486,7 @@ describe('the mock engine covers the whole read-side algebra', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it passes**
+- [x] **Step 2: Run it and confirm it passes**
 
 Run: `pnpm vitest run apps/web/src/mocks/engine.pinning.test.ts`
 Expected: PASS, 5 tests
@@ -1494,7 +1494,7 @@ Expected: PASS, 5 tests
 If "no document resolves X" fails, the generator in Task 4 is not populating that family —
 fix `generateTools`, not this test.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add apps/web/src/mocks/engine.pinning.test.ts
@@ -1510,7 +1510,7 @@ git commit -m "test(web): pin the mock engine to the read-side algebra"
 - Create: `apps/web/src/mocks/handlers.ts`
 - Test: `apps/web/src/mocks/handlers.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `handlers.ts` must import from isomorphic `msw` only — never `msw/browser` — so it can be
 exercised in the node test environment through `setupServer`. That constraint is what makes
@@ -1585,12 +1585,12 @@ describe('mock handlers', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [x] **Step 2: Run it and confirm it fails**
 
 Run: `pnpm vitest run apps/web/src/mocks/handlers.test.ts`
 Expected: FAIL — `Failed to resolve import "./handlers"`
 
-- [ ] **Step 3: Write the README fixtures**
+- [x] **Step 3: Write the README fixtures**
 
 Pre-sanitised HTML, not markdown: §9 and §14 forbid rendering untrusted README markdown in the
 browser, and the real route returns HTML that has already been through rehype-sanitize and
@@ -1637,7 +1637,7 @@ export const MOCK_READMES: Record<string, MockReadme> = {
 };
 ```
 
-- [ ] **Step 4: Write the handlers**
+- [x] **Step 4: Write the handlers**
 
 ```ts
 // apps/web/src/mocks/handlers.ts
@@ -1684,12 +1684,12 @@ export const handlers = [
 ];
 ```
 
-- [ ] **Step 5: Run the tests and confirm they pass**
+- [x] **Step 5: Run the tests and confirm they pass**
 
 Run: `pnpm vitest run apps/web/src/mocks/handlers.test.ts`
 Expected: PASS, 6 tests
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/web/src/mocks/readmes.ts apps/web/src/mocks/handlers.ts apps/web/src/mocks/handlers.test.ts
@@ -1709,7 +1709,7 @@ git commit -m "feat(web): add mock README fixtures and MSW request handlers"
 - Modify: `mise.toml`
 - Modify: `.env.example`
 
-- [ ] **Step 1: Write the browser worker and the start entry**
+- [x] **Step 1: Write the browser worker and the start entry**
 
 ```ts
 // apps/web/src/mocks/browser.ts
@@ -1750,7 +1750,7 @@ export async function startMocks(): Promise<void> {
 }
 ```
 
-- [ ] **Step 2: Type the flag**
+- [x] **Step 2: Type the flag**
 
 ```ts
 // apps/web/src/vite-env.d.ts
@@ -1769,7 +1769,7 @@ interface ImportMetaEnv {
 }
 ```
 
-- [ ] **Step 3: Wire it into main.tsx**
+- [x] **Step 3: Wire it into main.tsx**
 
 Replace the final two lines of `apps/web/src/main.tsx` (the `if (container.firstChild)`
 branch) with the following, keeping the existing comment above it intact:
@@ -1798,7 +1798,7 @@ if (import.meta.env.DEV && import.meta.env.VITE_MOCK === '1') {
 }
 ```
 
-- [ ] **Step 4: Add the dev:mock script**
+- [x] **Step 4: Add the dev:mock script**
 
 In `apps/web/package.json`, add to `scripts`, after `"dev"`:
 
@@ -1806,7 +1806,7 @@ In `apps/web/package.json`, add to `scripts`, after `"dev"`:
     "dev:mock": "msw init public --save && VITE_MOCK=1 vite",
 ```
 
-- [ ] **Step 5: Add the mise task**
+- [x] **Step 5: Add the mise task**
 
 In `mise.toml`, immediately after the `[tasks.web]` block:
 
@@ -1816,7 +1816,7 @@ description = "Portal dev server on :5173 with the mock backend — fabricated d
 run = "pnpm -F @keco/web dev:mock"
 ```
 
-- [ ] **Step 6: Document the flag**
+- [x] **Step 6: Document the flag**
 
 In `.env.example`, append to the section holding the other `VITE_` variables:
 
@@ -1827,7 +1827,7 @@ In `.env.example`, append to the section holding the other `VITE_` variables:
 VITE_MOCK=
 ```
 
-- [ ] **Step 7: Verify the whole thing runs**
+- [x] **Step 7: Verify the whole thing runs**
 
 Run: `mise run web:mock`
 Expected: Vite starts on :5173. Open `http://localhost:5173` — the home page shows chip rows
@@ -1835,12 +1835,12 @@ with facet counts and a "Highest momentum" list; the console shows the amber
 `[keco] mock backend active — 300 fabricated documents` banner. Click into a curated tool
 (for example `/tools/derailed/k9s`) and confirm the README panel renders. Stop with Ctrl-C.
 
-- [ ] **Step 8: Verify production behaviour is unchanged**
+- [x] **Step 8: Verify production behaviour is unchanged**
 
 Run: `VITE_MOCK=1 pnpm -F @keco/web build`
 Expected: build succeeds. Even with the flag set, the next task's scan must find nothing.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/web/src/mocks/browser.ts apps/web/src/mocks/start.ts apps/web/src/vite-env.d.ts \
@@ -1862,7 +1862,7 @@ original groups.
 **Files:**
 - Modify: `eslint.config.mjs`
 
-- [ ] **Step 1: Extract the browser groups and add the mocks group**
+- [x] **Step 1: Extract the browser groups and add the mocks group**
 
 Replace the existing `apps/web/src` config block with:
 
@@ -1912,7 +1912,7 @@ const BROWSER_GROUPS = [
 const MOCK_GROUP = ['**/mocks', '**/mocks/*', '**/mocks/**'];
 ```
 
-- [ ] **Step 2: Verify the rule bites**
+- [x] **Step 2: Verify the rule bites**
 
 Temporarily add this import to the top of `apps/web/src/routes/home.tsx`:
 
@@ -1924,13 +1924,13 @@ console.log(MOCK_CORPUS.length);
 Run: `pnpm eslint apps/web/src/routes/home.tsx`
 Expected: an error naming the mocks restriction.
 
-- [ ] **Step 3: Verify the exemptions still work**
+- [x] **Step 3: Verify the exemptions still work**
 
 Remove the temporary import from `home.tsx`, then run: `pnpm eslint apps/web/src`
 Expected: no errors — `main.tsx`, the tests and the mocks themselves are exempt, and every
 other file is still barred from `@keco/cache`, `@keco/query`, `@keco/search` and `node:*`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add eslint.config.mjs
@@ -1952,7 +1952,7 @@ it is the one that actually holds the invariant.
 - Modify: `apps/web/package.json`
 - Modify: `mise.toml`
 
-- [ ] **Step 1: Let vitest see the scripts directory**
+- [x] **Step 1: Let vitest see the scripts directory**
 
 In `vitest.config.ts`, add to `include`, after the `apps/*/prerender/**/*.test.ts` line:
 
@@ -1960,7 +1960,7 @@ In `vitest.config.ts`, add to `include`, after the `apps/*/prerender/**/*.test.t
       'apps/*/scripts/**/*.test.ts',
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Including a negative case: a scanner with a broken glob passes forever and proves nothing, so
 the test requires it to actually fail when it should.
@@ -2019,12 +2019,12 @@ describe('scanForMocks', () => {
 });
 ```
 
-- [ ] **Step 3: Run it and confirm it fails**
+- [x] **Step 3: Run it and confirm it fails**
 
 Run: `pnpm vitest run apps/web/scripts/assert-no-mocks.test.ts`
 Expected: FAIL — `Failed to resolve import "./assert-no-mocks"`
 
-- [ ] **Step 4: Write the scanner**
+- [x] **Step 4: Write the scanner**
 
 `apps/web/scripts/` is outside `apps/web/src`, so the §7 browser-bundle lint rule does not
 apply and `node:fs` is correct here.
@@ -2100,12 +2100,12 @@ if (invokedDirectly) {
 }
 ```
 
-- [ ] **Step 5: Run the test and confirm it passes**
+- [x] **Step 5: Run the test and confirm it passes**
 
 Run: `pnpm vitest run apps/web/scripts/assert-no-mocks.test.ts`
 Expected: PASS, 6 tests
 
-- [ ] **Step 6: Wire it into the build**
+- [x] **Step 6: Wire it into the build**
 
 In `apps/web/package.json`, add to `scripts`:
 
@@ -2120,7 +2120,7 @@ before the API typecheck:
   "pnpm -F @keco/web assert:no-mocks",
 ```
 
-- [ ] **Step 7: Prove it against a real build, including the adversarial case**
+- [x] **Step 7: Prove it against a real build, including the adversarial case**
 
 Run: `VITE_MOCK=1 pnpm -F @keco/web build && pnpm -F @keco/web assert:no-mocks`
 Expected: `✓ dist is free of mock backend artifacts` — the flag being set at build time changes
@@ -2131,7 +2131,7 @@ Then confirm the guard fails when it should:
 Run: `echo 'KECO_MOCK_CORPUS_DO_NOT_SHIP' > apps/web/dist/canary.js && pnpm -F @keco/web assert:no-mocks; rm apps/web/dist/canary.js`
 Expected: non-zero exit listing `canary.js contains "KECO_MOCK_CORPUS_DO_NOT_SHIP"`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/web/scripts/assert-no-mocks.ts apps/web/scripts/assert-no-mocks.test.ts \
@@ -2148,7 +2148,7 @@ git commit -m "chore(web): fail the build if mock artifacts reach dist"
 - Modify: `apps/web/README.md`
 - Modify: `ROADMAP.md`
 
-- [ ] **Step 1: Add the command to CLAUDE.md §8**
+- [x] **Step 1: Add the command to CLAUDE.md §8**
 
 `AGENTS.md` is a symlink to `CLAUDE.md`, so this edit covers both. In the §8 command table,
 after the `mise run web` / `mise run api` row:
@@ -2157,7 +2157,7 @@ after the `mise run web` / `mise run api` row:
 | `mise run web:mock` | Portal alone on `:5173` against the in-browser mock backend — fabricated data, **dev and test only**, provably absent from production builds (§14) |
 ```
 
-- [ ] **Step 2: Add the warning to CLAUDE.md §14**
+- [x] **Step 2: Add the warning to CLAUDE.md §14**
 
 In §14's "Frontend and API" group, directly after the `VITE_`-prefixed variables bullet:
 
@@ -2171,7 +2171,7 @@ In §14's "Frontend and API" group, directly after the `VITE_`-prefixed variable
   path to it reverses a recorded decision and needs an ADR.
 ```
 
-- [ ] **Step 3: Document it in apps/web/README.md**
+- [x] **Step 3: Document it in apps/web/README.md**
 
 Append a section:
 
@@ -2203,7 +2203,7 @@ Generated repos deliberately have no README fixture, so the tool page's "no cach
 state — ordinary before the crawler reaches a repo — shows up in normal use.
 ```
 
-- [ ] **Step 4: Note it in ROADMAP.md**
+- [x] **Step 4: Note it in ROADMAP.md**
 
 Add under the read-side v1 items:
 
@@ -2212,7 +2212,7 @@ Add under the read-side v1 items:
   Never in a production build; see `docs/superpowers/specs/2026-08-23-portal-mock-backend-design.md`.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CLAUDE.md apps/web/README.md ROADMAP.md
@@ -2223,31 +2223,31 @@ git commit -m "docs: document the dev-and-test-only portal mock backend"
 
 ### Task 15: Full verification
 
-- [ ] **Step 1: Run the whole gate**
+- [x] **Step 1: Run the whole gate**
 
 Run: `mise run ci`
 Expected: check, lint, test and taxonomy:check all green. §15.1 of CLAUDE.md.
 
-- [ ] **Step 2: Confirm the production build is clean**
+- [x] **Step 2: Confirm the production build is clean**
 
 Run: `mise run build`
 Expected: succeeds, ending with `✓ dist is free of mock backend artifacts`.
 
-- [ ] **Step 3: Confirm the mock still runs**
+- [x] **Step 3: Confirm the mock still runs**
 
 Run: `mise run web:mock`
 Expected: the portal serves 300 documents at `http://localhost:5173` with the amber console
 banner. Search for `kubectx`, apply a `kind` filter, page through results, and open a curated
 tool page to see its README. Stop with Ctrl-C.
 
-- [ ] **Step 4: Confirm the real path still works**
+- [x] **Step 4: Confirm the real path still works**
 
 Run: `mise run web`
 Expected: the portal starts without the banner and without mock data. With no Meilisearch
 running it shows the ordinary "Search is unavailable right now." message — **not** fixture
 data. That distinction is the point of rejecting auto-fallback.
 
-- [ ] **Step 5: Commit anything outstanding**
+- [x] **Step 5: Commit anything outstanding**
 
 ```bash
 git status

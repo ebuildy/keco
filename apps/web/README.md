@@ -152,9 +152,10 @@ answers them from ~300 fixture documents (~30 real projects, the rest determinis
 generated).
 
 **It is for development and test only, and never ships.** The data is fabricated: invented
-repositories, invented scores and — for generated entries — invented install commands.
-`mise run build` runs `assert:no-mocks`, which fails the build if any mock artifact reaches
-`dist/`.
+repositories and invented scores. Install commands are never invented — every one in the
+corpus comes from a curated entry with a real registry proof, and generated entries carry no
+`install_methods` at all (see Known limitations below). `mise run build` runs
+`assert:no-mocks`, which fails the build if any mock artifact reaches `dist/`.
 
 **What it covers:** search, facet distributions, momentum, single-document lookup, and
 `GET /api/readme/{owner}/{repo}` for curated repos.
