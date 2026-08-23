@@ -1,4 +1,10 @@
-import { MAX_TOTAL_HITS, TAXONOMY, TOOLS_INDEX, familyAttribute } from '@keco/core';
+import {
+  MAX_TOTAL_HITS,
+  TOOLS_FILTERABLE_ATTRIBUTES,
+  TOOLS_INDEX,
+  TOOLS_SEARCHABLE_ATTRIBUTES,
+  TOOLS_SORTABLE_ATTRIBUTES,
+} from '@keco/core';
 import type { Settings } from 'meilisearch';
 
 /**
@@ -15,36 +21,11 @@ export const TRACES_INDEX = 'traces';
 export const toolsIndexName = (timestamp = new Date()): string =>
   `tools_${timestamp.toISOString().replace(/[-:T.]/g, '').slice(0, 14)}`;
 
-/**
- * Attributes Meilisearch filters on that are not taxonomy families: raw repository facts
- * and the numeric gates the query layer applies.
- */
-const NON_TAXONOMY_FILTERABLE = [
-  'language',
-  'license',
-  'archived',
-  'stars',
-  'has_release',
-  'k8s_relevance',
-  'has_scorecard',
-  'owner',
-];
-
 export const TOOLS_SETTINGS: Settings = {
   // Weight order matters: a name match must outrank a README mention.
-  searchableAttributes: [
-    'name',
-    'full_name',
-    'summary',
-    'description',
-    'github_topics',
-    'readme_excerpt',
-  ],
-  filterableAttributes: [
-    ...TAXONOMY.map((family) => familyAttribute(family.id)),
-    ...NON_TAXONOMY_FILTERABLE,
-  ],
-  sortableAttributes: ['stars', 'score.total', 'score.momentum', 'pushed_at'],
+  searchableAttributes: [...TOOLS_SEARCHABLE_ATTRIBUTES],
+  filterableAttributes: [...TOOLS_FILTERABLE_ATTRIBUTES],
+  sortableAttributes: [...TOOLS_SORTABLE_ATTRIBUTES],
   // Default ranking rules, then health as the tie-breaker — relevance first, always.
   rankingRules: [
     'words',

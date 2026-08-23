@@ -43,6 +43,55 @@ export const PRERENDER_MANIFEST_FILE = 'prerender-manifest.json';
 export const familyAttribute = (familyId: string): string =>
   familyId === 'install_methods' ? 'install_methods.method' : familyId;
 
+/**
+ * `tools`' searchableAttributes, in weight order (§5) — a name match must outrank a README
+ * mention. `packages/search`'s `TOOLS_SETTINGS` and the portal's mock query engine
+ * (`apps/web/src/mocks/engine.ts`) both need this exact list and neither may import the other
+ * (§7), so it lives here once, the same reason `MAX_TOTAL_HITS` and `familyAttribute` do.
+ */
+export const TOOLS_SEARCHABLE_ATTRIBUTES = [
+  'name',
+  'full_name',
+  'summary',
+  'description',
+  'github_topics',
+  'readme_excerpt',
+] as const;
+
+/**
+ * Repository facts and numeric gates the query layer filters on, beyond the taxonomy
+ * families declared in `taxonomy.yaml` (§6).
+ */
+const NON_TAXONOMY_FILTERABLE = [
+  'language',
+  'license',
+  'archived',
+  'stars',
+  'has_release',
+  'k8s_relevance',
+  'has_scorecard',
+  'owner',
+] as const;
+
+/**
+ * The full filterable surface of `tools`: one attribute per taxonomy family (via
+ * `familyAttribute`) plus `NON_TAXONOMY_FILTERABLE`. `TOOLS_SETTINGS` configures the index
+ * with exactly this list, and the mock engine validates every filter and facet attribute
+ * against it — a clause on an attribute Meilisearch would reject with `invalid_search_filter`
+ * must throw here too, not be silently answered (§5, §11).
+ */
+export const TOOLS_FILTERABLE_ATTRIBUTES: string[] = [
+  ...TAXONOMY.map((taxonomyFamily) => familyAttribute(taxonomyFamily.id)),
+  ...NON_TAXONOMY_FILTERABLE,
+];
+
+/**
+ * `tools`' sortableAttributes (§5) — every attribute `sortSpec()` can name. Shared for the
+ * same reason as `TOOLS_SEARCHABLE_ATTRIBUTES`: one definition `TOOLS_SETTINGS` and the mock
+ * engine both consume.
+ */
+export const TOOLS_SORTABLE_ATTRIBUTES = ['stars', 'score.total', 'score.momentum', 'pushed_at'] as const;
+
 /** family id → selected value ids. */
 export type FacetSelection = Record<string, string[]>;
 
