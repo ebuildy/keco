@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "msw init public --save && VITE_MOCK=1 vite",
     "build": "vite build",
     "preview": "vite preview",
     "prerender": "node --import tsx prerender/index.ts",
@@ -27,5 +28,10 @@
     "tsx": "^4.23.1",
     "typescript": "5.9.3",
     "vite": "^8.2.1"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

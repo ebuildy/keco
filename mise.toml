@@ -48,6 +48,10 @@ outputs = { auto = true }
 description = "Portal dev server (Vite) on :5173, proxying /api to :3000"
 run = "pnpm -F @keco/web dev"
 
+[tasks."web:mock"]
+description = "Portal dev server on :5173 with the mock backend — fabricated data, dev only, never in a production build"
+run = "pnpm -F @keco/web dev:mock"
+
 [tasks.api]
 description = "Fastify API + static portal on :3000"
 run = "pnpm -F @keco/api dev"
