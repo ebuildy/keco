@@ -10,6 +10,30 @@ import { toDocumentId, type Signals, type ToolDocument } from '@keco/core';
  * non-empty, slash-free segments, so a malformed fixture fails loudly at module load
  * instead of silently producing a document whose identity fields disagree with each other.
  */
+
+/**
+ * A distinctive string that exists nowhere else in the codebase, so scanning a built `dist/`
+ * for it is a reliable signal for `apps/web/scripts/assert-no-mocks.ts`. Deliberately not
+ * something short like "msw", which occurs by chance in minified output — a guard that
+ * false-positives is a guard someone switches off.
+ *
+ * Declared here (not as a bare module-level export consumers merely re-export) and embedded
+ * into every document's `discovery_source` below, rather than left as a constant nobody
+ * reads: an import graph that pulls in only `MOCK_CORPUS` and never references `MOCK_SENTINEL`
+ * by name lets Rollup tree-shake the unused export away, so the scan's string would never
+ * appear in the bundle even though the fabricated data did. Embedding it in a field every
+ * document carries means the corpus cannot reach `dist/` without tripping the scan, however it
+ * got there. `corpus/index.ts` re-exports this rather than declaring its own copy, because
+ * `builder.ts` is imported by both `curated.ts` and `generate.ts`, which `corpus/index.ts`
+ * itself imports — declaring it there and importing it back into `builder.ts` would be a
+ * cycle.
+ *
+ * This does not close every gap: ESLint's `no-restricted-imports` (the lint layer) does not
+ * see a dynamic `import()`, so a dynamic import of the corpus still passes lint. Embedding the
+ * sentinel in the data is what catches that case — the scan runs against the built output, not
+ * the import graph.
+ */
+export const MOCK_SENTINEL = 'KECO_MOCK_CORPUS_DO_NOT_SHIP';
 export type ToolOverrides = Partial<Omit<ToolDocument, 'id' | 'owner' | 'name' | 'full_name'>> & {
   repo: string;
 };
@@ -47,7 +71,7 @@ export function makeTool(overrides: ToolOverrides): ToolDocument {
     archived: false,
     pushed_at: '2026-08-01T00:00:00.000Z',
     created_at: '2019-03-01T00:00:00.000Z',
-    discovery_source: 'mock',
+    discovery_source: MOCK_SENTINEL,
 
     summary: `${name} is a Kubernetes ecosystem project used for mock development.`,
     kind: 'service',

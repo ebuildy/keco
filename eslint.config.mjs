@@ -78,12 +78,16 @@ export default ts.config(
   },
 
   // Not bundle code: this is Node build tooling that reads the read model and writes files.
-  // It may hold a query client; it still may not touch the write side.
+  // It may hold a query client; it still may not touch the write side. MOCK_GROUP is included
+  // for the same reason as the block above: the prerender writes HTML straight into `dist/`,
+  // and "seed the prerender from fixtures when the index is empty" is exactly the change the
+  // design spec's "Preserving the invariant" section forbids — without this, the corpus import
+  // would pass lint here even though nothing else in the bundle rules allows it.
   {
     files: ['apps/web/prerender/**/*.ts'],
     rules: boundary(
-      'apps/web/prerender is build tooling: it may read the read model, never the write side (§7).',
-      [['@keco/cache', '@keco/cache/*', '@keco/github', '@keco/signals', '@keco/analyze']],
+      'apps/web/prerender is build tooling: it may read the read model, never the write side, and never the mock backend (§7).',
+      [['@keco/cache', '@keco/cache/*', '@keco/github', '@keco/signals', '@keco/analyze'], MOCK_GROUP],
     ),
   },
 

@@ -9,11 +9,12 @@ import { generateTools } from './generate';
  */
 
 /**
- * A distinctive string that exists nowhere else in the codebase, so scanning a built `dist/`
- * for it is a reliable signal. Deliberately not something short like "msw", which occurs by
- * chance in minified output — a guard that false-positives is a guard someone switches off.
+ * Re-exported from `./builder`, which declares it (see the comment there for why it lives on
+ * every document's `discovery_source` rather than as a bare constant). Declaring it here
+ * instead and importing it into `builder.ts` would be a cycle: this module imports `curated.ts`
+ * and `generate.ts`, and both of those import `builder.ts`.
  */
-export const MOCK_SENTINEL = 'KECO_MOCK_CORPUS_DO_NOT_SHIP';
+export { MOCK_SENTINEL } from './builder';
 
 const TARGET_SIZE = 300;
 
