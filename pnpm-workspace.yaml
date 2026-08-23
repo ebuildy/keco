@@ -3,8 +3,11 @@ packages:
   - "packages/*"
 
 # esbuild powers tsx/vitest. unrs-resolver is not needed.
+# msw's postinstall is a best-effort no-op it swallows errors from; `msw init` is invoked
+# explicitly by the web:mock task, so nothing depends on it running.
 allowBuilds:
   esbuild: true
+  msw: false
   unrs-resolver: false
 
 minimumReleaseAgeExclude:
