@@ -133,8 +133,30 @@ const compareBy = (spec: string) => (a: ToolDocument, b: ToolDocument): number =
   return direction === 'desc' ? -order : order;
 };
 
-// Task 8 replaces this stub with the real facet distribution implementation.
-const facetDistribution = (_tools: ToolDocument[], _facets: string[]): Record<string, Record<string, number>> => ({});
+/**
+ * Counts documents per value for each requested attribute, over the filtered set — matching
+ * Meilisearch's facetDistribution semantics (§5). A value with zero documents is absent,
+ * which is what lets the home page render no chip rather than a dead one (§9).
+ */
+function facetDistribution(
+  tools: ToolDocument[],
+  facets: string[],
+): Record<string, Record<string, number>> {
+  const distribution: Record<string, Record<string, number>> = {};
+
+  for (const attribute of facets) {
+    const counts: Record<string, number> = {};
+    for (const tool of tools) {
+      // A Set so a document with the same value twice still counts once.
+      for (const value of new Set(valuesAt(tool, attribute).map(String))) {
+        counts[value] = (counts[value] ?? 0) + 1;
+      }
+    }
+    distribution[attribute] = counts;
+  }
+
+  return distribution;
+}
 
 export function runSearch(corpus: ToolDocument[], request: MockSearchRequest): MockSearchResponse {
   const query = request.q ?? '';

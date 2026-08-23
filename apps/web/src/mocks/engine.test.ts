@@ -113,3 +113,39 @@ describe('runSearch matching, sorting and pagination', () => {
     expect(result.totalHits).toBe(10);
   });
 });
+
+describe('runSearch facet distribution', () => {
+  const faceted = [
+    makeTool({ repo: 'a/one', kind: 'cli', domains: ['security', 'policy'], k8s_relevance: 0.9 }),
+    makeTool({ repo: 'b/two', kind: 'cli', domains: ['security'], k8s_relevance: 0.9 }),
+    makeTool({ repo: 'c/three', kind: 'operator', domains: ['storage'], k8s_relevance: 0.9 }),
+    makeTool({
+      repo: 'd/four', kind: 'cli', domains: ['storage'], k8s_relevance: 0.9,
+      install_methods: [{ method: 'krew', command: 'kubectl krew install four', source_url: 'https://krew.sigs.k8s.io/plugins/', verified_at: '2026-08-20T00:00:00.000Z' }],
+    }),
+  ];
+
+  it('counts documents per value for a scalar attribute', () => {
+    const result = runSearch(faceted, { facets: ['kind'] });
+    expect(result.facetDistribution.kind).toEqual({ cli: 3, operator: 1 });
+  });
+
+  it('counts each value of a list attribute once per document', () => {
+    const result = runSearch(faceted, { facets: ['domains'] });
+    expect(result.facetDistribution.domains).toEqual({ security: 2, policy: 1, storage: 2 });
+  });
+
+  it('counts a projected attribute through an array of objects', () => {
+    const result = runSearch(faceted, { facets: ['install_methods.method'] });
+    expect(result.facetDistribution['install_methods.method']).toEqual({ krew: 1 });
+  });
+
+  it('counts over the filtered set, not the whole corpus', () => {
+    const result = runSearch(faceted, { filter: ['kind IN ["operator"]'], facets: ['domains'] });
+    expect(result.facetDistribution.domains).toEqual({ storage: 1 });
+  });
+
+  it('omits nothing and invents nothing when no facets are requested', () => {
+    expect(runSearch(faceted, {}).facetDistribution).toEqual({});
+  });
+});
