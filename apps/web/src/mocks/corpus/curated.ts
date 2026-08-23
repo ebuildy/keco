@@ -1,4 +1,3 @@
-// apps/web/src/mocks/corpus/curated.ts
 import type { ToolDocument } from '@keco/core';
 import { makeTool } from './builder';
 

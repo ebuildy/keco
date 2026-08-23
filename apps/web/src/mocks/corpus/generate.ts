@@ -40,7 +40,7 @@ export function generateTools(count: number, seed = 20260823): ToolDocument[] {
 
   return Array.from({ length: count }, (_, index) => {
     // Index-driven rather than random, so every taxonomy value is represented at volume and
-    // the test above cannot flake on an unlucky seed.
+    // the coverage test in generate.test.ts cannot flake on an unlucky seed.
     const kind = kinds[index % kinds.length] ?? 'service';
     const adjective = pick(ADJECTIVES, 'swift');
     const noun = pick(NOUNS, 'harbor');
