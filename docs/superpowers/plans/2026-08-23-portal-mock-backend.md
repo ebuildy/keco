@@ -303,6 +303,11 @@ import { makeTool } from './builder';
  * `install_methods` are written only where the registry entry genuinely exists, with its real
  * source_url. §6 calls a fabricated `brew install` line the worst bug this project can ship,
  * and a fixture that teaches the wrong shape is how one gets written.
+ *
+ * A `source_url` must actually prove its `command`: a third-party tap install
+ * (`brew install owner/tap/x`) is proven by the tap repository, not by formulae.brew.sh, which
+ * indexes homebrew-core only; and a bare registry index page is not proof that a specific entry
+ * exists — link the entry itself (e.g. the krew-index plugin manifest).
  */
 export const CURATED: ToolDocument[] = [
   makeTool({
@@ -365,7 +370,7 @@ export const CURATED: ToolDocument[] = [
     github_topics: ['kubernetes', 'kubectl', 'kubectl-plugin', 'kubernetes-cli'],
     install_methods: [
       { method: 'brew', command: 'brew install kubectx', source_url: 'https://formulae.brew.sh/formula/kubectx', verified_at: '2026-08-20T00:00:00.000Z' },
-      { method: 'krew', command: 'kubectl krew install ctx', source_url: 'https://krew.sigs.k8s.io/plugins/', verified_at: '2026-08-20T00:00:00.000Z' },
+      { method: 'krew', command: 'kubectl krew install ctx', source_url: 'https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/ctx.yaml', verified_at: '2026-08-20T00:00:00.000Z' },
     ],
     score: { popularity: 0.85, activity: 0.5, adoption: 0.78, quality: 0.7, quality_coverage: 0.6, total: 0.75, momentum: 0.3 },
   }),
@@ -435,7 +440,7 @@ export const CURATED: ToolDocument[] = [
     stars: 6800, forks: 640, maturity: 'cncf-graduated', governance: 'foundation',
     github_topics: ['kubernetes', 'gitops', 'flux', 'continuous-delivery'],
     install_methods: [
-      { method: 'brew', command: 'brew install fluxcd/tap/flux', source_url: 'https://formulae.brew.sh/formula/flux', verified_at: '2026-08-20T00:00:00.000Z' },
+      { method: 'brew', command: 'brew install fluxcd/tap/flux', source_url: 'https://github.com/fluxcd/homebrew-tap', verified_at: '2026-08-20T00:00:00.000Z' },
     ],
     score: { popularity: 0.72, activity: 0.87, adoption: 0.7, quality: 0.88, quality_coverage: 1, total: 0.79, momentum: 0.5 },
   }),
@@ -534,7 +539,7 @@ export const CURATED: ToolDocument[] = [
     stars: 3900, forks: 340, maturity: 'established', governance: 'vendor-backed',
     github_topics: ['kubernetes', 'development', 'tilt', 'live-reload'],
     install_methods: [
-      { method: 'brew', command: 'brew install tilt-dev/tap/tilt', source_url: 'https://formulae.brew.sh/formula/tilt', verified_at: '2026-08-20T00:00:00.000Z' },
+      { method: 'brew', command: 'brew install tilt-dev/tap/tilt', source_url: 'https://github.com/tilt-dev/homebrew-tap', verified_at: '2026-08-20T00:00:00.000Z' },
     ],
     score: { popularity: 0.6, activity: 0.6, adoption: 0.5, quality: 0.72, quality_coverage: 0.75, total: 0.6, momentum: 0.2 },
   }),
