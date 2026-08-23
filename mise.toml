@@ -69,6 +69,12 @@ run = "pnpm -F @keco/web prerender"
 description = "Build the portal, prerender the top tool pages, typecheck the API"
 # Order matters: `vite build` empties dist/, which would delete a previous prerender.
 run = [
+  # mockServiceWorker.js is generated locally by `mise run web:mock` (msw init) and gitignored,
+  # but `vite build` copies public/ into dist/ verbatim regardless of DEV/VITE_MOCK — so a
+  # machine that has ever run the mock leaves this file behind for every later build. Drop it
+  # before building. assert:no-mocks below still runs and is the real backstop; this step is
+  # hygiene, not a substitute for it.
+  "rm -f apps/web/public/mockServiceWorker.js",
   "pnpm -F @keco/web build",
   "pnpm -F @keco/web prerender",
   "pnpm -F @keco/web assert:no-mocks",
