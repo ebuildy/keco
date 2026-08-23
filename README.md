@@ -213,6 +213,15 @@ which means it fixes every similar project at the same time.
 See [AGENTS.md](./AGENTS.md) — written for AI coding agents, but it's the most precise spec of
 the system, so read it first either way.
 
+Each deployable then documents its own architecture, how to run it and what it's held to:
+
+- [`apps/web`](./apps/web/README.md) — the public portal: static SPA, browser-direct search,
+  build-time prerender.
+- [`apps/api`](./apps/api/README.md) — the only backend process: REST, README rendering, admin
+  auth, commands, and serving the bundle.
+- [`apps/workers`](./apps/workers/README.md) — the write side: discovery, crawler, analyzer,
+  projector, and the cache they share.
+
 ## License
 
 Apache-2.0 for the code. Crawled metadata remains under the terms of its sources.
