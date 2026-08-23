@@ -69,6 +69,7 @@ export default ts.config(
     files: [
       'apps/web/src/main.tsx',
       'apps/web/src/**/*.test.ts',
+      'apps/web/src/**/*.test.tsx',
       'apps/web/src/mocks/**/*.ts',
     ],
     rules: boundary(

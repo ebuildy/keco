@@ -31,6 +31,11 @@ import {
  *   Meilisearch's `typo` ranking rule would still surface the document.
  * - Matching is plain substring (infix) per token, not Meilisearch's actual word-boundary /
  *   prefix tokenisation — a token can match mid-word here in a way production would not.
+ * - `facetDistribution` (below) is computed over the `MAX_TOTAL_HITS`-clamped matched set,
+ *   whereas Meilisearch computes it over the whole filtered set before any pagination or hit
+ *   cap. Unreachable at the corpus's current ~300 documents (nothing here approaches
+ *   `MAX_TOTAL_HITS`), so left as is rather than fixed — noted here so it isn't a surprise if
+ *   the corpus ever grows past the clamp.
  */
 
 export type MockSearchRequest = {

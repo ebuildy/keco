@@ -38,7 +38,20 @@ const render = (): void => {
 if (import.meta.env.DEV && import.meta.env.VITE_MOCK === '1') {
   void import('./mocks/start')
     .then(({ startMocks }) => startMocks())
-    .then(render);
+    .then(render)
+    .catch((error: unknown) => {
+      // Failing loudly is right (see startMocks' own doc comment); failing to a blank page is
+      // not. The most common cause is a stale/missing apps/web/public/mockServiceWorker.js —
+      // e.g. `mise run build` deletes it before building, and a later `VITE_MOCK=1 vite` run
+      // finds it gone — so name the fix, then still render so the developer sees a working
+      // portal (against whatever real backend is configured) alongside the real error.
+      console.error(
+        '[keco] mock backend failed to start — falling back to the real backend, if any.\n' +
+          "Run `mise run web:mock` to regenerate the mock service worker, then retry.\n",
+        error,
+      );
+      render();
+    });
 } else {
   render();
 }

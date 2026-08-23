@@ -80,7 +80,7 @@ const NON_TAXONOMY_FILTERABLE = [
  * against it — a clause on an attribute Meilisearch would reject with `invalid_search_filter`
  * must throw here too, not be silently answered (§5, §11).
  */
-export const TOOLS_FILTERABLE_ATTRIBUTES: string[] = [
+export const TOOLS_FILTERABLE_ATTRIBUTES: readonly string[] = [
   ...TAXONOMY.map((taxonomyFamily) => familyAttribute(taxonomyFamily.id)),
   ...NON_TAXONOMY_FILTERABLE,
 ];
