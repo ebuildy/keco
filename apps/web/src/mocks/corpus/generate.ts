@@ -26,6 +26,17 @@ const NOUNS = ['harbor', 'anchor', 'beacon', 'compass', 'lantern', 'pylon', 'rud
 const ORGS = ['mockcorp', 'fixture-labs', 'devseed', 'sample-io', 'stubworks'];
 const LANGUAGES = ['Go', 'Rust', 'TypeScript', 'Python', 'Java', null];
 
+/**
+ * `score.total` and `score.momentum` are scaled into a band below `curated.ts`'s real
+ * (0.6–0.9-ish) scores, rather than left uniform on [0,1). Uniform generation let synthetic
+ * fixtures outrank every hand-written entry on the default views (top-momentum, top-score,
+ * empty-query relevance), so a reviewer eyeballing the home page or `/search` only ever saw
+ * `mockcorp/*` names — never something recognisable to judge a card, a score breakdown or an
+ * install block against. The generated long tail still needs to exist for pagination, facet
+ * volume and empty/edge states, so it isn't removed — just kept from leading.
+ */
+const GENERATED_SCORE_CEILING = 0.4;
+
 export function generateTools(count: number, seed = 20260823): ToolDocument[] {
   const random = rng(seed);
   const pick = <T,>(list: readonly T[], fallback: T): T => list[Math.floor(random() * list.length)] ?? fallback;
@@ -56,7 +67,7 @@ export function generateTools(count: number, seed = 20260823): ToolDocument[] {
     const stars = Math.floor(random() * 12000);
     const archived = random() < 0.06;
     const hasScorecard = random() < 0.55;
-    const total = archived ? Math.min(0.4, random()) : random();
+    const total = archived ? Math.min(0.4, random()) : random() * GENERATED_SCORE_CEILING;
 
     return makeTool({
       repo: `${owner}/${name}`,
@@ -90,7 +101,7 @@ export function generateTools(count: number, seed = 20260823): ToolDocument[] {
         quality: random(),
         quality_coverage: hasScorecard ? 0.9 : 0.4,
         total,
-        momentum: archived ? random() * 0.05 : random(),
+        momentum: archived ? random() * 0.05 : random() * GENERATED_SCORE_CEILING,
       },
     });
   });
