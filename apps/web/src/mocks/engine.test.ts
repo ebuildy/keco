@@ -57,3 +57,59 @@ describe('runSearch filters', () => {
     expect(names(result.hits)).toEqual(['a/cli-tool']);
   });
 });
+
+describe('runSearch matching, sorting and pagination', () => {
+  const searchable = [
+    // `name` is derived from `repo`, so it is not an override ToolOverrides accepts.
+    makeTool({ repo: 'x/kubectx', summary: 'switch contexts', k8s_relevance: 0.9 }),
+    makeTool({ repo: 'y/other', summary: 'a tool that mentions kubectx in its summary', k8s_relevance: 0.9 }),
+    makeTool({ repo: 'z/unrelated', summary: 'nothing to see', k8s_relevance: 0.9 }),
+  ];
+
+  it('matches an empty query against everything', () => {
+    expect(runSearch(searchable, { q: '' }).hits).toHaveLength(3);
+  });
+
+  it('matches case-insensitively across searchable fields', () => {
+    expect(names(runSearch(searchable, { q: 'KUBECTX' }).hits)).toEqual(['x/kubectx', 'y/other']);
+  });
+
+  it('ranks a name match above a summary-only match', () => {
+    const hits = runSearch(searchable, { q: 'kubectx' }).hits;
+    expect(hits[0]?.full_name).toBe('x/kubectx');
+  });
+
+  it('returns nothing for a query that matches nothing', () => {
+    const result = runSearch(searchable, { q: 'zzzzz-no-such-tool' });
+    expect(result.hits).toEqual([]);
+    expect(result.totalHits).toBe(0);
+  });
+
+  it('sorts by each spec sortSpec() can emit', () => {
+    const sortable = [
+      makeTool({ repo: 'a/one', stars: 10, pushed_at: '2020-01-01T00:00:00.000Z', score: { popularity: 0, activity: 0, adoption: 0, quality: 0, quality_coverage: 1, total: 0.1, momentum: 0.9 } }),
+      makeTool({ repo: 'b/two', stars: 90, pushed_at: '2026-01-01T00:00:00.000Z', score: { popularity: 0, activity: 0, adoption: 0, quality: 0, quality_coverage: 1, total: 0.9, momentum: 0.1 } }),
+    ];
+    expect(runSearch(sortable, { sort: ['stars:desc'] }).hits[0]?.full_name).toBe('b/two');
+    expect(runSearch(sortable, { sort: ['score.total:desc'] }).hits[0]?.full_name).toBe('b/two');
+    expect(runSearch(sortable, { sort: ['score.momentum:desc'] }).hits[0]?.full_name).toBe('a/one');
+    expect(runSearch(sortable, { sort: ['pushed_at:desc'] }).hits[0]?.full_name).toBe('b/two');
+  });
+
+  it('paginates, and reports totals over the whole match set', () => {
+    const many = Array.from({ length: 45 }, (_, i) => makeTool({ repo: `org/tool-${i}`, k8s_relevance: 0.9 }));
+    const second = runSearch(many, { page: 2, hitsPerPage: 20 });
+    expect(second.hits).toHaveLength(20);
+    expect(second.page).toBe(2);
+    expect(second.totalHits).toBe(45);
+    expect(second.totalPages).toBe(3);
+    expect(runSearch(many, { page: 3, hitsPerPage: 20 }).hits).toHaveLength(5);
+  });
+
+  it('returns counts but no hits when hitsPerPage is 0, as browseFacets() requires', () => {
+    const many = Array.from({ length: 10 }, (_, i) => makeTool({ repo: `org/t-${i}`, k8s_relevance: 0.9 }));
+    const result = runSearch(many, { hitsPerPage: 0 });
+    expect(result.hits).toEqual([]);
+    expect(result.totalHits).toBe(10);
+  });
+});

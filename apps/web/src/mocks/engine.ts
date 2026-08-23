@@ -101,20 +101,73 @@ function matchesClause(tool: ToolDocument, clause: string): boolean {
 const matchesFilters = (tool: ToolDocument, filters: string[]): boolean =>
   filters.every((clause) => matchesClause(tool, clause));
 
+/**
+ * `tools`' searchableAttributes in weight order (§5). A lower index is a better match. This
+ * approximates Meilisearch's relevance; it does not reproduce it.
+ */
+const SEARCHABLE = ['name', 'full_name', 'summary', 'description', 'github_topics', 'readme_excerpt'] as const;
+
+/** Best (lowest) field index the query matches, or null when nothing matches. */
+function matchRank(tool: ToolDocument, query: string): number | null {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return SEARCHABLE.length;
+
+  for (const [index, attribute] of SEARCHABLE.entries()) {
+    const haystack = valuesAt(tool, attribute)
+      .filter((value) => typeof value === 'string')
+      .join(' ')
+      .toLowerCase();
+    if (haystack.includes(needle)) return index;
+  }
+  return null;
+}
+
+const compareBy = (spec: string) => (a: ToolDocument, b: ToolDocument): number => {
+  const [attribute = '', direction = 'asc'] = spec.split(':');
+  const [left] = valuesAt(a, attribute);
+  const [right] = valuesAt(b, attribute);
+  const order =
+    typeof left === 'number' && typeof right === 'number'
+      ? left - right
+      : String(left ?? '').localeCompare(String(right ?? ''));
+  return direction === 'desc' ? -order : order;
+};
+
+// Task 8 replaces this stub with the real facet distribution implementation.
+const facetDistribution = (_tools: ToolDocument[], _facets: string[]): Record<string, Record<string, number>> => ({});
+
 export function runSearch(corpus: ToolDocument[], request: MockSearchRequest): MockSearchResponse {
-  const matched = corpus.filter((tool) => matchesFilters(tool, request.filter ?? []));
+  const query = request.q ?? '';
+
+  const ranked: { tool: ToolDocument; rank: number }[] = [];
+  for (const tool of corpus) {
+    if (!matchesFilters(tool, request.filter ?? [])) continue;
+    const rank = matchRank(tool, query);
+    if (rank === null) continue;
+    ranked.push({ tool, rank });
+  }
+
+  const sorts = request.sort ?? [];
+  if (sorts.length > 0) {
+    for (const spec of [...sorts].reverse()) ranked.sort((a, b) => compareBy(spec)(a.tool, b.tool));
+  } else {
+    // No sort: match quality first, then score.total — the index's tie-breaker (§5).
+    ranked.sort((a, b) => a.rank - b.rank || b.tool.score.total - a.tool.score.total);
+  }
+
+  const matched = ranked.map((entry) => entry.tool);
   const hitsPerPage = request.hitsPerPage ?? 20;
   const page = request.page ?? 1;
   const totalHits = Math.min(matched.length, MAX_TOTAL_HITS);
 
   return {
     hits: hitsPerPage === 0 ? [] : matched.slice((page - 1) * hitsPerPage, page * hitsPerPage),
-    query: request.q ?? '',
+    query,
     page,
     hitsPerPage,
     totalHits,
     totalPages: hitsPerPage === 0 ? 0 : Math.ceil(totalHits / hitsPerPage),
     processingTimeMs: 1,
-    facetDistribution: {},
+    facetDistribution: facetDistribution(matched, request.facets ?? []),
   };
 }
