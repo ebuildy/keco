@@ -10,6 +10,16 @@ const boundary = (message, patterns) => ({
   'no-restricted-imports': ['error', { patterns: patterns.map((group) => ({ group, message })) }],
 });
 
+/** The portal bundle's permanent import ban (§7). Named so the mock rule can re-apply it. */
+const BROWSER_GROUPS = [
+  ['@keco/cache', '@keco/cache/*', '@keco/github', '@keco/signals', '@keco/analyze'],
+  ['@keco/query', '@keco/search'],
+  ['node:*', 'fs', 'path', 'crypto', 'os'],
+];
+
+/** Development-and-test-only mock backend — see the governing invariant in its design spec. */
+const MOCK_GROUP = ['**/mocks', '**/mocks/*', '**/mocks/**'];
+
 export default ts.config(
   {
     ignores: [
@@ -46,11 +56,24 @@ export default ts.config(
     files: ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'],
     rules: boundary(
       'apps/web/src is a browser bundle: @keco/core and meilisearch only, and no node:* (§7).',
-      [
-        ['@keco/cache', '@keco/cache/*', '@keco/github', '@keco/signals', '@keco/analyze'],
-        ['@keco/query', '@keco/search'],
-        ['node:*', 'fs', 'path', 'crypto', 'os'],
-      ],
+      [...BROWSER_GROUPS, MOCK_GROUP],
+    ),
+  },
+
+  // The mock backend is development and test only. Application code must never import it, or
+  // fabricated repos, scores and install commands reach real readers (§6). main.tsx holds the
+  // dev-only branch that loads it; test files use the corpus as fixtures. Nothing else may.
+  // This block re-applies BROWSER_GROUPS rather than adding to the one above: flat config is
+  // last-match-wins per rule key, so omitting them here would unguard these files entirely.
+  {
+    files: [
+      'apps/web/src/main.tsx',
+      'apps/web/src/**/*.test.ts',
+      'apps/web/src/mocks/**/*.ts',
+    ],
+    rules: boundary(
+      'apps/web/src is a browser bundle: @keco/core and meilisearch only, and no node:* (§7).',
+      BROWSER_GROUPS,
     ),
   },
 
