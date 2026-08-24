@@ -49,6 +49,39 @@ describe('mock handlers', () => {
     expect(response.status).toBe(404);
   });
 
+  it('answers a multi-search with one result per query, in order', async () => {
+    const response = await fetch('http://localhost:7700/multi-search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        queries: [
+          { indexUid: 'tools', q: 'gitops', hitsPerPage: 0 },
+          { indexUid: 'tools', q: 'zzzzznothing', hitsPerPage: 0 },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const { results } = await response.json();
+    expect(results).toHaveLength(2);
+    expect(results[0].indexUid).toBe('tools');
+    // `hitsPerPage: 0` buys counts and no documents — what verifySuggestions() asks for.
+    expect(results[0].hits).toEqual([]);
+    expect(results[0].totalHits).toBeGreaterThan(0);
+    expect(results[1].totalHits).toBe(0);
+  });
+
+  it('404s a multi-search naming an index that does not exist', async () => {
+    const response = await fetch('http://localhost:7700/multi-search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ queries: [{ indexUid: 'repos_state', q: '' }] }),
+    });
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).code).toBe('index_not_found');
+  });
+
   it('serves a README in the shape apps/api returns', async () => {
     const response = await fetch('http://localhost:7700/api/readme/derailed/k9s');
     expect(response.status).toBe(200);
