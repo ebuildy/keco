@@ -3,9 +3,11 @@
  *
  * Two layers, and the split is load-bearing. Layer one is the semantic values, defined as
  * ordinary custom properties so they can be *redefined at runtime* when the theme changes.
- * Layer two is `@theme inline`, which tells Tailwind to emit utilities that reference those
- * variables rather than baking a hex at build time. Without `inline`, `bg-surface` would
- * freeze the light value and the toggle would change nothing.
+ * Layer two is `@theme inline`, which tells Tailwind to emit utilities that reference the
+ * token directly rather than adding a second `--color-*` custom property that only ever
+ * points back at `:root`. Both forms stay theme-reactive without `inline` — the difference
+ * is one fewer indirection, and utilities resolving against the element carrying them rather
+ * than always against `:root`, not whether the toggle works at all.
  *
  * The dark block is written twice on purpose: once under the media query for readers who
  * never touched the toggle, once on the attribute for readers who did. CSS has no way to say
@@ -20,12 +22,12 @@
   --keco-surface: #ffffff;
   --keco-surface-2: #f1f5fa;
   --keco-border: #e7edf6;
-  --keco-border-strong: #dde5f2;
+  --keco-border-strong: #7d8da9;
 
   --keco-text: #111827;
-  --keco-text-2: #475569;
-  --keco-text-muted: #64748b;
-  --keco-text-faint: #94a3b8;
+  --keco-text-2: #41506a;
+  --keco-text-muted: #4e5d75;
+  --keco-text-faint: #5b6878;
 
   --keco-accent: #326ce5;
   --keco-accent-text: #1e4fbb;
@@ -57,12 +59,12 @@
     --keco-surface: #151d2e;
     --keco-surface-2: #1b2437;
     --keco-border: #212b40;
-    --keco-border-strong: #2a3752;
+    --keco-border-strong: #63769c;
 
     --keco-text: #f1f4fa;
     --keco-text-2: #aeb9cc;
-    --keco-text-muted: #94a3b8;
-    --keco-text-faint: #6b7a93;
+    --keco-text-muted: #98a5bb;
+    --keco-text-faint: #8494ad;
 
     --keco-accent: #4c86f0;
     --keco-accent-text: #7ba9ff;
@@ -84,7 +86,7 @@
 
     --keco-focus: rgb(76 134 240 / 0.45);
     /* Dark carries elevation with a surface step, not a shadow. */
-    --keco-shadow-card: none;
+    --keco-shadow-card: 0 0 #0000;
   }
 }
 
@@ -95,12 +97,12 @@
   --keco-surface: #151d2e;
   --keco-surface-2: #1b2437;
   --keco-border: #212b40;
-  --keco-border-strong: #2a3752;
+  --keco-border-strong: #63769c;
 
   --keco-text: #f1f4fa;
   --keco-text-2: #aeb9cc;
-  --keco-text-muted: #94a3b8;
-  --keco-text-faint: #6b7a93;
+  --keco-text-muted: #98a5bb;
+  --keco-text-faint: #8494ad;
 
   --keco-accent: #4c86f0;
   --keco-accent-text: #7ba9ff;
@@ -120,7 +122,7 @@
   --keco-health-4: #7ba9ff;
 
   --keco-focus: rgb(76 134 240 / 0.45);
-  --keco-shadow-card: none;
+  --keco-shadow-card: 0 0 #0000;
 }
 
 /* Layer two: Tailwind reads the variables by reference, so utilities follow the theme. */
@@ -148,6 +150,12 @@
   --color-warn-soft: var(--keco-warn-soft);
   --color-bad-soft: var(--keco-bad-soft);
 
+  --color-health-1: var(--keco-health-1);
+  --color-health-2: var(--keco-health-2);
+  --color-health-3: var(--keco-health-3);
+  --color-health-4: var(--keco-health-4);
+  --color-focus: var(--keco-focus);
+
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
@@ -160,6 +168,19 @@
 
 /*
  * The theme toggle sets [data-theme], so Tailwind's default `dark:` variant — which keys off
- * prefers-color-scheme — would disagree with the attribute. Point it at the attribute instead.
+ * prefers-color-scheme alone — would disagree with the attribute. Point it at the attribute,
+ * but keep the media-query branch too: the tokens above already go dark under
+ * `prefers-color-scheme` with no attribute present (a system-dark reader who never touched
+ * the toggle), and `dark:` must match there as well or every `dark:` utility silently no-ops
+ * for that reader while the tokens underneath it have already flipped.
  */
-@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+@custom-variant dark {
+  &:where([data-theme='dark'], [data-theme='dark'] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) {
+      @slot;
+    }
+  }
+}

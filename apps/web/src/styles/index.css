@@ -4,20 +4,27 @@
 
 @plugin '@tailwindcss/typography';
 
-html {
-  background: var(--keco-bg);
-}
+/*
+ * `@layer base` is not decoration: unlayered CSS outranks every Tailwind utility regardless of
+ * source order, so a bare `:focus-visible` rule here would out-rank any component's attempt to
+ * override the outline (InstallTabs wants to). Layering it puts these rules at the same
+ * cascade priority as Tailwind's own base styles, so a utility class still wins.
+ */
+@layer base {
+  html {
+    background: var(--keco-bg);
+  }
 
-body {
-  background: var(--keco-bg);
-  color: var(--keco-text);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    background: var(--keco-bg);
+    color: var(--keco-text);
+    -webkit-font-smoothing: antialiased;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--keco-accent);
-  outline-offset: 2px;
+  :focus-visible {
+    outline: 2px solid var(--keco-accent);
+    outline-offset: 2px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -25,7 +32,9 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -47,6 +56,8 @@ body {
   --tw-prose-quote-borders: var(--keco-border);
   --tw-prose-captions: var(--keco-text-muted);
   --tw-prose-code: var(--keco-text);
+  --tw-prose-kbd: var(--keco-text);
+  --tw-prose-kbd-shadows: var(--keco-border-strong);
   --tw-prose-th-borders: var(--keco-border-strong);
   --tw-prose-td-borders: var(--keco-border);
   max-width: none;
@@ -70,9 +81,7 @@ body {
 }
 
 .prose-keco :where(pre) {
-  background: var(--keco-surface-2);
   border: 1px solid var(--keco-border);
-  color: inherit;
 }
 
 .prose-keco :where(pre code) {
@@ -82,4 +91,26 @@ body {
 
 .prose-keco :where(img) {
   border-radius: var(--radius-control);
+}
+
+/*
+ * apps/api's rehypeShiki runs dual-theme (`{ light: 'github-light', dark: 'github-dark' }`),
+ * which emits an inline `color` for light plus unused `--shiki-dark` / `--shiki-dark-bg`
+ * custom properties on every token span — nothing activates them by default, so dark-mode
+ * READMEs render Shiki's light palette regardless of theme. `!important` is load-bearing, not
+ * a shortcut: Shiki's colours arrive in an inline `style` attribute, which no class selector
+ * can outrank without it. Both dark triggers are covered so this mirrors the token blocks in
+ * theme.css exactly — a reader who never touched the toggle still gets dark code blocks.
+ */
+[data-theme='dark'] .prose-keco .shiki,
+[data-theme='dark'] .prose-keco .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .prose-keco .shiki,
+  :root:not([data-theme='light']) .prose-keco .shiki span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+  }
 }

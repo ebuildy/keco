@@ -215,8 +215,11 @@ piece is roving-tabindex keyboard navigation, specified below.
 
 ## Design tokens
 
-Light / dark pairs. Muted text is deliberately the same slate in both, so one fewer token has
-two behaviours.
+Light / dark pairs. `--keco-text-2`, `--keco-text-muted` and `--keco-text-faint` are re-spaced
+per theme, not shared: a contrast pass (§ code review, 2026-08-24) found the original ramps as
+low as 2.34:1 against `--keco-bg` in light, and darkening `--keco-text-faint` alone without
+respacing the other two would have inverted the hierarchy. Both ramps now clear 4.5:1 against
+`bg` / `surface` / `surface-2`, worst case, in both themes.
 
 | Token | Light | Dark | Used for |
 |---|---|---|---|
@@ -224,11 +227,11 @@ two behaviours.
 | `--keco-surface` | `#FFFFFF` | `#151D2E` | cards, header, sidebar |
 | `--keco-surface-2` | `#F1F5FA` | `#1B2437` | chips, meter tracks, code ground |
 | `--keco-border` | `#E7EDF6` | `#212B40` | hairlines |
-| `--keco-border-strong` | `#DDE5F2` | `#2A3752` | inputs, controls |
+| `--keco-border-strong` | `#7D8DA9` | `#63769C` | inputs, controls — 3:1 UI-boundary contrast |
 | `--keco-text` | `#111827` | `#F1F4FA` | headings, body |
-| `--keco-text-2` | `#475569` | `#AEB9CC` | prose, summaries |
-| `--keco-text-muted` | `#64748B` | `#94A3B8` | metadata, captions |
-| `--keco-text-faint` | `#94A3B8` | `#6B7A93` | counts, timestamps |
+| `--keco-text-2` | `#41506A` | `#AEB9CC` | prose, summaries |
+| `--keco-text-muted` | `#4E5D75` | `#98A5BB` | metadata, captions |
+| `--keco-text-faint` | `#5B6878` | `#8494AD` | counts, timestamps |
 | `--keco-accent` | `#326CE5` | `#4C86F0` | filled buttons, brand mark, selected |
 | `--keco-accent-text` | `#1E4FBB` | `#7BA9FF` | links, tool names |
 | `--keco-accent-soft` | `#EAF1FE` | `rgba(76,134,240,.16)` | selected chip ground |
@@ -253,8 +256,10 @@ The number sits beside every bar, so the ramp is reinforcement and never the onl
 which is what lets the same component stay readable under any colour-vision deficiency.
 
 Scale: type `12 / 13 / 14 / 16 / 20 / 25 / 32`; space on a 4px grid; radii `5 / 6 / 10`;
-elevation is one shadow (`0 1px 3px rgba(16,24,40,.05)`) in light and **none** in dark, where
-the surface step carries the elevation instead.
+elevation is one shadow (`0 1px 3px rgba(16,24,40,.05)`) in light and Tailwind's no-shadow
+sentinel (`0 0 #0000`) in dark, where the surface step carries the elevation instead — plain
+`none` collapses the whole composed `box-shadow` declaration Tailwind builds from `--tw-shadow`,
+taking any `ring-*` on the same element down with it.
 
 ## Architecture
 
