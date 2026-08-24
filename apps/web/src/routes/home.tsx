@@ -6,6 +6,7 @@ import { Meter } from '../components/primitives/meter';
 import { TopicChips } from '../components/topic-chips';
 import { formatUtcDate } from '../lib/dates';
 import { browseFacets, searchErrorMessage, whatsHot } from '../lib/search';
+import { SITE_SEARCH_ID } from '../lib/site-search';
 import { chipRows, type ChipRow } from '../lib/topics';
 
 /**
@@ -66,14 +67,16 @@ export function HomePage() {
             void navigate(`/search?q=${encodeURIComponent(typeof q === 'string' ? q : '')}`);
           }}
         >
-          <label htmlFor="q" className="sr-only">
+          <label htmlFor={SITE_SEARCH_ID} className="sr-only">
             Search the Kubernetes ecosystem
           </label>
           <span aria-hidden="true" className="text-accent">
             ⌕
           </span>
+          {/* Shares SITE_SEARCH_ID with the header field, which is legal because the two never
+              coexist: SiteHeader renders its form only when the route is not `/`. */}
           <input
-            id="q"
+            id={SITE_SEARCH_ID}
             name="q"
             type="search"
             placeholder="ingress controller, cost, backup…"

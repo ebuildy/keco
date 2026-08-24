@@ -38,6 +38,25 @@ describe('the route tree under renderToString', () => {
     expect(html).toContain('Keco');
   });
 
+  /**
+   * The `/` shortcut and every Escape/arrow path address the search field by id, so the whole
+   * contract rests on exactly one element carrying it. It previously did not: the header field
+   * rendered at all widths while a second, `lg:hidden` copy on the search page held the ref, so
+   * `focus()` ran against a `display:none` element and `/` was inert on every desktop screen.
+   *
+   * Counting per route is what catches both halves — a duplicate (two fields, ambiguous target)
+   * and a disappearance (no field, silent no-op).
+   */
+  it.each([
+    ['/', 1],
+    ['/search?q=ingress', 1],
+    ['/tools/kubernetes/ingress-nginx', 1],
+    ['/nope', 1],
+  ])('mounts exactly one search field on %s', (location, expected) => {
+    const matches = render(location).match(/id="site-search"/g) ?? [];
+    expect(matches).toHaveLength(expected);
+  });
+
   it('renders the theme toggle in its light state, since effects have not run', () => {
     // Not an aesthetic assertion: it pins the fact that the toggle derives nothing from the
     // environment during render. If this ever reads "Switch to the light theme" server-side,

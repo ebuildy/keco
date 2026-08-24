@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router';
+import { SITE_SEARCH_ID } from '../../lib/site-search';
 import { ThemeToggle } from './theme-toggle';
 
 /**
@@ -45,6 +46,7 @@ export function SiteHeader() {
               ⌕
             </span>
             <input
+              id={SITE_SEARCH_ID}
               key={query}
               name="q"
               type="search"

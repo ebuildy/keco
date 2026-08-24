@@ -15,6 +15,7 @@ import { isViewMode, SearchControls, type ViewMode } from '../components/search/
 import { facetGroups } from '../lib/facets';
 import { isEditableTarget, nextFocusIndex } from '../lib/keyboard';
 import { searchErrorMessage, searchTools, type PortalSearchResult } from '../lib/search';
+import { focusSiteSearch, isSiteSearchTarget } from '../lib/site-search';
 
 /**
  * Search (AGENTS.md §9). State lives in the URL (`?q=&kind=&domain=&install=&sort=&view=`) so
@@ -33,7 +34,6 @@ export function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
 
-  const searchRef = useRef<HTMLInputElement>(null);
   const resultRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
   const q = params.get('q') ?? '';
@@ -71,46 +71,6 @@ export function SearchPage() {
 
   const hits = results?.hits ?? [];
 
-  /** Focus follows the roving index rather than the render, so arrow keys move real focus. */
-  useEffect(() => {
-    if (focused !== null) resultRefs.current[focused]?.focus();
-  }, [focused]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const editable = isEditableTarget(event.target as HTMLElement | null);
-
-      if (event.key === '/' && !editable) {
-        event.preventDefault();
-        searchRef.current?.focus();
-        setFocused(null);
-        return;
-      }
-
-      if (event.key === 'Escape' && focused !== null) {
-        setFocused(null);
-        searchRef.current?.focus();
-        return;
-      }
-
-      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-      // Inside the sidebar's checkboxes and the sort select, arrows mean what they always mean.
-      if (editable) return;
-
-      const next = nextFocusIndex(
-        focused,
-        event.key === 'ArrowDown' ? 'next' : 'previous',
-        hits.length,
-      );
-      event.preventDefault();
-      setFocused(next);
-      if (next === null) searchRef.current?.focus();
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [focused, hits.length]);
-
   /** Every URL write resets focus: the list under it is about to be a different list. */
   const write = (mutate: (next: URLSearchParams) => void) => {
     const next = new URLSearchParams(params);
@@ -129,6 +89,60 @@ export function SearchPage() {
     setFocused(null);
   };
 
+  /** Focus follows the roving index rather than the render, so arrow keys move real focus. */
+  useEffect(() => {
+    if (focused !== null) resultRefs.current[focused]?.focus();
+  }, [focused]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const onSearchField = isSiteSearchTarget(target);
+
+      if (event.key === 'Escape') {
+        // From a result: hand focus back to the field the reader came from.
+        if (focused !== null) {
+          setFocused(null);
+          focusSiteSearch();
+          return;
+        }
+        // From the field: clear the query (§9's keyboard contract). `type="search"` gives
+        // WebKit and Blink a native clear, but that empties the visible value only and leaves
+        // `?q=` and the results standing — which reads as a broken control rather than no
+        // control at all. Clearing the URL is what actually resets the page.
+        if (onSearchField && q !== '') {
+          event.preventDefault();
+          write((next) => next.delete('q'));
+          // The field is uncontrolled and keyed on `q`, so dropping the parameter remounts it
+          // empty — and a remount drops focus. Restore it after React has committed.
+          setTimeout(focusSiteSearch, 0);
+        }
+        return;
+      }
+
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+
+      // Arrows keep their normal meaning inside the sidebar's checkboxes and the sort
+      // `<select>` — but not in the search field, where §9 says `↓` enters the result list.
+      if (isEditableTarget(target) && !onSearchField) return;
+      // From the field, only `↓` reaches the list; `↑` would otherwise jump the reader to the
+      // last result from the top of the page.
+      if (onSearchField && event.key !== 'ArrowDown') return;
+
+      const next = nextFocusIndex(
+        focused,
+        event.key === 'ArrowDown' ? 'next' : 'previous',
+        hits.length,
+      );
+      event.preventDefault();
+      setFocused(next);
+      if (next === null) focusSiteSearch();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focused, hits.length, q, key]);
+
   return (
     <main className="mx-auto max-w-[1200px] px-4 py-5">
       <div className="grid gap-6 lg:grid-cols-[210px_1fr]">
@@ -140,33 +154,6 @@ export function SearchPage() {
         />
 
         <div className="min-w-0">
-          {/* The header carries the search field from `lg` up; this is the narrow-screen one,
-              and it owns `searchRef` so `/` has something to focus at every width. */}
-          <form
-            className="mb-4 flex items-center gap-2.5 rounded-card border border-line-strong bg-surface px-3.5 py-2.5 lg:hidden"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = new FormData(event.currentTarget).get('q');
-              write((next) => {
-                next.set('q', typeof value === 'string' ? value : '');
-                next.delete('page');
-              });
-            }}
-          >
-            <span aria-hidden="true" className="text-faint">
-              ⌕
-            </span>
-            <input
-              ref={searchRef}
-              key={q}
-              name="q"
-              type="search"
-              defaultValue={q}
-              aria-label="Search"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
-            />
-          </form>
-
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <ActiveFilters groups={groups} onToggle={onToggleFacet} />
             {results && (
