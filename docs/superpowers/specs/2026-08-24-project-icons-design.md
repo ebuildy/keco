@@ -88,18 +88,31 @@ no GitHub calls.
 
 ### 2.3 The module
 
-`apps/workers/src/crawler/icon.ts`, taking `repo.json`, `tree.json`, a `Storage` and a
-fetcher. It never touches the filesystem directly and never reads a read model.
+`apps/workers/src/crawler/icon.ts`, taking `repo.json`, `tree.json`, the raw `readme.md`
+(tier 2 below needs it), a `Storage` and a fetcher. All three inputs are already in the cache
+by the time the crawler calls it, so the module reads them through the `Storage` port and
+never touches the filesystem directly and never reads a read model.
 
 **Candidate resolution**, in order:
 
 1. From `tree.json`, which the crawler already fetches, so this costs no extra request:
    `.github/logo.*`, `logo.*`, `docs/logo.*`, `docs/images/logo.*`, `assets/logo.*`,
    `static/logo.*`, `images/logo.*`. Accepted extensions: `svg`, `png`, `jpg`, `jpeg`, `webp`.
-2. Otherwise the first image in `readme.md`, excluding known badge hosts (`shields.io`,
-   `img.shields.io`, `badge.fury.io`, `codecov.io`, `goreportcard.com`, `travis-ci.*`,
-   `circleci.com`, `github.com/*/actions/workflows/*/badge.svg`) and excluding any paragraph
-   containing three or more images — that shape is a badge row, not a logo.
+2. Otherwise the first image in `readme.md`, subject to three filters:
+   - **Host allowlist.** A relative path (resolved against `image_base_url` from
+     `readme.json`, exactly as the README renderer does) or an absolute URL on
+     `raw.githubusercontent.com` / `user-images.githubusercontent.com` /
+     `github.com/…/assets/…`. Any other host is skipped rather than fetched. README markdown
+     is untrusted input written by 30k strangers, and a candidate URL is a URL this system
+     would otherwise fetch on their instruction — the same reason homepage favicons are out
+     of scope in §8.
+   - **Badge hosts**, skipped: `shields.io`, `img.shields.io`, `badge.fury.io`, `codecov.io`,
+     `goreportcard.com`, `travis-ci.*`, `circleci.com`,
+     `github.com/*/actions/workflows/*/badge.svg`.
+   - **Badge rows**, skipped: any paragraph containing three or more images. That shape is a
+     badge row, not a logo.
+
+   The resolved URL must end in one of the same extensions as tier 1.
 3. Otherwise `owner.avatar_url` from `repo.json`, requested at `?s=460` so the 160px
    derivative is never an upscale.
 
@@ -217,7 +230,7 @@ Required by §13, not a follow-up:
 |---|---|
 | `packages/core` | schema test covering both `icon` shapes and `null` |
 | `packages/cache` | key test for `icon.src`, `icon-{n}.png`, `icon.json` |
-| `apps/workers` | `icon.test.ts` — resolution tiers, badge filtering, cap, non-image type, 304, failure path |
+| `apps/workers` | `icon.test.ts` — resolution tiers, host allowlist, badge filtering, badge rows, cap, non-image type, 304, failure path |
 | `apps/workers` | projector test: `icon.json` present / missing / failed ⇒ descriptor / `null` / `null` |
 | `apps/api` | route tests — 200, 404, rejected size, traversal attempt, response headers |
 | `apps/web` | unit test for monogram hue determinism |
