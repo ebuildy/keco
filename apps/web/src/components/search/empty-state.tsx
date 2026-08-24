@@ -3,30 +3,117 @@ import { Link } from 'react-router';
 /**
  * Empty and zero-result states must suggest something useful (§9).
  *
- * An empty index is the normal state before the first crawl, not a failure, and must not read
- * like one — which is why the no-query copy differs from the no-match copy.
+ * "Useful" here means *derived from what the reader actually did*, not a generic apology. The
+ * three recovery routes below are offered only when they apply, and each is a real one-click
+ * action rather than advice:
+ *
+ * - Filters are the usual culprit when a plausible query returns nothing, so dropping them
+ *   while keeping the query is the first offer.
+ * - A typo is the other usual culprit, so keeping the filters and clearing the query is the
+ *   second.
+ * - Starting over is the fallback.
+ *
+ * Deliberately no hardcoded taxonomy values. The previous version suggested `kind=operator`,
+ * `domain=observability` and `install=krew` as literals, which §6 warns against — the
+ * vocabulary is data, and a component that names three of its values silently rots when the
+ * YAML changes. Browse already renders every family from the live facet distribution, so the
+ * honest move is to send the reader there rather than to guess on its behalf.
  */
-export function NoResults({ query }: { query: string }) {
+type NoResultsProps = {
+  query: string;
+  activeFilterCount: number;
+  onClearFilters: () => void;
+  onClearQuery: () => void;
+};
+
+export function NoResults({
+  query,
+  activeFilterCount,
+  onClearFilters,
+  onClearQuery,
+}: NoResultsProps) {
+  const hasQuery = query !== '';
+  const hasFilters = activeFilterCount > 0;
+
+  /**
+   * No query and no filters means the index itself is empty — the true state of the system
+   * before the first crawl, not a failed search. It must not read like a failure, and it must
+   * not offer recovery actions that would do nothing.
+   */
+  const indexEmpty = !hasQuery && !hasFilters;
+
+  const heading = indexEmpty
+    ? 'Nothing indexed yet'
+    : hasQuery
+      ? `No tools match “${query}”`
+      : 'No tools match these filters';
+
+  const subheading = indexEmpty
+    ? 'The corpus is built by crawling public GitHub repositories. Once the first crawl finishes, tools appear here automatically.'
+    : hasQuery && hasFilters
+      ? `Nothing matches that search with the ${activeFilterCount === 1 ? 'filter' : `${activeFilterCount} filters`} you have applied.`
+      : hasQuery
+        ? 'Nothing in the corpus matches that search.'
+        : 'Those filters have no tools in common.';
+
+  const action =
+    'inline-flex items-center gap-1.5 rounded-control px-3 py-1.5 text-[12.5px] font-medium transition-colors';
+
   return (
-    <section className="rounded-card border border-line bg-surface px-5 py-8 text-center">
-      <h2 className="text-[15px] font-semibold text-fg">
-        {query ? `Nothing matches “${query}”` : 'Nothing here yet'}
-      </h2>
-      <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-muted">
-        Try a broader term, or drop a filter. You can also browse{' '}
-        <Link to="/search?kind=operator" className="text-accent-text">
-          operators
-        </Link>
-        ,{' '}
-        <Link to="/search?domain=observability" className="text-accent-text">
-          observability
-        </Link>{' '}
-        or{' '}
-        <Link to="/search?install=krew" className="text-accent-text">
-          kubectl plugins
-        </Link>
-        .
-      </p>
+    <section className="flex min-h-[380px] flex-col items-center justify-center rounded-card border border-line bg-surface px-6 py-14 text-center">
+      <span
+        aria-hidden="true"
+        className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-xl text-faint"
+      >
+        ⌕
+      </span>
+
+      <h2 className="max-w-[34ch] text-[19px] font-semibold tracking-tight text-fg">{heading}</h2>
+      <p className="mt-2 max-w-[52ch] text-[13.5px] leading-relaxed text-muted">{subheading}</p>
+
+      {!indexEmpty && (
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          {/* Ordered by how likely each is to be the actual fix. */}
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className={`${action} bg-accent text-accent-on hover:opacity-90`}
+            >
+              {hasQuery
+                ? `Search all tools for “${query}”`
+                : `Clear ${activeFilterCount === 1 ? 'the filter' : 'all filters'}`}
+            </button>
+          )}
+
+          {hasQuery && hasFilters && (
+            <button
+              type="button"
+              onClick={onClearQuery}
+              className={`${action} border border-line-strong text-fg-2 hover:text-fg`}
+            >
+              Keep the filters, clear the search
+            </button>
+          )}
+
+          {hasQuery && !hasFilters && (
+            <Link to="/search" className={`${action} bg-accent text-accent-on hover:opacity-90`}>
+              Browse everything instead
+            </Link>
+          )}
+        </div>
+      )}
+
+      <div className="mt-9 w-full max-w-[46ch] border-t border-line pt-5">
+        <p className="text-[12.5px] leading-relaxed text-faint">
+          Every tool here is classified from public GitHub data and ranked by health rather than
+          stars.{' '}
+          <Link to="/" className="text-accent-text">
+            Browse by category
+          </Link>{' '}
+          to see what the corpus covers.
+        </p>
+      </div>
     </section>
   );
 }
@@ -39,8 +126,21 @@ export function NoResults({ query }: { query: string }) {
  */
 export function SearchError({ message }: { message: string }) {
   return (
-    <div role="alert" className="rounded-card border border-line bg-surface px-4 py-3">
-      <p className="text-sm font-medium text-bad">{message}</p>
+    <div
+      role="alert"
+      className="flex min-h-[220px] flex-col items-center justify-center rounded-card border border-line bg-surface px-6 py-10 text-center"
+    >
+      <span
+        aria-hidden="true"
+        className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-bad-soft text-lg text-bad"
+      >
+        !
+      </span>
+      <p className="max-w-[52ch] text-[14px] font-medium text-fg">{message}</p>
+      <p className="mt-2 max-w-[52ch] text-[12.5px] leading-relaxed text-muted">
+        Search runs directly against Meilisearch from your browser, so this is a connection or
+        configuration problem rather than something wrong with the corpus.
+      </p>
     </div>
   );
 }

@@ -74,6 +74,8 @@ export function SearchPage() {
   // Clamped, so a navigation that shrank the list cannot strand focus on an index that no
   // longer exists. `clampFocus` carries the reasoning and the tests.
   const active = clampFocus(focused, hits.length);
+  const hasSidebar = groups.length > 0;
+  const activeFilterCount = Object.values(selection).reduce((sum, list) => sum + list.length, 0);
 
   /** Every URL write resets focus: the list under it is about to be a different list. */
   const write = (mutate: (next: URLSearchParams) => void) => {
@@ -149,7 +151,11 @@ export function SearchPage() {
 
   return (
     <main className="mx-auto max-w-[1200px] px-4 py-5">
-      <div className="grid gap-6 lg:grid-cols-[210px_1fr]">
+      {/* The sidebar renders nothing when no family has hits — which is exactly the zero-result
+          case. Keeping the two-column template would auto-place the sole remaining child into
+          the 210px column, rendering the empty state in a sliver at the very moment it is the
+          only thing on the page. */}
+      <div className={hasSidebar ? 'grid gap-6 lg:grid-cols-[210px_1fr]' : ''}>
         <FacetSidebar
           groups={groups}
           onToggle={onToggleFacet}
@@ -186,7 +192,14 @@ export function SearchPage() {
 
           {error && <SearchError message={error} />}
 
-          {results && results.total === 0 && !error && <NoResults query={q} />}
+          {results && results.total === 0 && !error && (
+            <NoResults
+              query={q}
+              activeFilterCount={activeFilterCount}
+              onClearFilters={onClear}
+              onClearQuery={() => write((next) => next.delete('q'))}
+            />
+          )}
 
           {hits.length > 0 && (
             <ul className={view === 'grid' ? 'grid gap-3 sm:grid-cols-2' : 'space-y-2.5'}>
