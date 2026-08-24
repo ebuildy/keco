@@ -46,6 +46,15 @@ export class Cache {
     await this.storage.put(key, value, contentType);
   }
 
+  async getBuffer(key: string): Promise<Buffer | null> {
+    return this.storage.get(key);
+  }
+
+  /** Binary blobs — icons today. `putText` would corrupt them: it encodes as UTF-8. */
+  async putBuffer(key: string, body: Buffer, contentType: string): Promise<void> {
+    await this.storage.put(key, body, contentType);
+  }
+
   has(key: string): Promise<boolean> {
     return this.storage.has(key);
   }

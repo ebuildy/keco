@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Cache } from '../storage';
 import { FsStorage } from './fs';
 
 // `put()` is write-then-rename (see the guarantee documented on `Storage.put` in
@@ -67,5 +68,31 @@ describe('FsStorage.put', () => {
     await writeFile(join(dir, 'a', 'orphan.json.tmp-1234-deadbeef'), 'partial');
 
     expect(await storage.list('a')).toEqual(['a/b.json']);
+  });
+});
+
+describe('Cache buffers', () => {
+  let dir: string;
+  let storage: FsStorage;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'keco-cachebuffer-'));
+    storage = new FsStorage(dir);
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('round-trips binary through putBuffer/getBuffer without mangling it', async () => {
+    const cache = new Cache(storage);
+    // High bytes that are not valid UTF-8: putText would replace them with U+FFFD.
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00, 0x80]);
+    await cache.putBuffer('repos/acme/widget/icon-32.png', bytes, 'image/png');
+    expect(await cache.getBuffer('repos/acme/widget/icon-32.png')).toEqual(bytes);
+  });
+
+  it('returns null from getBuffer for a key that is not there', async () => {
+    expect(await new Cache(storage).getBuffer('repos/acme/widget/icon-160.png')).toBeNull();
   });
 });
