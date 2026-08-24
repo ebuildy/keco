@@ -161,6 +161,51 @@ export function selectionFromParams(params: RawParams | URLSearchParams): FacetS
 export const paramForFamily = (familyId: string): string => family(familyId).param;
 
 /**
+ * The inverse of `selectionFromParams`, and deliberately adjacent to it: the portal's sidebar
+ * writes the URL that the same file reads back, so a change to one that is not mirrored in the
+ * other is caught by a round-trip test rather than by a reader with a broken filter.
+ *
+ * Every family's parameter is cleared before the selection is written, so a value removed from
+ * the selection leaves the URL. Everything else on `base` — `q`, `sort`, `view` — survives
+ * untouched. `page` is dropped: changing a filter invalidates the page number, and silently
+ * landing a reader on page 4 of a 2-page result set is the bug that causes.
+ */
+export function paramsFromSelection(
+  selection: FacetSelection,
+  base?: URLSearchParams,
+): URLSearchParams {
+  const next = new URLSearchParams(base);
+
+  for (const taxonomyFamily of TAXONOMY) next.delete(taxonomyFamily.param);
+  next.delete('page');
+
+  for (const taxonomyFamily of TAXONOMY) {
+    for (const value of selection[taxonomyFamily.id] ?? []) {
+      next.append(taxonomyFamily.param, value);
+    }
+  }
+
+  return next;
+}
+
+/** Add or remove one value, returning a new selection. Empty families are dropped, not left as []. */
+export function toggleFacetValue(
+  selection: FacetSelection,
+  familyId: string,
+  value: string,
+): FacetSelection {
+  const current = selection[familyId] ?? [];
+  const next = current.includes(value)
+    ? current.filter((entry) => entry !== value)
+    : [...current, value];
+
+  const result: FacetSelection = { ...selection };
+  if (next.length) result[familyId] = next;
+  else delete result[familyId];
+  return result;
+}
+
+/**
  * The sort orders the read side offers. Kept here, not in each caller, so the portal's
  * `?sort=` and the REST API's `?sort=` cannot mean different things.
  */

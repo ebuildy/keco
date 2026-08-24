@@ -7,8 +7,10 @@ import {
   familyAttribute,
   isSortKey,
   paramForFamily,
+  paramsFromSelection,
   selectionFromParams,
   sortSpec,
+  toggleFacetValue,
 } from './read';
 
 describe('buildFilters', () => {
@@ -159,5 +161,58 @@ describe('MAX_TOTAL_HITS', () => {
     // packages/search spends this in TOOLS_SETTINGS.pagination; apps/api derives its ?page=
     // cap from it. A copy in either place would drift silently.
     expect(MAX_TOTAL_HITS).toBe(10_000);
+  });
+});
+
+describe('paramsFromSelection', () => {
+  it('round-trips through selectionFromParams', () => {
+    const selection = { kind: ['operator'], domains: ['networking', 'security'] };
+    expect(selectionFromParams(paramsFromSelection(selection))).toEqual(selection);
+  });
+
+  it('preserves non-facet parameters and drops the facets it owns', () => {
+    const base = new URLSearchParams('q=ingress&sort=stars&view=grid&kind=cli&page=3');
+    const next = paramsFromSelection({ kind: ['operator'] }, base);
+
+    expect(next.get('q')).toBe('ingress');
+    expect(next.get('sort')).toBe('stars');
+    expect(next.get('view')).toBe('grid');
+    expect(next.getAll('kind')).toEqual(['operator']);
+  });
+
+  it('removes a family entirely when nothing in it is selected', () => {
+    const base = new URLSearchParams('kind=cli&domain=security');
+    const next = paramsFromSelection({ kind: ['cli'] }, base);
+
+    expect(next.getAll('kind')).toEqual(['cli']);
+    expect(next.has('domain')).toBe(false);
+    expect(next.has('domains')).toBe(false);
+  });
+
+  it('does not mutate the base it was given', () => {
+    const base = new URLSearchParams('kind=cli');
+    paramsFromSelection({ kind: ['operator'] }, base);
+    expect(base.getAll('kind')).toEqual(['cli']);
+  });
+});
+
+describe('toggleFacetValue', () => {
+  it('adds a value that is not selected', () => {
+    expect(toggleFacetValue({}, 'kind', 'operator')).toEqual({ kind: ['operator'] });
+  });
+
+  it('removes a value that is selected', () => {
+    expect(toggleFacetValue({ kind: ['operator'] }, 'kind', 'operator')).toEqual({});
+  });
+
+  it('keeps other values in the same family', () => {
+    const next = toggleFacetValue({ domains: ['networking', 'security'] }, 'domains', 'security');
+    expect(next).toEqual({ domains: ['networking'] });
+  });
+
+  it('does not mutate the selection it was given', () => {
+    const selection = { kind: ['operator'] };
+    toggleFacetValue(selection, 'kind', 'cli');
+    expect(selection).toEqual({ kind: ['operator'] });
   });
 });
