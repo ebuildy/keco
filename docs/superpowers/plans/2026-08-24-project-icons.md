@@ -239,12 +239,20 @@ In `packages/cache/src/keys.ts`, above `export const repoKeys`:
 ```ts
 /**
  * The rendered sizes, and the only sizes `apps/api` will serve: 32 for a result card, 64 for
- * its 2× source, 160 for the tool page. Exported so the worker, the route and the portal all
- * read one list instead of three hardcoded ones drifting apart.
+ * its 2× source, 160 for the tool page. One list, so the worker, the route and the portal
+ * cannot drift apart.
  */
 export const ICON_SIZES = [32, 64, 160] as const;
 export type IconSize = (typeof ICON_SIZES)[number];
 ```
+
+**Amended after review:** these two live in **`@keco/core`**, not `packages/cache`. `eslint.config.mjs`
+bars `apps/web/src/**` from importing `@keco/cache`, so the portal could never have read them here
+and Task 9 would have had to hand-duplicate the list — the exact drift the comment promises to
+prevent. `@keco/core` is where §11 already puts read-side vocabulary the browser and the server
+share. `packages/cache/src/keys.ts` imports `IconSize` from `@keco/core` for its `icon(size)`
+signature; every other consumer imports from `@keco/core` too. There is no re-export from
+`@keco/cache/keys`.
 
 Then add to the object `repoKeys` returns, after the `fetch` entry:
 
@@ -1492,7 +1500,8 @@ Create `apps/api/src/routes/icon.ts`:
 
 ```ts
 import rateLimit from '@fastify/rate-limit';
-import { ICON_SIZES, repoKeys } from '@keco/cache/keys';
+import { repoKeys } from '@keco/cache/keys';
+import { ICON_SIZES } from '@keco/core';
 import type { FastifyError, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { ReadOnlyCache } from '../ports';
@@ -1663,8 +1672,9 @@ Create `apps/web/src/lib/icon.ts`:
  * request that 404s.
  */
 
-/** The sizes `apps/api` serves. Anything else is a 400, so keep this in step with ICON_SIZES. */
-export type IconSize = 32 | 64 | 160;
+import { type IconSize } from '@keco/core';
+
+export type { IconSize };
 
 export const iconUrl = (fullName: string, size: IconSize): string =>
   `/api/icon/${fullName}/${size}.png`;
@@ -1708,7 +1718,8 @@ Create `apps/web/src/components/primitives/tool-icon.tsx`:
 ```tsx
 import { useEffect, useState } from 'react';
 import type { ToolDocument } from '@keco/core';
-import { iconUrl, monogram, type IconSize } from '../../lib/icon';
+import type { IconSize } from '@keco/core';
+import { iconUrl, monogram } from '../../lib/icon';
 
 /**
  * A project's icon, or a monogram tile standing in for one.
