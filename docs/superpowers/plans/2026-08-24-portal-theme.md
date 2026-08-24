@@ -48,7 +48,7 @@ Read these or you will make avoidable mistakes:
 
 | File | Change |
 |---|---|
-| `apps/web/index.html` | Theme bootstrap script, font preload |
+| `apps/web/index.html` | Theme bootstrap script (no font preload — see spec) |
 | `apps/web/vite.config.ts` | `@tailwindcss/vite` plugin |
 | `apps/web/src/main.tsx` | Import the stylesheet |
 | `apps/web/src/app.tsx` | Wrap routes in `AppShell` |
@@ -494,7 +494,7 @@ Then add this as the **first** statement inside `toolPageHtml`, above `const { t
 Run: `pnpm vitest run apps/web/prerender/html.test.ts`
 Expected: PASS, all tests in the file.
 
-- [ ] **Step 6: Add the script and the font preload to `apps/web/index.html`**
+- [ ] **Step 6: Add the theme bootstrap script to `apps/web/index.html`**
 
 Insert immediately before `</head>`:
 

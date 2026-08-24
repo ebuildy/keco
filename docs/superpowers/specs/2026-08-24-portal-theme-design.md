@@ -311,7 +311,15 @@ Logic stays out of `.tsx`, matching `topics.ts` / `topic-chips.tsx`: `facets.ts`
 `keyboard.ts` are pure and unit-tested without a DOM, and the components that consume them hold
 no branching worth testing.
 
-`index.html` gains one inline `<script>` (theme bootstrap) and a `<link rel="preload">` for the
+`index.html` gains one inline `<script>` (theme bootstrap). **No font preload**, despite the
+earlier draft of this document promising one: `@fontsource-variable/inter` is imported from CSS,
+so Vite fingerprints the woff2 and the filename is not knowable when `index.html` is authored.
+Injecting a correct `<link rel="preload">` would mean post-processing the built shell. The
+stylesheet that references the font is render-blocking anyway, so the request starts the moment
+it parses — a preload saves one round trip and costs a build step, which is the wrong trade at
+this size. Revisit if the font ever shows up as an LCP problem in the field.
+
+`index.html` also gains, from Vite, the
 Inter woff2. `main.tsx` gains one CSS import. `vite.config.ts` gains `@tailwindcss/vite`.
 
 ## Components
