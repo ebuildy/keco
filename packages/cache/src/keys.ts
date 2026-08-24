@@ -3,6 +3,14 @@
  * query layer. If you find yourself wanting to search the cache, you want the journal.
  */
 
+/**
+ * The rendered sizes, and the only sizes `apps/api` will serve: 32 for a result card, 64 for
+ * its 2× source, 160 for the tool page. Exported so the worker, the route and the portal all
+ * read one list instead of three hardcoded ones drifting apart.
+ */
+export const ICON_SIZES = [32, 64, 160] as const;
+export type IconSize = (typeof ICON_SIZES)[number];
+
 export const repoKeys = (repo: string) => ({
   /** GitHub repo API response, verbatim. */
   repo: `repos/${repo}/repo.json`,
@@ -16,6 +24,17 @@ export const repoKeys = (repo: string) => ({
   manifestPrefix: `repos/${repo}/manifests/`,
   /** { etags, fetched_at, content_hash, source } */
   fetch: `repos/${repo}/_fetch.json`,
+  /**
+   * The icon bytes exactly as fetched — verbatim, per §3, so a bug in the resize step is
+   * fixed by re-deriving from here rather than by re-crawling. Extension-less on purpose:
+   * finding an extension would mean listing the prefix, which §14 forbids. `icon.json`
+   * records the real content type.
+   */
+  iconSource: `repos/${repo}/icon.src`,
+  /** Derived from `iconSource`, the way `analysis/**` is derived from `repos/**`. */
+  icon: (size: IconSize) => `repos/${repo}/icon-${size}.png`,
+  /** { source, source_url, content_type, bytes, etag, sizes, fetched_at, error } */
+  iconMeta: `repos/${repo}/icon.json`,
 });
 
 /** Every third-party response, with its TTL. Nothing calls a provider without this in front. */
