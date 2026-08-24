@@ -182,3 +182,41 @@ state — ordinary before the crawler reaches a repo — shows up in normal use.
 - `mise run web:mock` generates `apps/web/public/mockServiceWorker.js` locally (via `msw init`).
   If you see it appear after running the mock backend, that's expected — `mise run build`
   deletes it before building, so it never reaches `dist/`.
+
+## Theming
+
+Design tokens live in `src/styles/theme.css`, in **two layers**, and the split is load-bearing.
+
+Layer one defines semantic custom properties (`--keco-*`) three times: light on `:root`, dark
+under `@media (prefers-color-scheme: dark)` scoped to `:root:not([data-theme='light'])`, and dark
+again on `[data-theme='dark']` for readers who used the toggle. CSS cannot express "this selector
+OR that media query" in one rule, so the dark palette is duplicated deliberately — the two blocks
+must stay byte-identical, or the toggle and the OS preference render different colours.
+
+Layer two is `@theme inline`, which makes Tailwind emit utilities that *reference* those
+variables. A token defined only in layer one is invisible to Tailwind: `bg-health-2` silently
+generates nothing unless `--color-health-2` is exposed in `@theme inline`.
+
+**The bootstrap script and the `dark:` variant are a matched pair.** An inline, blocking script in
+`index.html` — marked `keco-theme-bootstrap` — stamps `data-theme` before first paint, but *only*
+when an explicit choice is stored. With no stored choice the attribute stays absent and the media
+query decides. That keeps the attribute meaning exactly one thing ("a human overrode the OS"), and
+it is why `@custom-variant dark` carries **two** branches, attribute and media query. Delete
+either branch, or make the script always stamp, and dark mode half-applies: tokens flip but
+`dark:` utilities do not, so `dark:prose-invert` on the README renders light prose on a dark page.
+
+`prerender/html.ts` asserts the built shell still contains the bootstrap marker and fails the
+build otherwise — a prerendered page has real content, so losing the script is a visible flash on
+the SEO surface, not a cosmetic one. `prerender/ssr.test.ts` guards the other half: the route tree
+must render under `renderToString`, where there is no `document`.
+
+**Never build a class name dynamically.** Tailwind v4 finds classes by scanning source text, so
+`` `bg-health-${n}` `` produces a class that is never generated. Where a value maps to a style, the
+map holds complete class strings — see `STEPS` in `components/primitives/meter.tsx`.
+
+**Colour means state, not category.** Accent tint means "selected"; green/amber/red is reserved for
+`StatusPill` and real states (archived, open CVEs, needs review), each shipping an icon *and* a
+word. Health is magnitude and renders as a single-hue ramp with the number always beside the bar.
+Taxonomy families are **not** colour-coded: there are eight of them, and the palette validator
+measured violet↔blue at ΔE 1.4 under deuteranopia. Every text token clears WCAG 4.5:1 against
+every surface it sits on; re-check with a contrast script before changing one.

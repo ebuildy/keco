@@ -47,12 +47,17 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
 
 ### Read side
 
-- 🚧 **Search** — ported to the Vite SPA with URL-synced state and browser-direct Meilisearch
-  queries. Still to do: facet sidebar, list/grid toggle, keyboard navigation, richer empty
-  states.
-- 🚧 **Tool page** — ported, prerendered for the top 1000 by score, README rendered from the
-  cache by `apps/api` (sanitised, relative URLs rewritten, badge paragraph stripped, Shiki).
-  Still to do: install tabs, adopters with an `evidence_url`, score breakdown UI.
+- ✅ **Search** — URL-synced state, browser-direct Meilisearch queries, facet sidebar built from
+  the distribution the search query already returned, list/grid toggle, sort, active-filter row,
+  keyboard navigation (`/`, arrows, enter, escape) and empty states that suggest a next step.
+- 🚧 **Tool page** — prerendered for the top 1000 by score, README rendered from the cache by
+  `apps/api` (sanitised, relative URLs rewritten, badge paragraph stripped, Shiki), install tabs
+  with registry proof, and a score breakdown showing `quality_coverage`. Still to do: adopters
+  with an `evidence_url` — blocked on the projector emitting them, not on the UI.
+- ✅ **Theme** — light/dark design system across all four routes, tokens through Tailwind v4's
+  `@theme inline`, applied before first paint and asserted by the prerender. Colour encodes state
+  rather than taxonomy category, and every text token clears WCAG 4.5:1. See
+  `docs/superpowers/specs/2026-08-24-portal-theme-design.md`.
 - ⬜ **Backoffice** — pipeline health from `repos_state` (phase counts, failures, skip reasons,
   confidence distribution, quota, checkpoint lag), repo inspector showing cache → analysis →
   projected document side by side, enqueue-only commands, taxonomy facet counts.

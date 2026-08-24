@@ -553,6 +553,21 @@ shareable and back/forward work; list/grid toggle; facet counts from Meilisearch
 navigable (`/` focuses, arrows move, enter opens). Empty and zero-result states must suggest
 something useful. Hybrid queries (`hybrid: { embedder }`) land with v2.
 
+**Theme.** Light by default, dark by `prefers-color-scheme`, overridable by a header toggle that
+persists to `localStorage`. Tokens live in `apps/web/src/styles/theme.css` and reach Tailwind
+through `@theme inline`; a token defined any other way cannot follow the theme, and one omitted
+from that block generates no utility at all. **The shell is now part of the prerender contract:**
+an inline, blocking script in `index.html` marked `keco-theme-bootstrap` stamps `data-theme`
+before first paint, and `prerender/html.ts` asserts the built shell still contains it — alongside
+its existing assertions on `<title>`, the meta description and `<div id="root">`. The script
+stamps the attribute *only* for an explicit stored choice, which is why `@custom-variant dark`
+carries both an attribute branch and a media-query branch; the two are a matched pair, and
+changing one without the other half-applies dark mode. Colour encodes **state, not category** —
+accent means "selected", `StatusPill`'s green/amber/red means a real state and always ships an
+icon plus a word, and health is a single-hue magnitude ramp with the number beside it. Painting a
+repo red because a provider never scanned it is §4.4's bias made visible, so the palette forbids
+it structurally. See `apps/web/README.md` for the mechanism.
+
 **Home** — a hero search field, then **Browse**: one chip row per facetable taxonomy family
 (`facetableFamilies()` — currently all eight), built from the `tools` facet distribution fetched
 at `hitsPerPage: 0` so the page pays for facet counts and nothing else. A value with zero
