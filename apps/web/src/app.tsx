@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router';
+import { AppShell } from './components/shell/app-shell';
 import { HomePage } from './routes/home';
 import { NotFoundPage } from './routes/not-found';
 import { SearchPage } from './routes/search';
@@ -13,11 +14,13 @@ import { ToolPage } from './routes/tool';
  */
 export function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/search" element={<SearchPage />} />
-      <Route path="/tools/:owner/:repo" element={<ToolPage />} />
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+    <AppShell>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/search" element={<SearchPage />} />
+        <Route path="/tools/:owner/:repo" element={<ToolPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </AppShell>
   );
 }
