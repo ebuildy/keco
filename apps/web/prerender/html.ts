@@ -23,6 +23,14 @@ import type { ToolDocument } from '@keco/core';
  */
 const FULL_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/;
 
+/**
+ * The marker the built shell must still carry. The theme is applied by an inline, pre-paint
+ * script in index.html (§9), and a prerendered page has real content to flash — so losing the
+ * script is a visible regression on the SEO surface, not a cosmetic one. Same reasoning as the
+ * replaceOnce assertions below: fail the build rather than ship 1000 pages that flash white.
+ */
+const THEME_BOOTSTRAP_MARKER = 'keco-theme-bootstrap';
+
 export const isSafeFullName = (fullName: string): boolean =>
   FULL_NAME.test(fullName) && !fullName.split('/').includes('..');
 
@@ -75,6 +83,12 @@ export type ToolPageOptions = {
 };
 
 export function toolPageHtml(shell: string, options: ToolPageOptions): string {
+  if (!shell.includes(THEME_BOOTSTRAP_MARKER)) {
+    throw new Error(
+      `prerender: the built shell no longer contains the theme bootstrap script (${THEME_BOOTSTRAP_MARKER}). index.html and prerender/html.ts have to agree — see AGENTS.md §9.`,
+    );
+  }
+
   const { tool, markup, siteUrl } = options;
   const url = `${siteUrl}/tools/${tool.full_name}`;
   const description = truncate(tool.summary || tool.description || `${tool.full_name} on Keco`, 155);

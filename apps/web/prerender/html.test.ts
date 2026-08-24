@@ -9,6 +9,7 @@ const SHELL = [
   '    <meta charset="UTF-8" />',
   '    <title>Keco — the Kubernetes ecosystem search engine</title>',
   '    <meta name="description" content="Search the Kubernetes ecosystem." />',
+  '    <script>/* keco-theme-bootstrap */</script>',
   '  </head>',
   '  <body>',
   '    <div id="root"></div>',
@@ -94,6 +95,21 @@ describe('toolPageHtml', () => {
         siteUrl: 'https://keco.dev',
       }),
     ).toThrow(/shell/i);
+  });
+
+  it('keeps the theme bootstrap script, so a prerendered page cannot flash the wrong theme', () => {
+    expect(html).toContain('keco-theme-bootstrap');
+  });
+
+  it('fails the build when the shell has lost the theme bootstrap script', () => {
+    const withoutScript = SHELL.replace('<script>/* keco-theme-bootstrap */</script>', '');
+    expect(() =>
+      toolPageHtml(withoutScript, {
+        tool,
+        markup: '<main><h1>ahmetb/kubectx</h1></main>',
+        siteUrl: 'https://keco.dev',
+      }),
+    ).toThrow(/theme bootstrap/i);
   });
 });
 

@@ -8,6 +8,22 @@
       name="description"
       content="Search the Kubernetes ecosystem: CLIs, kubectl plugins, operators, Helm charts and dashboards, classified and ranked by health rather than stars."
     />
+    <script>
+      /* keco-theme-bootstrap — must stay inline and blocking; see prerender/html.ts.
+         Only an explicit stored choice stamps the attribute. With none, the attribute stays
+         absent and the prefers-color-scheme block in theme.css decides, which is why this
+         script does not need matchMedia. */
+      (function () {
+        try {
+          var stored = localStorage.getItem('keco-theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.dataset.theme = stored;
+          }
+        } catch (error) {
+          /* Private mode or blocked storage: fall through to the OS preference. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
