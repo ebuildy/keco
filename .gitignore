@@ -15,6 +15,11 @@ coverage/
 # deployments; `mise run build` drops any local copy, and assert:no-mocks is the backstop (§9).
 apps/web/public/mockServiceWorker.js
 
+# Playwright run artifacts — reports, traces and screenshots from `mise run e2e`
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/blob-report/
+
 # env
 .env
 .env.*

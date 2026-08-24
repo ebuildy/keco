@@ -102,14 +102,56 @@ Order matters: `vite build` empties `dist/`, so the prerender always runs after 
 ### Test, check, lint
 
 ```bash
-pnpm vitest run apps/web     # this app's suites (5 files, 32 tests)
+pnpm vitest run apps/web     # this app's unit suites
 pnpm -F @keco/web check      # tsc --noEmit
 mise run ci                  # what must be green before you call it done
+mise run e2e                 # the browser suites — see below
 ```
 
 Logic lives in plain modules (`lib/topics.ts`, `lib/dates.ts`, `lib/search.ts`,
 `prerender/html.ts`) precisely so it can be tested without a DOM. Components hold no logic
 worth testing; if one starts to, move the logic out.
+
+### End-to-end (`e2e/`)
+
+```bash
+mise run e2e                            # all suites, headless Chromium
+mise run e2e -- --ui                    # the Playwright UI, for writing one
+mise run e2e -- e2e/zero-results.e2e.ts # one file
+```
+
+**No backend, of any kind.** Playwright starts Vite with `VITE_MOCK=1` — the same in-browser
+mock backend as `mise run web:mock` — so MSW answers every Meilisearch call and
+`/api/readme/...` inside the page. No Docker, no Meilisearch, no `apps/api`, no `GITHUB_TOKEN`.
+The only process is the dev server serving the bundle.
+
+| Suite | What it holds |
+|---|---|
+| `home.e2e.ts` | Corpus size and freshness, Browse chips → filtered search, momentum order and its honest label |
+| `search.e2e.ts` | Facets, sort, view, paging, back/forward — all of it as URL state — plus §9's keyboard contract |
+| `zero-results.e2e.ts` | Every recovery action, and each "did you mean" followed through to real hits |
+| `tool.e2e.ts` | Install tabs and the clipboard, README vs excerpt, related, archived, unknown repo |
+| `not-found.e2e.ts` | The catch-all route and the SPA fallback under it |
+| `shell.e2e.ts` | Header, footer, skip link, `/`, and the theme's stored-choice-vs-OS asymmetry |
+
+Three things worth knowing before adding one:
+
+- **Expectations are derived, not hardcoded.** `e2e/corpus.ts` computes them from the fixture
+  corpus through the same `buildFilters()` algebra the page queries with, so adding a curated
+  repo moves the numbers on both sides at once. That module runs in Playwright's Node process,
+  never in the browser, which is why importing the mock corpus there is safe.
+- **The page fixture fails a test on any console error or uncaught exception.** MSW runs with
+  `onUnhandledRequest: 'error'`, so a new call in `lib/search.ts` without a matching handler
+  surfaces as a failure rather than as an empty page. Chromium's own "failed to load resource"
+  lines are filtered — the portal's deliberate 404s (no cached README, unknown document) are
+  ordinary states with their own assertions.
+- **These suites cannot test the production build.** `main.tsx` gates the mock behind
+  `import.meta.env.DEV` and `assert:no-mocks` fails the build if a fixture reaches `dist/`, so
+  the prerendered HTML is `prerender/ssr.test.ts`'s and `mise run build`'s to guard, not this
+  suite's. Files are named `*.e2e.ts` so the root vitest globs never pick them up.
+
+`mise run e2e` depends on `e2e:install`, which downloads the Chromium build once. The suite is
+deliberately not part of `mise run ci` for that reason.
 
 ### Environment
 
@@ -151,13 +193,17 @@ Meilisearch, no API process, no GitHub token. MSW intercepts the portal's real r
 answers them from ~300 fixture documents (~30 real projects, the rest deterministically
 generated).
 
+It is also what `mise run e2e` runs against (see [End-to-end](#end-to-end-e2e) above) — the
+same handlers, the same corpus, driven through a real browser.
+
 **It is for development and test only, and never ships.** The data is fabricated: invented
 repositories and invented scores. Install commands are never invented — every one in the
 corpus comes from a curated entry with a real registry proof, and generated entries carry no
 `install_methods` at all (see Known limitations below). `mise run build` runs
 `assert:no-mocks`, which fails the build if any mock artifact reaches `dist/`.
 
-**What it covers:** search, facet distributions, momentum, single-document lookup, and
+**What it covers:** search, `POST /multi-search` (which is how the zero-result state proves a
+"did you mean" before offering it), facet distributions, momentum, single-document lookup, and
 `GET /api/readme/{owner}/{repo}` for curated repos.
 
 **What it does not cover:** `/api/v1`, `/api/mcp`, `/api/chat`, `/api/admin/*`,

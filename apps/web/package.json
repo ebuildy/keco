@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:mock": "msw init public --save && VITE_MOCK=1 vite",
+    "e2e": "playwright test",
+    "e2e:serve": "msw init public --save && VITE_MOCK=1 vite --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "prerender": "node --import tsx prerender/index.ts",
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@keco/query": "workspace:*",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.10.1",

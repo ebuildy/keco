@@ -103,6 +103,15 @@ run = "pnpm vitest run"
 description = "Run the test suite in watch mode"
 run = "pnpm vitest"
 
+[tasks."e2e:install"]
+description = "Download the Chromium build Playwright drives (cached; a no-op once present)"
+run = "pnpm -F @keco/web exec playwright install chromium"
+
+[tasks.e2e]
+description = "Portal end-to-end tests (Playwright, Chromium) against the in-browser mock backend — no Meilisearch, no API, no GitHub token. Args: --ui, --headed, or a path"
+depends = ["e2e:install"]
+run = "pnpm -F @keco/web e2e"
+
 [tasks."taxonomy:check"]
 description = "Validate packages/core/taxonomy.yaml (schema, duplicates, unknown defaults)"
 run = "pnpm -F @keco/core taxonomy:check"

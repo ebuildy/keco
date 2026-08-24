@@ -1,0 +1,58 @@
+import { buildFilters, type ToolDocument } from '@keco/core';
+import { MOCK_CORPUS } from '../src/mocks/corpus/index';
+import { runSearch } from '../src/mocks/engine';
+import { MOCK_READMES } from '../src/mocks/readmes';
+
+/**
+ * Expectations derived from the fixture corpus, not hardcoded.
+ *
+ * The portal's behaviour is "report what the backend gave you", so an assertion that hardcodes
+ * `299` is really asserting the fixture file's current contents — it breaks when someone adds
+ * a curated repo, which is a normal thing to do and not a regression. Everything here is
+ * computed from the same corpus and the same filter algebra (`buildFilters`) the page itself
+ * queries with, so the numbers move together.
+ *
+ * This module runs in Playwright's Node process, never in the browser, so importing the mock
+ * corpus here carries none of the §14 shipping risk that bars it from `src/`.
+ */
+const publicSearch = (params: Parameters<typeof runSearch>[1] = {}) =>
+  runSearch(MOCK_CORPUS, { filter: buildFilters({}), ...params });
+
+/** What the home page's "N repositories classified" must say: archived and low-relevance out. */
+export const CORPUS_TOTAL = publicSearch({ hitsPerPage: 0 }).totalHits;
+
+/** The order the home page's "Highest momentum" list must be in. */
+export const TOP_MOMENTUM = publicSearch({
+  sort: ['score.momentum:desc'],
+  hitsPerPage: 12,
+}).hits;
+
+export function tool(fullName: string): ToolDocument {
+  const found = MOCK_CORPUS.find((candidate) => candidate.full_name === fullName);
+  if (!found) throw new Error(`e2e/corpus.ts: ${fullName} is not in the mock corpus`);
+  return found;
+}
+
+/**
+ * A fixture with neither a verified install method nor a cached README — the corpus's example
+ * of the two "nothing to show, so say so" states on the tool page.
+ *
+ * Picked by rule rather than named. Which document this lands on depends on the corpus, and a
+ * test that hardcoded one would start asserting the fixture file rather than the behaviour the
+ * moment somebody adds a `brew` entry to it.
+ */
+export const BARE_TOOL: ToolDocument = (() => {
+  const found = publicSearch({ hitsPerPage: 1000 }).hits.find(
+    (candidate) =>
+      candidate.install_methods.length === 0 && MOCK_READMES[candidate.full_name] === undefined,
+  );
+  if (!found) throw new Error('e2e/corpus.ts: no fixture without install methods and README');
+  return found;
+})();
+
+/** Curated repos, referenced by name because they are hand-written and stable. */
+export const K9S = tool('derailed/k9s');
+/** Two verified install methods — brew and krew — so the tablist has something to switch. */
+export const KUBECTX = tool('ahmetb/kubectx');
+/** Archived: reachable by direct link, filtered out of search (`buildFilters` drops it). */
+export const ARCHIVED = tool('datreeio/datree');
