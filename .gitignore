@@ -24,3 +24,6 @@ apps/web/public/mockServiceWorker.js
 .DS_Store
 *.pem
 *.log
+
+# Superpowers brainstorming session artifacts
+.superpowers/
