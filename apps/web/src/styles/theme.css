@@ -1,0 +1,165 @@
+/*
+ * Design tokens (docs/superpowers/specs/2026-08-24-portal-theme-design.md).
+ *
+ * Two layers, and the split is load-bearing. Layer one is the semantic values, defined as
+ * ordinary custom properties so they can be *redefined at runtime* when the theme changes.
+ * Layer two is `@theme inline`, which tells Tailwind to emit utilities that reference those
+ * variables rather than baking a hex at build time. Without `inline`, `bg-surface` would
+ * freeze the light value and the toggle would change nothing.
+ *
+ * The dark block is written twice on purpose: once under the media query for readers who
+ * never touched the toggle, once on the attribute for readers who did. CSS has no way to say
+ * "this selector OR that media query" in one rule, and an indirection that avoided the
+ * duplication would cost more clarity than the twelve repeated lines it saved.
+ */
+
+:root {
+  color-scheme: light;
+
+  --keco-bg: #f5f7fb;
+  --keco-surface: #ffffff;
+  --keco-surface-2: #f1f5fa;
+  --keco-border: #e7edf6;
+  --keco-border-strong: #dde5f2;
+
+  --keco-text: #111827;
+  --keco-text-2: #475569;
+  --keco-text-muted: #64748b;
+  --keco-text-faint: #94a3b8;
+
+  --keco-accent: #326ce5;
+  --keco-accent-text: #1e4fbb;
+  --keco-accent-soft: #eaf1fe;
+  --keco-accent-on: #ffffff;
+
+  --keco-good: #127048;
+  --keco-warn: #8a5a0b;
+  --keco-bad: #b42318;
+  --keco-good-soft: #e9f7f0;
+  --keco-warn-soft: #fdf3e3;
+  --keco-bad-soft: #fdefed;
+
+  /* Sequential health ramp: one hue, more-is-darker. L* 76.6 → 63.8 → 48.3 → 36.8. */
+  --keco-health-1: #a9bee4;
+  --keco-health-2: #749cd9;
+  --keco-health-3: #3e6fd1;
+  --keco-health-4: #1e4fbb;
+
+  --keco-focus: rgb(50 108 229 / 0.35);
+  --keco-shadow-card: 0 1px 3px rgb(16 24 40 / 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --keco-bg: #0e1421;
+    --keco-surface: #151d2e;
+    --keco-surface-2: #1b2437;
+    --keco-border: #212b40;
+    --keco-border-strong: #2a3752;
+
+    --keco-text: #f1f4fa;
+    --keco-text-2: #aeb9cc;
+    --keco-text-muted: #94a3b8;
+    --keco-text-faint: #6b7a93;
+
+    --keco-accent: #4c86f0;
+    --keco-accent-text: #7ba9ff;
+    --keco-accent-soft: rgb(76 134 240 / 0.16);
+    --keco-accent-on: #0e1421;
+
+    --keco-good: #5fd8a0;
+    --keco-warn: #e3b341;
+    --keco-bad: #ff8a7a;
+    --keco-good-soft: rgb(26 167 110 / 0.18);
+    --keco-warn-soft: rgb(214 158 46 / 0.18);
+    --keco-bad-soft: rgb(255 138 122 / 0.16);
+
+    /* On dark the ramp runs the other way: L* 29.3 → 40.7 → 57.0 → 69.3. */
+    --keco-health-1: #31456b;
+    --keco-health-2: #3e6099;
+    --keco-health-3: #4c86f0;
+    --keco-health-4: #7ba9ff;
+
+    --keco-focus: rgb(76 134 240 / 0.45);
+    /* Dark carries elevation with a surface step, not a shadow. */
+    --keco-shadow-card: none;
+  }
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --keco-bg: #0e1421;
+  --keco-surface: #151d2e;
+  --keco-surface-2: #1b2437;
+  --keco-border: #212b40;
+  --keco-border-strong: #2a3752;
+
+  --keco-text: #f1f4fa;
+  --keco-text-2: #aeb9cc;
+  --keco-text-muted: #94a3b8;
+  --keco-text-faint: #6b7a93;
+
+  --keco-accent: #4c86f0;
+  --keco-accent-text: #7ba9ff;
+  --keco-accent-soft: rgb(76 134 240 / 0.16);
+  --keco-accent-on: #0e1421;
+
+  --keco-good: #5fd8a0;
+  --keco-warn: #e3b341;
+  --keco-bad: #ff8a7a;
+  --keco-good-soft: rgb(26 167 110 / 0.18);
+  --keco-warn-soft: rgb(214 158 46 / 0.18);
+  --keco-bad-soft: rgb(255 138 122 / 0.16);
+
+  --keco-health-1: #31456b;
+  --keco-health-2: #3e6099;
+  --keco-health-3: #4c86f0;
+  --keco-health-4: #7ba9ff;
+
+  --keco-focus: rgb(76 134 240 / 0.45);
+  --keco-shadow-card: none;
+}
+
+/* Layer two: Tailwind reads the variables by reference, so utilities follow the theme. */
+@theme inline {
+  --color-bg: var(--keco-bg);
+  --color-surface: var(--keco-surface);
+  --color-surface-2: var(--keco-surface-2);
+  --color-line: var(--keco-border);
+  --color-line-strong: var(--keco-border-strong);
+
+  --color-fg: var(--keco-text);
+  --color-fg-2: var(--keco-text-2);
+  --color-muted: var(--keco-text-muted);
+  --color-faint: var(--keco-text-faint);
+
+  --color-accent: var(--keco-accent);
+  --color-accent-text: var(--keco-accent-text);
+  --color-accent-soft: var(--keco-accent-soft);
+  --color-accent-on: var(--keco-accent-on);
+
+  --color-good: var(--keco-good);
+  --color-warn: var(--keco-warn);
+  --color-bad: var(--keco-bad);
+  --color-good-soft: var(--keco-good-soft);
+  --color-warn-soft: var(--keco-warn-soft);
+  --color-bad-soft: var(--keco-bad-soft);
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-chip: 5px;
+  --radius-control: 6px;
+  --radius-card: 10px;
+
+  --shadow-card: var(--keco-shadow-card);
+}
+
+/*
+ * The theme toggle sets [data-theme], so Tailwind's default `dark:` variant — which keys off
+ * prefers-color-scheme — would disagree with the attribute. Point it at the attribute instead.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
