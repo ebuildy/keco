@@ -3,12 +3,13 @@ import {
   defaultFacets,
   sortSpec,
   toDocumentId,
+  TOOLS_INDEX,
   type FacetSelection,
   type SortKey,
   type ToolDocument,
 } from '@keco/core';
 import { MeilisearchApiError } from 'meilisearch';
-import { toolsIndex } from './meili';
+import { searchClient, toolsIndex } from './meili';
 
 /**
  * The portal's retrieval, and the counterpart to @keco/query on the API side.
@@ -78,6 +79,46 @@ export async function browseFacets(): Promise<{
     facets: response.facetDistribution ?? {},
     total: response.totalHits ?? 0,
   };
+}
+
+export type VerifiedSuggestion = { q: string; total: number };
+
+/**
+ * Keeps only the "did you mean" candidates that genuinely return results.
+ *
+ * A suggestion is a claim, and an unverified one sends a reader from one dead end to another.
+ * §6 refuses to list an install method that cannot be proven against a registry; the same
+ * standard applies here, and the proof is cheap — one `multiSearch` covers every candidate in
+ * a single round trip, with `hitsPerPage: 0` so it pays for counts and no documents.
+ *
+ * Verified under the reader's **current filters**, because that is the search the suggestion
+ * link will actually run. Proving `ingress` has hits corpus-wide and then handing back an
+ * empty page because `kind=operator` is still applied would be the exact failure this
+ * function exists to prevent. When the filters are the real problem, nothing verifies, no
+ * suggestions render, and the empty state's "clear filters" action is the honest route out.
+ */
+export async function verifySuggestions(
+  candidates: string[],
+  filters: FacetSelection,
+): Promise<VerifiedSuggestion[]> {
+  if (candidates.length === 0) return [];
+
+  const { results } = await searchClient().multiSearch({
+    queries: candidates.map((q) => ({
+      indexUid: TOOLS_INDEX,
+      q,
+      filter: buildFilters({ filters }),
+      hitsPerPage: 0,
+    })),
+  });
+
+  return results
+    .map((result, index) => ({
+      q: candidates[index] ?? '',
+      total: (result as { totalHits?: number }).totalHits ?? 0,
+    }))
+    .filter((suggestion) => suggestion.q !== '' && suggestion.total > 0)
+    .sort((a, b) => b.total - a.total);
 }
 
 /**

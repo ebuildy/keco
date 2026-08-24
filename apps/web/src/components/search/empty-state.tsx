@@ -1,21 +1,25 @@
 import { Link } from 'react-router';
+import type { VerifiedSuggestion } from '../../lib/search';
 import type { Chip as ChipModel } from '../../lib/topics';
 import { Chip } from '../primitives/chip';
 
 /**
  * Empty and zero-result states must suggest something useful (§9).
  *
- * "Useful" here means *derived from what the reader actually did*, not a generic apology. The
- * three recovery routes below are offered only when they apply, and each is a real one-click
- * action rather than advice:
+ * "Useful" here means *derived from what the reader actually did*, not a generic apology, and
+ * every offer is a one-click action rather than advice. Four sections, narrowing outward from
+ * what they asked for to what the corpus has:
  *
- * - Filters are the usual culprit when a plausible query returns nothing, so dropping them
- *   while keeping the query is the first offer.
- * - A typo is the other usual culprit, so keeping the filters and clearing the query is the
- *   second.
- * - Starting over is the fallback.
+ * 1. **Recovery actions** — filters are the usual culprit when a plausible query returns
+ *    nothing, so dropping them while keeping the query leads; keeping the filters and clearing
+ *    the query is second; starting over is the fallback. Each appears only when it applies.
+ * 2. **Did you mean** — spelling corrections and term relaxations, every one *verified to
+ *    return hits under the current filters* before it is rendered.
+ * 3. **Popular categories** — the corpus's most populated `kind` and `domains` values, from a
+ *    live facet distribution.
+ * 4. A closing line explaining what the corpus is.
  *
- * Deliberately no hardcoded taxonomy values. The previous version suggested `kind=operator`,
+ * Deliberately no hardcoded taxonomy values. The first version suggested `kind=operator`,
  * `domain=observability` and `install=krew` as literals, which §6 warns against — the
  * vocabulary is data, and a component that names three of its values silently rots when the
  * YAML changes. Browse already renders every family from the live facet distribution, so the
@@ -26,16 +30,25 @@ type NoResultsProps = {
   activeFilterCount: number;
   /** The corpus's most populated categories, from `topCategories`. Empty renders no row. */
   categories: ChipModel[];
+  /**
+   * Spelling and relaxation suggestions that have each been **verified to return results**
+   * under the reader's current filters (`verifySuggestions`). Anything unproven never gets
+   * this far, so every entry here is a promise the next click will keep.
+   */
+  suggestions: VerifiedSuggestion[];
   onClearFilters: () => void;
   onClearQuery: () => void;
+  onSuggestion: (query: string) => void;
 };
 
 export function NoResults({
   query,
   activeFilterCount,
   categories,
+  suggestions,
   onClearFilters,
   onClearQuery,
+  onSuggestion,
 }: NoResultsProps) {
   const hasQuery = query !== '';
   const hasFilters = activeFilterCount > 0;
@@ -109,10 +122,43 @@ export function NoResults({
         </div>
       )}
 
+      {/*
+        Every entry was proven to return hits under the current filters before it got here, so
+        this section can only ever appear when it has somewhere real to send the reader. That
+        is also why it renders above the categories: a corrected spelling of what they actually
+        asked for beats a popular category they did not.
+      */}
+      {suggestions.length > 0 && (
+        <div className="mt-8 w-full border-t border-line pt-6">
+          <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
+            Did you mean
+          </h3>
+          <ul className="flex flex-wrap justify-center gap-2">
+            {suggestions.map((suggestion) => (
+              <li key={suggestion.q}>
+                <button
+                  type="button"
+                  onClick={() => onSuggestion(suggestion.q)}
+                  className="inline-flex items-baseline gap-1.5 rounded-control border border-line-strong bg-surface px-3 py-1.5 text-[13px] text-fg transition-colors hover:border-accent hover:text-accent-text"
+                >
+                  <span className="font-medium">{suggestion.q}</span>
+                  <span className="font-mono text-[11px] tabular-nums text-faint">
+                    {suggestion.total.toLocaleString('en-GB')}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Renders nothing when the index is empty, which is the one case where suggesting a
           category would be a dead link. */}
       {categories.length > 0 && (
-        <nav aria-label="Popular categories" className="mt-9 w-full border-t border-line pt-6">
+        <nav
+          aria-label="Popular categories"
+          className={`w-full ${suggestions.length > 0 ? 'mt-7' : 'mt-9 border-t border-line pt-6'}`}
+        >
           <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
             Popular categories
           </h3>

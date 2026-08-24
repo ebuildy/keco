@@ -14,8 +14,16 @@ import { ResultCard } from '../components/search/result-card';
 import { isViewMode, SearchControls, type ViewMode } from '../components/search/search-controls';
 import { facetGroups } from '../lib/facets';
 import { clampFocus, isEditableTarget, nextFocusIndex } from '../lib/keyboard';
-import { browseFacets, searchErrorMessage, searchTools, type PortalSearchResult } from '../lib/search';
+import {
+  browseFacets,
+  searchErrorMessage,
+  searchTools,
+  verifySuggestions,
+  type PortalSearchResult,
+  type VerifiedSuggestion,
+} from '../lib/search';
 import { focusSiteSearch, isSiteSearchTarget } from '../lib/site-search';
+import { suggestQueries } from '../lib/spelling';
 import { topCategories, type Chip } from '../lib/topics';
 
 /**
@@ -35,6 +43,7 @@ export function SearchPage() {
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
   const [categories, setCategories] = useState<Chip[]>([]);
+  const [suggestions, setSuggestions] = useState<VerifiedSuggestion[]>([]);
 
   const resultRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const categoriesRequested = useRef(false);
@@ -98,6 +107,33 @@ export function SearchPage() {
     setParams(paramsFromSelection({}, params));
     setFocused(null);
   };
+
+  /**
+   * "Did you mean?", proven before it is offered.
+   *
+   * Candidates are generated in the browser for free; the single `multiSearch` that follows is
+   * what turns them from guesses into promises, and it runs only on a query that already came
+   * back empty. Keyed on `key` rather than a ref, unlike the categories below, because a
+   * different failing query deserves a different set of suggestions — while the corpus's
+   * popular categories are the same all session.
+   *
+   * Failure is silent. The page is already telling the reader their search went nowhere, and a
+   * second error about the machinery behind a nicety would be noise.
+   */
+  useEffect(() => {
+    if (!showEmptyState) {
+      setSuggestions([]);
+      return;
+    }
+
+    let cancelled = false;
+    verifySuggestions(suggestQueries(q), selection)
+      .then((verified) => !cancelled && setSuggestions(verified))
+      .catch(() => !cancelled && setSuggestions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [showEmptyState, key]);
 
   /**
    * The corpus's most populated categories, for the zero-result state to offer.
@@ -226,8 +262,10 @@ export function SearchPage() {
               query={q}
               activeFilterCount={activeFilterCount}
               categories={categories}
+              suggestions={suggestions}
               onClearFilters={onClear}
               onClearQuery={() => write((next) => next.delete('q'))}
+              onSuggestion={(next) => write((params) => params.set('q', next))}
             />
           )}
 
