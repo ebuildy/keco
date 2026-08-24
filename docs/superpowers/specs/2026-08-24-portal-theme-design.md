@@ -94,11 +94,18 @@ system preference ──(no stored choice)──▶ data-theme unset, @media dec
 stored choice ─────────────────────────▶ data-theme="light" | "dark" wins
 ```
 
-An inline `<script>` in `index.html`'s `<head>` reads `localStorage.keco-theme`, falls back to
-`matchMedia('(prefers-color-scheme: dark)')`, and stamps `document.documentElement.dataset.theme`
-before the browser paints. It is inline and blocking on purpose: a deferred module would run
-after first paint and flash the wrong theme, and on a prerendered page there is real content to
-flash.
+An inline `<script>` in `index.html`'s `<head>` reads `localStorage.keco-theme` and stamps
+`document.documentElement.dataset.theme` **only when an explicit choice is stored**. It is inline
+and blocking on purpose: a deferred module would run after first paint and flash the wrong theme,
+and on a prerendered page there is real content to flash.
+
+It deliberately does *not* call `matchMedia` and does *not* stamp a resolved value. With no stored
+choice the attribute stays absent and the `prefers-color-scheme` block decides, which keeps the
+attribute meaning exactly one thing: "a human overrode the OS". The cost of that purity is that
+`dark:` utilities cannot key off the attribute alone — a system-dark reader who never touched the
+toggle has dark tokens and no attribute — so `@custom-variant dark` **must** carry a media-query
+branch as well as an attribute branch. The two are a matched pair: change either one and the
+other has to change with it, or dark mode half-applies. See "The `dark:` variant" below.
 
 Rejected: system-preference-only. It costs nothing and cannot flash, but a reader cannot choose,
 and the user asked for a dark theme as something they can have — not as something their laptop
@@ -138,11 +145,30 @@ which `@theme` alone cannot do, because it emits static values. The pattern is t
   --color-fg:      var(--keco-text);
 }
 
-@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+@custom-variant dark {
+  &:where([data-theme='dark'], [data-theme='dark'] *) { @slot }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) { @slot }
+  }
+}
 ```
 
-`@theme inline` is what makes `bg-surface` resolve through the variable rather than baking a
-hex. Without it the toggle changes nothing.
+`@theme inline` is what makes `bg-surface` resolve against the element rather than taking an extra
+hop through a `:root` indirection. (Without `inline`, Tailwind still emits
+`--color-surface: var(--keco-surface)` and the toggle still works — the gain is one less
+indirection and correct resolution for nested overrides, not the difference between working and
+broken.)
+
+### The `dark:` variant
+
+The variant is written in block form with **two** branches because the token layers have two
+triggers, and it has to mirror them exactly. The attribute branch serves readers who used the
+toggle; the media branch serves readers who never did and whose attribute is therefore absent.
+
+Deleting either branch produces the same silent, half-broken result: tokens flip but `dark:`
+utilities do not, so anything expressed as a `dark:` utility rather than as a token — most
+importantly `dark:prose-invert` on the README — renders in the wrong theme for that population.
+Nothing type-checks or lints this; the only guard is that the pairing is written down here.
 
 Consequence, and a rule: **no dynamically constructed class names.** Tailwind v4 finds classes
 by scanning source text, so `` `bg-${tone}` `` produces a class that is never generated. Where a

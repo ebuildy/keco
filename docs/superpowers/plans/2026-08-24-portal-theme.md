@@ -109,6 +109,25 @@ git commit -m "build(web): add tailwind v4, typography plugin and self-hosted In
 
 ## Task 2: Design tokens
 
+> **Superseded in part — read this before using the code blocks below.** Tasks 1 and 2 are
+> implemented, and a code review then found real defects in the CSS printed here. Commit
+> `9674667` (`fix(web): correct token contrast, Shiki dark mode and five silent no-ops`) is the
+> current truth. The blocks below are kept for the rationale; take the *values* from the
+> committed files. What changed:
+>
+> - Both neutral ramps were re-spaced — the light `--keco-text-faint` measured 2.34:1 against
+>   `--keco-surface-2` and carried body text. All four levels now clear 4.5:1 in both themes.
+> - `--keco-border-strong` darkened to `#7d8da9` / `#63769c` to clear WCAG 1.4.11's 3:1 for a
+>   control boundary. `--keco-border` stayed soft — hairlines are decorative and exempt.
+> - `--keco-shadow-card: none` became `0 0 #0000`. `none` is invalid as a member of Tailwind's
+>   composed `box-shadow` list and silently dropped every `ring-*` on the same element in dark.
+> - `--color-health-1..4` and `--color-focus` were added to `@theme inline`. Without them
+>   `bg-health-2` generates nothing — so **later tasks may use `bg-health-*` directly** rather
+>   than the `bg-[var(--keco-health-*)]` arbitrary-value form printed in Task 8.
+> - `@custom-variant dark` gained a media-query branch. See the spec's "The `dark:` variant".
+> - `index.css` gained rules activating Shiki's `--shiki-dark` variables, without which every
+>   README code block rendered as a white slab in dark mode.
+
 **Files:**
 - Create: `apps/web/src/styles/theme.css`
 - Create: `apps/web/src/styles/index.css`
