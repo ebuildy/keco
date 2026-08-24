@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useParams } from 'react-router';
 import type { ToolDocument } from '@keco/core';
+import { Chip } from '../components/primitives/chip';
+import { StatusPill } from '../components/primitives/status-pill';
+import { FactList } from '../components/tool/fact-list';
+import { InstallTabs } from '../components/tool/install-tabs';
+import { RelatedList } from '../components/tool/related-list';
+import { ScoreMeters } from '../components/tool/score-meters';
 import { bootstrapToolFor } from '../lib/bootstrap';
-import { formatUtcDate } from '../lib/dates';
 import { findAlternatives, getTool } from '../lib/search';
 import { NotFoundPage } from './not-found';
 
@@ -65,90 +70,75 @@ export function ToolPage() {
     };
   }, [tool?.full_name]);
 
-  if (loading) return <main aria-busy="true">Loading {fullName}…</main>;
+  if (loading) {
+    return (
+      <main aria-busy="true" className="mx-auto max-w-[1200px] px-4 py-16 text-sm text-muted">
+        Loading {fullName}…
+      </main>
+    );
+  }
   if (!tool) return <NotFoundPage />;
 
   return (
-    <main>
-      <h1>{tool.full_name}</h1>
-      <p>{tool.summary}</p>
+    <main className="mx-auto max-w-[1200px] px-4 py-6">
+      <div className="grid gap-8 lg:grid-cols-[1fr_250px]">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-2.5">
+            <h1 className="text-[25px] font-bold tracking-tight text-fg">{tool.name}</h1>
+            <span className="font-mono text-[12.5px] text-faint">{tool.full_name}</span>
+            {tool.archived && <StatusPill tone="warn">Archived</StatusPill>}
+            {tool.needs_review && <StatusPill tone="warn">Needs review</StatusPill>}
+          </div>
 
-      <section>
-        <h2>Install</h2>
-        {tool.install_methods.length === 0 ? (
-          // Unprovable ⇒ not listed. A wrong `brew install` line is the worst bug this
-          // project can ship — people paste these into a terminal (§6).
-          <p>No install method verified against a registry.</p>
-        ) : (
-          <ul>
-            {tool.install_methods.map((method) => (
-              <li key={method.method}>
-                <code>{method.command}</code>{' '}
-                <a href={method.source_url} rel="noreferrer">
-                  proof
-                </a>
-              </li>
+          <p className="mt-2 max-w-[60ch] text-[14px] leading-relaxed text-fg-2">{tool.summary}</p>
+
+          <div className="mt-3.5 flex flex-wrap gap-1.5">
+            <Chip label={`kind: ${tool.kind}`} />
+            {tool.domains.map((domain) => (
+              <Chip key={domain} label={domain} />
             ))}
-          </ul>
-        )}
-      </section>
+            <Chip label={tool.runtime} />
+            <Chip label={tool.maturity} />
+          </div>
 
-      <section>
-        <h2>Health</h2>
-        <dl>
-          <dt>Score</dt>
-          <dd>{tool.score.total.toFixed(2)}</dd>
-          <dt>Quality coverage</dt>
-          {/* 0.9 from four signals and 0.9 from one are not the same claim (§4.3). */}
-          <dd>{Math.round(tool.score.quality_coverage * 100)}% of signals present</dd>
-          <dt>Momentum</dt>
-          <dd>{tool.score.momentum.toFixed(2)}</dd>
-        </dl>
-      </section>
+          <div className="mt-5">
+            <InstallTabs methods={tool.install_methods} />
+          </div>
 
-      <aside>
-        <ul>
-          <li>★ {tool.stars}</li>
-          <li>{tool.language ?? 'unknown language'}</li>
-          <li>{tool.license ?? 'no license'}</li>
-          {/* UTC-pinned so the prerender build machine and the reader's browser agree on the
-              calendar day — a bare toDateString() hydration-mismatches near midnight (§9). */}
-          <li>Last commit {formatUtcDate(tool.pushed_at)}</li>
-          <li>
-            <a href={tool.repo_url} rel="noreferrer">
-              Source on GitHub
-            </a>
-          </li>
-        </ul>
-      </aside>
+          <section aria-labelledby="readme" className="mt-5">
+            <h2 id="readme" className="mb-2 text-[15px] font-semibold text-fg">
+              README
+            </h2>
+            <div className="rounded-card border border-line bg-surface p-4 shadow-card">
+              {readmeHtml === null ? (
+                // The excerpt is in the document, so it is in the prerendered HTML too — this is
+                // the indexable prose on the page until the full README arrives.
+                <p className="text-[13px] leading-relaxed text-fg-2">{tool.readme_excerpt}</p>
+              ) : (
+                // Sanitised by apps/api with rehype-sanitize before it ever reached the browser
+                // (§9, §14). Never do this to raw markdown.
+                //
+                // `prose-keco` is not decoration: Tailwind's preflight strips every element
+                // default, so without it this corpus-derived documentation — the indexable prose
+                // on the SEO surface — renders as flat unstyled text.
+                <div
+                  className="prose prose-sm prose-keco dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: readmeHtml }}
+                />
+              )}
+            </div>
+          </section>
+        </div>
 
-      <section>
-        <h2>README</h2>
-        {readmeHtml === null ? (
-          // The excerpt is in the document, so it is in the prerendered HTML too — this is the
-          // indexable prose on the page until the full README arrives.
-          <p>{tool.readme_excerpt}</p>
-        ) : (
-          // Sanitised by apps/api with rehype-sanitize before it ever reached the browser
-          // (§9, §14). Never do this to raw markdown.
-          <div dangerouslySetInnerHTML={{ __html: readmeHtml }} />
-        )}
-      </section>
-
-      {related.length > 0 && (
-        <section>
-          <h2>Related</h2>
-          <ul>
-            {related.map((other) => (
-              <li key={other.id}>
-                <Link to={`/tools/${other.full_name}`}>{other.full_name}</Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <footer>Data from GitHub, updated {new Date(tool.indexed_at).toISOString()}.</footer>
+        <aside className="space-y-3">
+          <ScoreMeters score={tool.score} />
+          <FactList tool={tool} />
+          <RelatedList tools={related} />
+          <p className="text-[10.5px] leading-relaxed text-faint">
+            Data from GitHub, indexed {new Date(tool.indexed_at).toISOString()}.
+          </p>
+        </aside>
+      </div>
     </main>
   );
 }
