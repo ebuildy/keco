@@ -9,6 +9,7 @@ import { RelatedList } from '../components/tool/related-list';
 import { ScoreMeters } from '../components/tool/score-meters';
 import { bootstrapToolFor } from '../lib/bootstrap';
 import { findAlternatives, getTool } from '../lib/search';
+import { taxonomyLinks } from '../lib/tool-taxonomy';
 import { NotFoundPage } from './not-found';
 
 /**
@@ -117,14 +118,23 @@ export function ToolPage() {
 
           <p className="mt-2 max-w-[60ch] text-[14px] leading-relaxed text-fg-2">{tool.summary}</p>
 
-          <div className="mt-3.5 flex flex-wrap gap-1.5">
-            <Chip label={`kind: ${tool.kind}`} />
-            {tool.domains.map((domain) => (
-              <Chip key={domain} label={domain} />
-            ))}
-            <Chip label={tool.runtime} />
-            <Chip label={tool.maturity} />
-          </div>
+          {/* Every classification on this page is a way into the corpus: each chip is a link
+              to the search page filtered on that value, using the family's declared `param`
+              (§6, §9). `taxonomyLinks` does the labelling and the hiding — see the docblock
+              there for why a raw id or an `unknown` never reaches this row. */}
+          <nav aria-label="Classification" className="mt-3.5">
+            <ul className="flex flex-wrap gap-1.5">
+              {taxonomyLinks(tool).map((link) => (
+                <li key={link.id}>
+                  <Chip
+                    label={link.label}
+                    to={link.href}
+                    title={`${link.familyLabel}: ${link.description}`}
+                  />
+                </li>
+              ))}
+            </ul>
+          </nav>
 
           <div className="mt-5">
             <InstallTabs methods={tool.install_methods} />

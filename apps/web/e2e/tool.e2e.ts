@@ -1,6 +1,6 @@
 import { formatUtcDate } from '../src/lib/dates';
-import { expect, test, toolHeading } from './app';
-import { ARCHIVED, BARE_TOOL, K9S, KUBECTX } from './corpus';
+import { expect, results, settled, test, toolHeading } from './app';
+import { ARCHIVED, BARE_TOOL, K9S, KUBECTX, UNKNOWN_RUNTIME, label } from './corpus';
 
 /**
  * `/tools/:owner/:repo` — the SEO surface, and the only route the prerender emits as static
@@ -31,8 +31,22 @@ test.describe('tool page', () => {
   }) => {
     await visit(`/tools/${K9S.full_name}`);
 
-    await expect(page.getByText(`kind: ${K9S.kind}`)).toBeVisible();
-    for (const domain of K9S.domains) await expect(page.getByText(domain, { exact: true })).toBeVisible();
+    // Labels, not ids (§6): the chip reads "kubectl plugin", never `kubectl-plugin`.
+    const classification = page.getByRole('navigation', { name: 'Classification' });
+    await expect(
+      classification.getByRole('link', { name: label('kind', K9S.kind), exact: true }),
+    ).toBeVisible();
+    for (const domain of K9S.domains) {
+      await expect(
+        classification.getByRole('link', { name: label('domains', domain), exact: true }),
+      ).toBeVisible();
+    }
+    await expect(
+      classification.getByRole('link', { name: label('runtime', K9S.runtime), exact: true }),
+    ).toBeVisible();
+    await expect(
+      classification.getByRole('link', { name: label('maturity', K9S.maturity), exact: true }),
+    ).toBeVisible();
 
     const health = page.getByRole('region', { name: 'Health' });
     await expect(health.getByText(K9S.score.total.toFixed(2), { exact: true })).toBeVisible();
@@ -42,6 +56,65 @@ test.describe('tool page', () => {
       `Quality scored on ${Math.round(K9S.score.quality_coverage * 100)}% of its signals`,
     );
     await expect(health).toContainText('treated as unknown, not as zero');
+  });
+
+  test('a classification chip is a link into the search it promises', async ({ page, visit }) => {
+    await visit(`/tools/${K9S.full_name}`);
+
+    const classification = page.getByRole('navigation', { name: 'Classification' });
+    const kind = classification.getByRole('link', { name: label('kind', K9S.kind), exact: true });
+
+    // The href is the same URL the home page's chip rows and the sidebar write, built from the
+    // family's declared `param` — all three agree by construction (§6).
+    await expect(kind).toHaveAttribute('href', `/search?kind=${K9S.kind}`);
+
+    await kind.click();
+    await expect(page).toHaveURL(`/search?kind=${K9S.kind}`);
+    await settled(page);
+
+    // Followed through to what it promises: the filter is stated back to the reader, and every
+    // card on screen really is that kind.
+    await expect(
+      page
+        .getByRole('group', { name: 'Kind' })
+        .getByRole('checkbox', { name: new RegExp(`^${label('kind', K9S.kind)}`) }),
+    ).toBeChecked();
+    for (const card of await results(page).all()) {
+      await expect(card).toContainText(`kind: ${K9S.kind}`);
+    }
+  });
+
+  test('a domain chip filters on that domain alone', async ({ page, visit }) => {
+    await visit(`/tools/${K9S.full_name}`);
+
+    const domain = K9S.domains[0]!;
+    await page
+      .getByRole('navigation', { name: 'Classification' })
+      .getByRole('link', { name: label('domains', domain), exact: true })
+      .click();
+
+    // `domains` declares `param: domain` — the family id is not the query parameter, and a
+    // link that used one for the other would land on an unfiltered page.
+    await expect(page).toHaveURL(`/search?domain=${domain}`);
+    await settled(page);
+    await expect(results(page).first()).toBeVisible();
+  });
+
+  test('a value the analyzer could not determine is not offered as a filter', async ({
+    page,
+    visit,
+  }) => {
+    await visit(`/tools/${UNKNOWN_RUNTIME.full_name}`);
+
+    // "Not enough evidence to say where it runs" is a real answer (§6), and it is hidden from
+    // the UI — rendering it would offer a link to "everything we could not classify".
+    const classification = page.getByRole('navigation', { name: 'Classification' });
+    await expect(classification.getByRole('link', { name: 'Unknown' })).toHaveCount(0);
+    await expect(classification.locator('a[href*="runtime="]')).toHaveCount(0);
+    // The families it *was* classified into still render.
+    await expect(
+      classification.getByRole('link', { name: label('kind', UNKNOWN_RUNTIME.kind), exact: true }),
+    ).toBeVisible();
   });
 
   test('lists repository facts from the document', async ({ page, visit }) => {

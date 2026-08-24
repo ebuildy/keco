@@ -1,4 +1,4 @@
-import { buildFilters, type ToolDocument } from '@keco/core';
+import { buildFilters, values, type ToolDocument } from '@keco/core';
 import { MOCK_CORPUS } from '../src/mocks/corpus/index';
 import { runSearch } from '../src/mocks/engine';
 import { MOCK_READMES } from '../src/mocks/readmes';
@@ -49,6 +49,32 @@ export const BARE_TOOL: ToolDocument = (() => {
   if (!found) throw new Error('e2e/corpus.ts: no fixture without install methods and README');
   return found;
 })();
+
+/**
+ * A fixture the analyzer could not place — `runtime: unknown`, which §6 hides from the UI.
+ *
+ * Picked by rule, like `BARE_TOOL`: which generated document carries it depends on the corpus,
+ * and the behaviour under test is "a hidden value renders no chip", not "document N is the
+ * unclassified one".
+ */
+export const UNKNOWN_RUNTIME: ToolDocument = (() => {
+  const found = publicSearch({ hitsPerPage: 1000 }).hits.find(
+    (candidate) => candidate.runtime === 'unknown',
+  );
+  if (!found) throw new Error('e2e/corpus.ts: no fixture with an unknown runtime');
+  return found;
+})();
+
+/**
+ * The taxonomy's label for a value — what the tool page must render instead of the id (§6).
+ * Read from the vocabulary rather than from `src/lib/tool-taxonomy.ts`, so the assertion is
+ * against the declared label and not against the code that renders it.
+ */
+export function label(familyId: string, valueId: string): string {
+  const found = values(familyId).find((value) => value.id === valueId);
+  if (!found) throw new Error(`e2e/corpus.ts: ${familyId}:${valueId} is not a visible value`);
+  return found.label;
+}
 
 /** Curated repos, referenced by name because they are hand-written and stable. */
 export const K9S = tool('derailed/k9s');
