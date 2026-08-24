@@ -47,6 +47,7 @@ export function SearchPage() {
 
   const resultRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const categoriesRequested = useRef(false);
+  const refocusAfterClear = useRef(false);
 
   const q = params.get('q') ?? '';
   const sortParam = params.get('sort') ?? '';
@@ -160,6 +161,25 @@ export function SearchPage() {
     };
   }, [showEmptyState]);
 
+  /**
+   * Restores focus to the search field after Escape has cleared `?q=`.
+   *
+   * This was a `setTimeout(focusSiteSearch, 0)` inside the key handler, and it was a race it
+   * lost: the update comes from a native `keydown` listener, so React commits on its own
+   * schedule, and the timeout could run while the field on screen was still the one about to
+   * be replaced. Focusing a node React then unmounts leaves focus on `<body>` — the reader
+   * presses Escape and loses the keyboard entirely, which is worse than not clearing at all.
+   *
+   * An effect runs *after* the commit by definition, so the field it focuses is the field on
+   * screen. `key` is the whole URL query, which is exactly what changes when the parameter is
+   * dropped.
+   */
+  useEffect(() => {
+    if (!refocusAfterClear.current) return;
+    refocusAfterClear.current = false;
+    focusSiteSearch();
+  }, [key]);
+
   /** Focus follows the roving index rather than the render, so arrow keys move real focus. */
   useEffect(() => {
     if (active !== null) resultRefs.current[active]?.focus();
@@ -185,8 +205,9 @@ export function SearchPage() {
           event.preventDefault();
           write((next) => next.delete('q'));
           // The field is uncontrolled and keyed on `q`, so dropping the parameter remounts it
-          // empty — and a remount drops focus. Restore it after React has committed.
-          setTimeout(focusSiteSearch, 0);
+          // empty — and a remount drops focus. Ask for it back after the commit that replaces
+          // it; see the effect that consumes this flag.
+          refocusAfterClear.current = true;
         }
         return;
       }
