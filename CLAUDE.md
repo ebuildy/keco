@@ -528,6 +528,7 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run admin:hash -- --password '…'` | Hash a password into `ADMIN_PASSWORD_HASH` (§12) |
 | `mise run taxonomy:check` | Validate `taxonomy.yaml` — schema, duplicates, `unknown` defaults |
 | `mise run check` / `lint` / `test` | `tsc --noEmit` · eslint (incl. §7 boundaries) · vitest |
+| `mise run e2e` | Portal end-to-end tests — Playwright drives the real SPA against the in-browser mock backend, so no Meilisearch, no `apps/api` and no token (§9). Not part of `ci`: it needs a browser download, which `e2e:install` does once |
 | `mise run format` | prettier |
 | `mise run ci` | check + lint + test + taxonomy:check — the gate for §15 |
 | `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
@@ -617,6 +618,20 @@ and it is not optional:
 
 If a change makes the top tool pages non-prerenderable, it has broken the SEO surface — treat
 that as a blocking regression, not a follow-up.
+
+**The portal has end-to-end coverage, and it runs with no backend at all.** `mise run e2e`
+starts Vite with the §14 mock backend and drives every route through Chromium: home, search
+(facets, sort, view, paging, the whole keyboard contract), the zero-result state and its
+*verified* suggestions, the tool page (install tabs, clipboard, README, related, archived), the
+404, and the theme's stored-choice-vs-OS asymmetry. It is deliberately not in `mise run ci` —
+it needs a browser binary — and it deliberately cannot run against a production build, because
+the mock is eliminated from one by design. The prerendered HTML is therefore *not* what it
+tests; `prerender/ssr.test.ts` and `mise run build` own that.
+
+**That coverage is a floor, not a snapshot.** Every route, control and state a reader can reach
+carries an e2e test, and anything added here adds one in the same change — §13 makes it a
+requirement of the spec and §15 a condition of done. A portal change with no e2e test is the
+same omission as a classification rule with no fixture.
 
 ## 10. Backoffice (`apps/backoffice`) — observe and command, never edit
 
@@ -740,6 +755,18 @@ decision with a retention policy, not as a side effect of search.
 - Tests: unit-test the analyzer against `packages/analyze/fixtures/*.json` — real cached
   payloads, committed. **A new classification rule requires a fixture proving it.** Fixtures are
   literally cache entries, which is the other reason the cache exists.
+- **Every `apps/web` change ships end-to-end coverage, and every spec or plan that touches
+  `apps/web` names the e2e tests it will add.** A behaviour a reader can reach — a route, a
+  control, a state, a keyboard path — is not delivered until a Playwright test drives it in a
+  browser. Unit tests cover `src/lib/**`, which is where the logic lives on purpose; they do
+  not cover what happens when the logic meets a DOM, a URL and a focus ring, and that gap is
+  where this app's real bugs have been. Coverage is a first-class requirement here, not a
+  follow-up ticket: `mise run e2e` needs no Meilisearch, no `apps/api` and no token (§9), so
+  "there was no environment to test in" is never the reason one is missing.
+- A spec that adds a page, a control or a state and lists no e2e test is incomplete — send it
+  back rather than implementing it and promising tests later. The same rule as the analyzer's:
+  a new rule requires a fixture proving it, and new portal behaviour requires a test driving
+  it.
 - Design and implementation plans live in `docs/`; ADRs in `docs/adr/`. A decision that reverses
   one of these gets an ADR, not a silent edit.
 - Conventional Commits scoped by package: `feat(analyzer): …`, `fix(projector): …`.
@@ -826,8 +853,10 @@ decision with a retention policy, not as a side effect of search.
 3. Read-model changes: applied by re-projecting from cache — **no network calls at all** — and
    promoted by alias swap, never in place.
 4. API changes: contract updated in `@keco/core`, REST + MCP both reflect it.
-5. Portal changes: the tool page still prerenders with a real `<h1>`, metadata and JSON-LD;
-   search is keyboard-navigable; no `VITE_`-prefixed secret entered the bundle.
+5. Portal changes: `mise run e2e` green, **including a test for the behaviour just added or
+   changed** — a page, a control, a state or a keyboard path without one is not done (§13). The
+   tool page still prerenders with a real `<h1>`, metadata and JSON-LD; search is
+   keyboard-navigable; no `VITE_`-prefixed secret entered the bundle.
 6. Nothing on the read side writes a read model; nothing on the write side reads one.
 7. Update this file when a contract changes; `docs/` when the taxonomy changes; `docs/adr/` when
    a decision here is reversed.
