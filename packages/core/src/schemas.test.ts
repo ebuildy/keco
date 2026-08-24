@@ -144,6 +144,7 @@ const toolDocument = {
   has_release: true,
 
   readme_excerpt: 'cert-manager automates the management and issuance of TLS certificates.',
+  icon: null,
 
   analysis_method: 'rules',
   analysis_model: null,
@@ -171,5 +172,44 @@ describe('ToolDocument', () => {
 
   it.each(DERIVED_FAMILIES)('requires %s — parse fails without it', (field) => {
     expect(() => ToolDocument.parse(omit(toolDocument, field))).toThrow();
+  });
+});
+
+describe('ToolDocument.icon', () => {
+  it('accepts null — most of the corpus has no icon until it is crawled', () => {
+    expect(() => ToolDocument.parse({ ...toolDocument, icon: null })).not.toThrow();
+  });
+
+  it('accepts a repo logo with its provenance', () => {
+    const icon = {
+      source: 'repo-logo',
+      source_url: 'https://raw.githubusercontent.com/cert-manager/cert-manager/HEAD/logo/logo.svg',
+      fetched_at: '2026-08-24T00:00:00.000Z',
+    };
+    expect(ToolDocument.parse({ ...toolDocument, icon }).icon).toEqual(icon);
+  });
+
+  it('accepts an owner avatar', () => {
+    const icon = {
+      source: 'owner-avatar',
+      source_url: 'https://avatars.githubusercontent.com/u/1234?s=460',
+      fetched_at: '2026-08-24T00:00:00.000Z',
+    };
+    expect(() => ToolDocument.parse({ ...toolDocument, icon })).not.toThrow();
+  });
+
+  // `source` is what lets the UI and the backoffice tell a real project mark from an org
+  // avatar. A free-form string would let a typo through and mean nothing downstream.
+  it('rejects a source outside the two it knows', () => {
+    const icon = {
+      source: 'favicon',
+      source_url: 'https://example.com/favicon.ico',
+      fetched_at: '2026-08-24T00:00:00.000Z',
+    };
+    expect(() => ToolDocument.parse({ ...toolDocument, icon })).toThrow();
+  });
+
+  it('requires the field, so a projector that forgets it fails loudly', () => {
+    expect(() => ToolDocument.parse(omit({ ...toolDocument, icon: null }, 'icon'))).toThrow();
   });
 });

@@ -83,6 +83,23 @@ export const Score = z.object({
 });
 export type Score = z.infer<typeof Score>;
 
+/**
+ * The project's icon, or `null` when it has none — most of the corpus, until the crawler
+ * reaches it. The bytes live in the cache and are served by `apps/api`; what the document
+ * carries is only enough to know an icon *exists* (so no card fires a request that 404s) and
+ * where the artwork came from.
+ *
+ * `source` is load-bearing: a real project mark and an org avatar are different claims, and
+ * the backoffice has to be able to say which one a reader is looking at.
+ */
+export const IconDescriptor = z.object({
+  source: z.enum(['repo-logo', 'owner-avatar']),
+  /** Provenance — the URL the artwork was actually fetched from. */
+  source_url: z.url(),
+  fetched_at: z.iso.datetime(),
+});
+export type IconDescriptor = z.infer<typeof IconDescriptor>;
+
 /** A document in the `tools` index. Under 8 KB — the full README stays in the cache (§5). */
 export const ToolDocument = z.object({
   id: z.string(), // owner__repo — Meilisearch primary keys allow [A-Za-z0-9_-] only
@@ -129,6 +146,7 @@ export const ToolDocument = z.object({
   has_release: z.boolean(),
 
   readme_excerpt: z.string(), // ~1.5 KB
+  icon: IconDescriptor.nullable(),
 
   analysis_method: AnalysisMethod,
   analysis_model: z.string().nullable(),
