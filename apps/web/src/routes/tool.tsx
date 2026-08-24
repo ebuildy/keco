@@ -31,8 +31,23 @@ export function ToolPage() {
   // `bootstrapToolFor` refuses a bootstrap left over from a different route (§6, §9).
   const [tool, setTool] = useState<ToolDocument | null>(() => bootstrapToolFor(fullName));
   const [loading, setLoading] = useState(tool === null);
-  const [related, setRelated] = useState<ToolDocument[]>([]);
-  const [readmeHtml, setReadmeHtml] = useState<string | null>(null);
+
+  /**
+   * Both of these carry the repo they belong to, and both are matched against the current tool
+   * at render time rather than cleared in an effect.
+   *
+   * A client navigation from A to B commits B's document — and therefore B's `<h1>` and B's
+   * "README" heading — before any effect runs. State holding only `html` would put A's
+   * documentation, and A's alternatives, under B's headings for a full network round trip.
+   * Clearing in the effect shortens that window to one painted frame; carrying the identity
+   * closes it, because the mismatch is visible during the very render that causes it.
+   *
+   * Attributing one repository's documentation to another is the shape of claim §1 and §6
+   * exist to prevent — the corpus is 30k strangers' repos and the whole product is that the
+   * data is trustworthy.
+   */
+  const [related, setRelated] = useState<{ repo: string; tools: ToolDocument[] } | null>(null);
+  const [readme, setReadme] = useState<ReadmeResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,11 +72,17 @@ export function ToolPage() {
     if (!tool) return;
     let cancelled = false;
 
-    void findAlternatives(tool, 6).then((next) => !cancelled && setRelated(next));
+    const repo = tool.full_name;
 
-    fetch(`/api/readme/${tool.full_name}`)
+    void findAlternatives(tool, 6).then(
+      (next) => !cancelled && setRelated({ repo, tools: next }),
+    );
+
+    fetch(`/api/readme/${repo}`)
       .then((response) => (response.ok ? (response.json() as Promise<ReadmeResponse>) : null))
-      .then((body) => !cancelled && setReadmeHtml(body?.html ?? null))
+      // The endpoint echoes the repo it rendered, so the response carries its own identity and
+      // a late reply for a repo the reader has already navigated away from cannot be adopted.
+      .then((body) => !cancelled && body !== null && setReadme(body))
       // No cached README is an ordinary state before the crawler reaches a repo, not an error.
       .catch(() => undefined);
 
@@ -78,6 +99,10 @@ export function ToolPage() {
     );
   }
   if (!tool) return <NotFoundPage />;
+
+  // Only shown when it belongs to the tool on screen. See the state declarations above.
+  const readmeHtml = readme?.repo === tool.full_name ? readme.html : null;
+  const relatedTools = related?.repo === tool.full_name ? related.tools : [];
 
   return (
     <main className="mx-auto max-w-[1200px] px-4 py-6">
@@ -133,7 +158,7 @@ export function ToolPage() {
         <aside className="space-y-3">
           <ScoreMeters score={tool.score} />
           <FactList tool={tool} />
-          <RelatedList tools={related} />
+          <RelatedList tools={relatedTools} />
           <p className="text-[10.5px] leading-relaxed text-faint">
             Data from GitHub, indexed {new Date(tool.indexed_at).toISOString()}.
           </p>

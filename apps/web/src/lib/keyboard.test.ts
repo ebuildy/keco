@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableTarget, nextFocusIndex } from './keyboard';
+import { clampFocus, isEditableTarget, nextFocusIndex } from './keyboard';
 
 describe('nextFocusIndex', () => {
   it('enters the list from nothing focused', () => {
@@ -19,6 +19,25 @@ describe('nextFocusIndex', () => {
 
   it('returns null for an empty list', () => {
     expect(nextFocusIndex(null, 'next', 0)).toBeNull();
+  });
+});
+
+describe('clampFocus', () => {
+  it('keeps an index the list still has', () => {
+    expect(clampFocus(2, 5)).toBe(2);
+    expect(clampFocus(0, 1)).toBe(0);
+  });
+
+  it('drops an index the list has outgrown, which is the whole point', () => {
+    // Reachable: arrow to result 12, then search for something with 3 hits. Left unclamped,
+    // every result renders tabIndex={-1} and Tab skips the list entirely.
+    expect(clampFocus(11, 3)).toBeNull();
+    expect(clampFocus(0, 0)).toBeNull();
+  });
+
+  it('passes null through and rejects a negative index', () => {
+    expect(clampFocus(null, 5)).toBeNull();
+    expect(clampFocus(-1, 5)).toBeNull();
   });
 });
 

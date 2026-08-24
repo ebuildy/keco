@@ -26,6 +26,21 @@ export function nextFocusIndex(
   return Math.min(next, count - 1);
 }
 
+/**
+ * The roving index, clamped to the list actually on screen.
+ *
+ * The stored index is reset by the search page's URL writers, but not by `navigate()`, a
+ * `<Link>`, or the back button — and the result list changes on all of those. Arrow down to
+ * result 12, then run a query with 3 hits: a stored index of 11 matches no result, every one
+ * of them gets `tabIndex={-1}`, and Tab skips the entire list with nothing to recover it,
+ * because the index itself never changed.
+ *
+ * Clamping at the point of use rather than resetting in each writer means a navigation path
+ * nobody anticipated cannot reintroduce the bug.
+ */
+export const clampFocus = (focused: number | null, count: number): number | null =>
+  focused !== null && focused >= 0 && focused < count ? focused : null;
+
 /** Typed loosely so it can be tested with plain objects rather than a synthetic DOM. */
 type MaybeEditable = { tagName?: string; isContentEditable?: boolean } | null;
 

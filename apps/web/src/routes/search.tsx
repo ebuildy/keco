@@ -13,7 +13,7 @@ import { FacetSidebar } from '../components/search/facet-sidebar';
 import { ResultCard } from '../components/search/result-card';
 import { isViewMode, SearchControls, type ViewMode } from '../components/search/search-controls';
 import { facetGroups } from '../lib/facets';
-import { isEditableTarget, nextFocusIndex } from '../lib/keyboard';
+import { clampFocus, isEditableTarget, nextFocusIndex } from '../lib/keyboard';
 import { searchErrorMessage, searchTools, type PortalSearchResult } from '../lib/search';
 import { focusSiteSearch, isSiteSearchTarget } from '../lib/site-search';
 
@@ -71,6 +71,10 @@ export function SearchPage() {
 
   const hits = results?.hits ?? [];
 
+  // Clamped, so a navigation that shrank the list cannot strand focus on an index that no
+  // longer exists. `clampFocus` carries the reasoning and the tests.
+  const active = clampFocus(focused, hits.length);
+
   /** Every URL write resets focus: the list under it is about to be a different list. */
   const write = (mutate: (next: URLSearchParams) => void) => {
     const next = new URLSearchParams(params);
@@ -91,8 +95,8 @@ export function SearchPage() {
 
   /** Focus follows the roving index rather than the render, so arrow keys move real focus. */
   useEffect(() => {
-    if (focused !== null) resultRefs.current[focused]?.focus();
-  }, [focused]);
+    if (active !== null) resultRefs.current[active]?.focus();
+  }, [active]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -101,7 +105,7 @@ export function SearchPage() {
 
       if (event.key === 'Escape') {
         // From a result: hand focus back to the field the reader came from.
-        if (focused !== null) {
+        if (active !== null) {
           setFocused(null);
           focusSiteSearch();
           return;
@@ -130,7 +134,7 @@ export function SearchPage() {
       if (onSearchField && event.key !== 'ArrowDown') return;
 
       const next = nextFocusIndex(
-        focused,
+        active,
         event.key === 'ArrowDown' ? 'next' : 'previous',
         hits.length,
       );
@@ -141,7 +145,7 @@ export function SearchPage() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [focused, hits.length, q, key]);
+  }, [active, hits.length, q, key]);
 
   return (
     <main className="mx-auto max-w-[1200px] px-4 py-5">
@@ -193,7 +197,7 @@ export function SearchPage() {
                     view={view}
                     // Exactly one result is tabbable, so Tab treats the list as a single stop
                     // and lands on whichever result the arrows last moved to.
-                    tabIndex={focused === index || (focused === null && index === 0) ? 0 : -1}
+                    tabIndex={active === index || (active === null && index === 0) ? 0 : -1}
                     ref={(node) => {
                       resultRefs.current[index] = node;
                     }}
