@@ -59,14 +59,25 @@ export async function searchTools(params: PortalSearchParams = {}): Promise<Port
 /**
  * The facet distribution for every family, with no hits: `hitsPerPage: 0` buys the counts the
  * Browse rows need and nothing else (§9).
+ *
+ * `total` comes free from the same response. It is what lets the home page report corpus size
+ * without a second round trip — and reporting it is not decoration: §2.7 makes eventual
+ * consistency the contract, so the UI states what it actually has rather than implying the
+ * index is live.
  */
-export async function browseFacets(): Promise<Record<string, Record<string, number>>> {
+export async function browseFacets(): Promise<{
+  facets: Record<string, Record<string, number>>;
+  total: number;
+}> {
   const response = await toolsIndex().search('', {
     filter: buildFilters({}),
     facets: defaultFacets(),
     hitsPerPage: 0,
   });
-  return response.facetDistribution ?? {};
+  return {
+    facets: response.facetDistribution ?? {},
+    total: response.totalHits ?? 0,
+  };
 }
 
 /**
