@@ -14,8 +14,9 @@ import { ResultCard } from '../components/search/result-card';
 import { isViewMode, SearchControls, type ViewMode } from '../components/search/search-controls';
 import { facetGroups } from '../lib/facets';
 import { clampFocus, isEditableTarget, nextFocusIndex } from '../lib/keyboard';
-import { searchErrorMessage, searchTools, type PortalSearchResult } from '../lib/search';
+import { browseFacets, searchErrorMessage, searchTools, type PortalSearchResult } from '../lib/search';
 import { focusSiteSearch, isSiteSearchTarget } from '../lib/site-search';
+import { topCategories, type Chip } from '../lib/topics';
 
 /**
  * Search (AGENTS.md §9). State lives in the URL (`?q=&kind=&domain=&install=&sort=&view=`) so
@@ -33,8 +34,10 @@ export function SearchPage() {
   const [results, setResults] = useState<PortalSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Chip[]>([]);
 
   const resultRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  const categoriesRequested = useRef(false);
 
   const q = params.get('q') ?? '';
   const sortParam = params.get('sort') ?? '';
@@ -76,6 +79,7 @@ export function SearchPage() {
   const active = clampFocus(focused, hits.length);
   const hasSidebar = groups.length > 0;
   const activeFilterCount = Object.values(selection).reduce((sum, list) => sum + list.length, 0);
+  const showEmptyState = results !== null && results.total === 0 && error === null;
 
   /** Every URL write resets focus: the list under it is about to be a different list. */
   const write = (mutate: (next: URLSearchParams) => void) => {
@@ -94,6 +98,31 @@ export function SearchPage() {
     setParams(paramsFromSelection({}, params));
     setFocused(null);
   };
+
+  /**
+   * The corpus's most populated categories, for the zero-result state to offer.
+   *
+   * This is a second query, so it is bought deliberately and only once: it fires the first time
+   * a search comes back empty and never again for the life of the page. The distribution it
+   * reads is corpus-wide and unfiltered — which is the whole point, since the filtered one is
+   * empty by definition here — and it does not change while the reader is on the page.
+   *
+   * A failure is swallowed. These are a helpful extra on a page that is already telling the
+   * reader something went nowhere; turning that into a second error message would be worse
+   * than quietly showing no chips.
+   */
+  useEffect(() => {
+    if (!showEmptyState || categoriesRequested.current) return;
+    categoriesRequested.current = true;
+
+    let cancelled = false;
+    browseFacets()
+      .then((browse) => !cancelled && setCategories(topCategories(browse.facets)))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [showEmptyState]);
 
   /** Focus follows the roving index rather than the render, so arrow keys move real focus. */
   useEffect(() => {
@@ -192,10 +221,11 @@ export function SearchPage() {
 
           {error && <SearchError message={error} />}
 
-          {results && results.total === 0 && !error && (
+          {showEmptyState && (
             <NoResults
               query={q}
               activeFilterCount={activeFilterCount}
+              categories={categories}
               onClearFilters={onClear}
               onClearQuery={() => write((next) => next.delete('q'))}
             />

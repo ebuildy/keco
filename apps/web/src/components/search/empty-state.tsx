@@ -1,4 +1,6 @@
 import { Link } from 'react-router';
+import type { Chip as ChipModel } from '../../lib/topics';
+import { Chip } from '../primitives/chip';
 
 /**
  * Empty and zero-result states must suggest something useful (§9).
@@ -22,6 +24,8 @@ import { Link } from 'react-router';
 type NoResultsProps = {
   query: string;
   activeFilterCount: number;
+  /** The corpus's most populated categories, from `topCategories`. Empty renders no row. */
+  categories: ChipModel[];
   onClearFilters: () => void;
   onClearQuery: () => void;
 };
@@ -29,6 +33,7 @@ type NoResultsProps = {
 export function NoResults({
   query,
   activeFilterCount,
+  categories,
   onClearFilters,
   onClearQuery,
 }: NoResultsProps) {
@@ -104,16 +109,36 @@ export function NoResults({
         </div>
       )}
 
-      <div className="mt-9 w-full max-w-[46ch] border-t border-line pt-5">
-        <p className="text-[12.5px] leading-relaxed text-faint">
-          Every tool here is classified from public GitHub data and ranked by health rather than
-          stars.{' '}
-          <Link to="/" className="text-accent-text">
-            Browse by category
-          </Link>{' '}
-          to see what the corpus covers.
-        </p>
-      </div>
+      {/* Renders nothing when the index is empty, which is the one case where suggesting a
+          category would be a dead link. */}
+      {categories.length > 0 && (
+        <nav aria-label="Popular categories" className="mt-9 w-full border-t border-line pt-6">
+          <h3 className="mb-3 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
+            Popular categories
+          </h3>
+          <ul className="flex flex-wrap justify-center gap-1.5">
+            {categories.map((category) => (
+              <li key={category.id}>
+                <Chip
+                  label={category.label}
+                  count={category.count}
+                  to={category.href}
+                  title={category.description}
+                />
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <p className="mt-7 max-w-[52ch] text-[12.5px] leading-relaxed text-faint">
+        Every tool here is classified from public GitHub data and ranked by health rather than
+        stars.{' '}
+        <Link to="/" className="text-accent-text">
+          Browse everything
+        </Link>{' '}
+        to see what the corpus covers.
+      </p>
     </section>
   );
 }
