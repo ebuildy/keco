@@ -57,6 +57,10 @@ async function main(): Promise<void> {
     // scores. Send complete sub-objects: updateDocuments merges only at the top level, so
     // a partial `score` wipes the rest of it (§5, §14).
     //
+    // The icon comes from repos/{repo}/icon.json through iconDescriptor() in ./icon — a
+    // descriptor or null, never a guess. It is not a filterableAttribute, so adding it needs
+    // no settings change and no alias swap: re-projecting from cache is the whole migration.
+    //
     // VALIDATE BEFORE YOU UPSERT. Run every document through `ToolDocument.parse()` and, on
     // failure, emit RepoFailed and skip it rather than writing. This is not optional
     // belt-and-braces: the taxonomy is data now, so `kind` and the five family fields are
