@@ -48,6 +48,8 @@ const buildTestApp = () =>
     cache: {
       getText: async (key: string) => files[key] ?? null,
       getJSON: async <T>(key: string) => (files[key] ? (JSON.parse(files[key]) as T) : null),
+      // This suite has no binary fixtures; the icon route has its own.
+      getBuffer: async () => null,
     },
   });
 

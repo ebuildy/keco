@@ -17,7 +17,7 @@ const app = await build({
     },
     getTool: async () => null,
   },
-  cache: { getText: async () => null, getJSON: async () => null },
+  cache: { getText: async () => null, getJSON: async () => null, getBuffer: async () => null },
 });
 
 afterAll(() => app.close());

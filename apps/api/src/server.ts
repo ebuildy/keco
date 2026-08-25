@@ -7,6 +7,7 @@ import { liveCache, liveRetrieval, type ReadOnlyCache, type Retrieval } from './
 import { adminRoutes } from './routes/admin';
 import { chatRoutes } from './routes/chat';
 import { commandRoutes } from './routes/commands';
+import { iconRoutes } from './routes/icon';
 import { mcpRoutes } from './routes/mcp';
 import { readmeRoutes } from './routes/readme';
 import { v1Routes } from './routes/v1';
@@ -72,6 +73,7 @@ export async function build(options: BuildOptions): Promise<FastifyInstance> {
 
   await app.register(v1Routes, { prefix: '/api/v1', retrieval });
   await app.register(readmeRoutes, { prefix: '/api/readme', cache });
+  await app.register(iconRoutes, { prefix: '/api/icon', cache });
   await app.register(adminRoutes, { prefix: '/api/admin', env: options.env });
   await app.register(commandRoutes, { prefix: '/api/commands', env: options.env });
   await app.register(mcpRoutes, { prefix: '/api/mcp' });

@@ -21,7 +21,7 @@ beforeAll(async () => {
       },
       getTool: async () => null,
     },
-    cache: { getText: async () => null, getJSON: async () => null },
+    cache: { getText: async () => null, getJSON: async () => null, getBuffer: async () => null },
   });
 });
 
@@ -93,7 +93,7 @@ describe('when ADMIN_PASSWORD_HASH is unset', () => {
         },
         getTool: async () => null,
       },
-      cache: { getText: async () => null, getJSON: async () => null },
+      cache: { getText: async () => null, getJSON: async () => null, getBuffer: async () => null },
     });
     const response = await open.inject({
       method: 'POST',
@@ -122,7 +122,7 @@ describe('POST /api/admin/login rate limiting', () => {
         },
         getTool: async () => null,
       },
-      cache: { getText: async () => null, getJSON: async () => null },
+      cache: { getText: async () => null, getJSON: async () => null, getBuffer: async () => null },
     });
 
   it('fires after repeated login attempts, and a 429 does not reveal whether the password was right', async () => {

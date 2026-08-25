@@ -33,7 +33,7 @@ beforeAll(async () => {
       WEB_DIST: dist,
     }),
     retrieval: { searchTools: async () => { throw new Error('unused'); }, getTool: async () => null },
-    cache: { getText: async () => null, getJSON: async () => null },
+    cache: { getText: async () => null, getJSON: async () => null, getBuffer: async () => null },
     prerendered: await loadPrerenderManifest(dist),
   });
 });

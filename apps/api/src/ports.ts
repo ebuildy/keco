@@ -33,6 +33,8 @@ export const liveRetrieval = (env: Env): Retrieval => {
 export type ReadOnlyCache = {
   getText(key: string): Promise<string | null>;
   getJSON<T>(key: string): Promise<T | null>;
+  /** Icons are binary; `getText` would mangle them by decoding as UTF-8. */
+  getBuffer(key: string): Promise<Buffer | null>;
 };
 
 export const liveCache = (env: Env): ReadOnlyCache => readCache(env);
