@@ -177,7 +177,7 @@ describe('ToolDocument', () => {
 
 describe('ToolDocument.icon', () => {
   it('accepts null — most of the corpus has no icon until it is crawled', () => {
-    expect(() => ToolDocument.parse({ ...toolDocument, icon: null })).not.toThrow();
+    expect(ToolDocument.parse({ ...toolDocument, icon: null }).icon).toBeNull();
   });
 
   it('accepts a repo logo with its provenance', () => {
@@ -195,7 +195,7 @@ describe('ToolDocument.icon', () => {
       source_url: 'https://avatars.githubusercontent.com/u/1234?s=460',
       fetched_at: '2026-08-24T00:00:00.000Z',
     };
-    expect(() => ToolDocument.parse({ ...toolDocument, icon })).not.toThrow();
+    expect(ToolDocument.parse({ ...toolDocument, icon }).icon).toEqual(icon);
   });
 
   // `source` is what lets the UI and the backoffice tell a real project mark from an org
