@@ -1,6 +1,16 @@
 import { formatUtcDate } from '../src/lib/dates';
 import { expect, results, settled, test, toolHeading } from './app';
-import { ARCHIVED, BARE_TOOL, K9S, KUBECTX, UNKNOWN_RUNTIME, label } from './corpus';
+import {
+  ARCHIVED,
+  BARE_TOOL,
+  ICONLESS,
+  K9S,
+  KUBECTX,
+  PENDING_ICON,
+  UNKNOWN_RUNTIME,
+  WITH_ICON,
+  label,
+} from './corpus';
 
 /**
  * `/tools/:owner/:repo` — the SEO surface, and the only route the prerender emits as static
@@ -241,5 +251,56 @@ test.describe('tool page', () => {
     await visit('/tools/nobody/does-not-exist');
 
     await expect(page.getByRole('heading', { name: 'Not found', level: 1 })).toBeVisible();
+  });
+});
+
+test.describe('tool page icon', () => {
+  test('shows the icon beside the heading, from the large derivative', async ({ page, visit }) => {
+    await visit(`/tools/${WITH_ICON.full_name}`);
+
+    const icon = page.locator('main [data-icon="image"]');
+    await expect(icon).toBeVisible();
+    // 160, not 64: the box renders at 64 and this keeps it sharp on a 2x display.
+    await expect(icon).toHaveAttribute('src', `/api/icon/${WITH_ICON.full_name}/160.png`);
+    await expect(toolHeading(page)).toBeVisible();
+  });
+
+  test('stands a monogram in for a repo with no icon', async ({ page, visit }) => {
+    await visit(`/tools/${ICONLESS.full_name}`);
+    await expect(page.locator('main [data-icon="monogram"]').first()).toBeVisible();
+  });
+
+  /**
+   * The document and the cache are two systems, and eventual consistency is the contract
+   * (§2.7): a document projected before its icon landed must degrade to the placeholder, not
+   * to a broken-image glyph.
+   */
+  test('falls back to the monogram when the bytes are missing', async ({ page, visit }) => {
+    // PENDING_ICON's document carries a descriptor the cache has no bytes for. Playwright's
+    // own request interception cannot create this state: MSW's service worker answers
+    // /api/icon inside the page, so the request never reaches the network layer page.route
+    // watches. The mock models the state instead — see ICON_BYTES_MISSING in src/mocks.
+    await visit(`/tools/${PENDING_ICON.full_name}`);
+
+    await expect(page.locator('main [data-icon="monogram"]').first()).toBeVisible();
+    await expect(page.locator('main [data-icon="image"]')).toHaveCount(0);
+  });
+
+  /**
+   * A client navigation swaps the document without remounting the page. Without the reset in
+   * ToolIcon, one repo's failed icon would blank the next repo's.
+   */
+  test('recovers the icon after navigating away from a repo whose icon failed', async ({
+    page,
+    visit,
+  }) => {
+    await visit(`/tools/${PENDING_ICON.full_name}`);
+    await expect(page.locator('main [data-icon="monogram"]').first()).toBeVisible();
+
+    await visit(`/search?q=${encodeURIComponent(WITH_ICON.name)}`);
+    await settled(page);
+    await page.locator(`main ul > li a[href="/tools/${WITH_ICON.full_name}"]`).first().click();
+
+    await expect(page.locator('main [data-icon="image"]').first()).toBeVisible();
   });
 });

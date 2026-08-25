@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import type { ToolDocument } from '@keco/core';
 import { formatUtcDate } from '../../lib/dates';
 import { Chip } from '../primitives/chip';
+import { ToolIcon } from '../primitives/tool-icon';
 import { Meter } from '../primitives/meter';
 import { StatusPill } from '../primitives/status-pill';
 
@@ -42,6 +43,9 @@ export const ResultCard = forwardRef<HTMLAnchorElement, Props>(function ResultCa
       className="block rounded-card border border-line bg-surface p-3.5 shadow-card transition-colors hover:border-accent focus-visible:border-accent"
     >
       <div className="flex flex-wrap items-baseline gap-2">
+        {/* `self-center` because the row is `items-baseline` for its text and an icon has no
+            baseline to share; `text-2xl` sets the em the monogram's 0.5em resolves against. */}
+        <ToolIcon tool={tool} size={32} className="size-8 self-center text-2xl" />
         <span className="text-[14.5px] font-semibold text-accent-text">{tool.name}</span>
         <span className="text-[11.5px] text-faint">{tool.owner}</span>
         {tool.archived && <StatusPill tone="warn">Archived</StatusPill>}

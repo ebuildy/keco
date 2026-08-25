@@ -17,6 +17,17 @@ type MockMultiSearchQuery = MockSearchRequest & { indexUid: string };
  * Patterns are host-wildcarded (each begins with a bare `*`) so interception works whatever
  * VITE_MEILI_HOST is set to, without this module reading Vite's env.
  */
+/**
+ * One fixture whose document carries an icon descriptor but whose bytes are not in the cache.
+ *
+ * Not an oddity — it is the ordinary consequence of §2.7. The projector writes a document as
+ * soon as an analysis lands; the icon bytes arrive on the crawler's own schedule, so between
+ * the two there is a window where the descriptor is real and the PNG is a 404. The portal has
+ * to degrade to a monogram there rather than show a broken image, and that is only testable
+ * if the mock reproduces the state.
+ */
+export const ICON_BYTES_MISSING = 'ahmetb/kubectx';
+
 /** A real 1x1 PNG in the accent blue, which the browser scales into a solid placeholder tile. */
 const MOCK_ICON_PNG = Uint8Array.from(
   atob(
@@ -93,6 +104,8 @@ export const handlers = [
 
     const tool = MOCK_CORPUS.find((candidate) => candidate.full_name === fullName);
     if (!tool || tool.icon === null) return new HttpResponse(null, { status: 404 });
+    // Descriptor projected, bytes not yet crawled — see ICON_BYTES_MISSING above.
+    if (fullName === ICON_BYTES_MISSING) return new HttpResponse(null, { status: 404 });
 
     return new HttpResponse(MOCK_ICON_PNG, {
       headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' },

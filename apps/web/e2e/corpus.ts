@@ -1,5 +1,6 @@
 import { buildFilters, values, type ToolDocument } from '@keco/core';
 import { MOCK_CORPUS } from '../src/mocks/corpus/index';
+import { ICON_BYTES_MISSING } from '../src/mocks/handlers';
 import { runSearch } from '../src/mocks/engine';
 import { MOCK_READMES } from '../src/mocks/readmes';
 
@@ -62,6 +63,32 @@ export const UNKNOWN_RUNTIME: ToolDocument = (() => {
     (candidate) => candidate.runtime === 'unknown',
   );
   if (!found) throw new Error('e2e/corpus.ts: no fixture with an unknown runtime');
+  return found;
+})();
+
+/**
+ * A fixture with an icon, and one without — picked by rule rather than named, like
+ * `BARE_TOOL`. Which documents these land on depends on the corpus, and a test that hardcoded
+ * one would start asserting the fixture file the moment somebody added an icon to it.
+ */
+export const WITH_ICON: ToolDocument = (() => {
+  const found = publicSearch({ hitsPerPage: 1000 }).hits.find(
+    (candidate) => candidate.icon !== null && candidate.full_name !== ICON_BYTES_MISSING,
+  );
+  if (!found) throw new Error('e2e/corpus.ts: no fixture with an icon');
+  return found;
+})();
+
+/**
+ * The document carries an icon descriptor but the cache has no bytes for it — the window §2.7
+ * opens between the projector writing a document and the crawler fetching its artwork. The
+ * portal must show a monogram here, not a broken image.
+ */
+export const PENDING_ICON: ToolDocument = tool(ICON_BYTES_MISSING);
+
+export const ICONLESS: ToolDocument = (() => {
+  const found = publicSearch({ hitsPerPage: 1000 }).hits.find((candidate) => candidate.icon === null);
+  if (!found) throw new Error('e2e/corpus.ts: no fixture without an icon');
   return found;
 })();
 

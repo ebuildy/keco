@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import type { ToolDocument } from '@keco/core';
 import { Chip } from '../components/primitives/chip';
+import { ToolIcon } from '../components/primitives/tool-icon';
 import { StatusPill } from '../components/primitives/status-pill';
 import { FactList } from '../components/tool/fact-list';
 import { InstallTabs } from '../components/tool/install-tabs';
@@ -110,6 +111,9 @@ export function ToolPage() {
       <div className="grid gap-8 lg:grid-cols-[1fr_250px]">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-2.5">
+            {/* Decorative and aria-hidden, so the `<h1>` a crawler and a screen reader read
+                is still the tool's name alone — the prerender contract of §9 is untouched. */}
+            <ToolIcon tool={tool} size={160} className="size-16 self-center text-5xl" />
             <h1 className="text-[25px] font-bold tracking-tight text-fg">{tool.name}</h1>
             <span className="font-mono text-[12.5px] text-faint">{tool.full_name}</span>
             {tool.archived && <StatusPill tone="warn">Archived</StatusPill>}

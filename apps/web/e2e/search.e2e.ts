@@ -1,5 +1,5 @@
 import { expect, results, settled, test, toolHeading } from './app';
-import { CORPUS_TOTAL } from './corpus';
+import { CORPUS_TOTAL, ICONLESS, WITH_ICON } from './corpus';
 
 /**
  * `/search` — every piece of state is in the URL (`?q=&kind=&domain=&install=&sort=&view=`),
@@ -214,5 +214,47 @@ test.describe('search keyboard navigation', () => {
     await expect(page).toHaveURL('/search');
     await expect(page.getByLabel('Search the Kubernetes ecosystem')).toHaveValue('');
     await expect(page.getByLabel('Search the Kubernetes ecosystem')).toBeFocused();
+  });
+});
+
+test.describe('result icons', () => {
+  test('shows the project icon at the result size', async ({ page, visit }) => {
+    await visit(`/search?q=${encodeURIComponent(WITH_ICON.name)}`);
+    await settled(page);
+
+    const card = page.locator(`main ul > li:has(a[href="/tools/${WITH_ICON.full_name}"])`);
+    const icon = card.locator('[data-icon="image"]');
+    await expect(icon).toBeVisible();
+    await expect(icon).toHaveAttribute('src', `/api/icon/${WITH_ICON.full_name}/32.png`);
+    // The 2x source is the 64px derivative, not an upscale of the 32.
+    await expect(icon).toHaveAttribute(
+      'srcset',
+      new RegExp(`/api/icon/${WITH_ICON.full_name}/64\\.png 2x`),
+    );
+  });
+
+  // A result list where some cards have an image and others have nothing would read as broken.
+  test('stands a monogram in for a repo with no icon', async ({ page, visit }) => {
+    await visit(`/search?q=${encodeURIComponent(ICONLESS.name)}`);
+    await settled(page);
+
+    const card = page.locator(`main ul > li:has(a[href="/tools/${ICONLESS.full_name}"])`);
+    await expect(card.locator('[data-icon="monogram"]')).toBeVisible();
+    await expect(card.locator('[data-icon="image"]')).toHaveCount(0);
+  });
+
+  // Decorative: the repository's name is right beside it, and announcing it twice is noise.
+  test('keeps the icon out of the accessibility tree', async ({ page, visit }) => {
+    await visit(`/search?q=${encodeURIComponent(WITH_ICON.name)}`);
+    await settled(page);
+
+    const card = page.locator(`main ul > li:has(a[href="/tools/${WITH_ICON.full_name}"])`);
+    await expect(card.locator('[data-icon="image"]')).toHaveAttribute('aria-hidden', 'true');
+
+    // The card's only exposed `img` role is the health meter, which earns it: it carries a
+    // label a screen reader can read. The project icon adds nothing the adjacent name does not
+    // already say, so it must not appear here at all.
+    await expect(card.getByRole('img')).toHaveCount(1);
+    await expect(card.getByRole('img')).toHaveAccessibleName(new RegExp(`${WITH_ICON.full_name} health`));
   });
 });
