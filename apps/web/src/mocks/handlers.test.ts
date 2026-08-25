@@ -111,6 +111,24 @@ describe('mock handlers', () => {
     expect(response.status).toBe(404);
   });
 
+  // Two fixtures carry genuine artwork so `mise run web:mock` shows a real portal rather than
+  // a grid of identical squares. If these ever collapse to the placeholder, the mock has
+  // stopped showing what the feature actually looks like.
+  it.each(['argoproj/argo-cd', 'aquasecurity/trivy'])('serves %s its real logo', async (repo) => {
+    const real = await fetch(`http://localhost:7700/api/icon/${repo}/160.png`);
+    const placeholder = await fetch('http://localhost:7700/api/icon/derailed/k9s/160.png');
+
+    const realBytes = new Uint8Array(await real.arrayBuffer());
+    const placeholderBytes = new Uint8Array(await placeholder.arrayBuffer());
+
+    expect(real.status).toBe(200);
+    // A 1x1 placeholder is 70 bytes; real artwork is orders of magnitude larger.
+    expect(realBytes.byteLength).toBeGreaterThan(1000);
+    expect(realBytes.byteLength).not.toBe(placeholderBytes.byteLength);
+    // Still a PNG: the first eight bytes are the signature.
+    expect([...realBytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  });
+
   // A mock that answered 200 to a size apps/api rejects would hide the bug, not surface it.
   it('rejects an icon size the real route does not derive', async () => {
     const withIcon = MOCK_CORPUS.find((tool) => tool.icon !== null)!;

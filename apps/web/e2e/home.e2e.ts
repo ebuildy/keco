@@ -1,6 +1,6 @@
 import { formatUtcDate } from '../src/lib/dates';
 import { expect, test, toolHeading } from './app';
-import { CORPUS_TOTAL, TOP_MOMENTUM } from './corpus';
+import { CORPUS_TOTAL, ICONLESS, TOP_MOMENTUM, WITH_ICON } from './corpus';
 
 /** `/` — hero search, Browse (one chip row per facetable family), Highest momentum (§9). */
 test.describe('home page', () => {
@@ -79,5 +79,49 @@ test.describe('home page', () => {
     await expect(page.getByText('Press / anywhere to search.')).toBeVisible();
     await page.keyboard.press('/');
     await expect(page.getByLabel('Search the Kubernetes ecosystem')).toBeFocused();
+  });
+});
+
+/**
+ * The momentum grid is the third surface that renders a tool, after the result card and the
+ * tool page — and it is hand-written markup rather than a shared card, which is exactly how it
+ * was missed the first time. Every surface a reader can reach carries its own test (§13).
+ */
+test.describe('momentum card icons', () => {
+  test('shows an icon or a monogram on every momentum card', async ({ page, visit }) => {
+    await visit('/');
+
+    // The momentum list arrives from a query, so wait for the section rather than counting
+    // whatever happens to be mounted — an earlier version of this test read the grid mid-render
+    // and failed about one run in four.
+    await expect(page.getByRole('heading', { name: 'Highest momentum' })).toBeVisible();
+
+    const cards = page.locator('main ul > li:has(a[href^="/tools/"])');
+    const count = await cards.count();
+    expect(count).toBeGreaterThan(0);
+
+    // Not "some card has an icon": the icons across all cards number exactly as many as the
+    // cards, so the grid never has a ragged row where one title starts further left than its
+    // neighbour's. One auto-retrying assertion rather than a loop of them, which is what makes
+    // it immune to the race above.
+    await expect(cards.locator('[data-icon]')).toHaveCount(count);
+  });
+
+  test('uses the result-card source size, not the tool page one', async ({ page, visit }) => {
+    await visit('/');
+
+    const withIcon = page.locator(`main ul > li:has(a[href="/tools/${WITH_ICON.full_name}"])`);
+    // Only assert the source when this fixture actually made the momentum list.
+    if ((await withIcon.count()) > 0) {
+      await expect(withIcon.locator('[data-icon="image"]')).toHaveAttribute(
+        'src',
+        `/api/icon/${WITH_ICON.full_name}/32.png`,
+      );
+    }
+
+    const iconless = page.locator(`main ul > li:has(a[href="/tools/${ICONLESS.full_name}"])`);
+    if ((await iconless.count()) > 0) {
+      await expect(iconless.locator('[data-icon="monogram"]')).toBeVisible();
+    }
   });
 });

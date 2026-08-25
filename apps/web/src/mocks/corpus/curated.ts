@@ -21,6 +21,7 @@ export const CURATED: ToolDocument[] = [
     kind: 'controller', domains: ['gitops', 'ci-cd'], runtime: 'in-cluster',
     stars: 20100, forks: 6100, language: 'Go', maturity: 'cncf-graduated', governance: 'foundation',
     github_topics: ['kubernetes', 'gitops', 'continuous-delivery', 'argocd'],
+    icon: { source: 'repo-logo', source_url: 'https://raw.githubusercontent.com/argoproj/argo-cd/master/docs/assets/logo.png', fetched_at: '2026-08-25T00:00:00.000Z' },
     score: { popularity: 0.86, activity: 0.92, adoption: 0.88, quality: 0.9, quality_coverage: 1, total: 0.89, momentum: 0.72 },
   }),
   makeTool({
@@ -287,6 +288,7 @@ export const CURATED: ToolDocument[] = [
     kind: 'cli', domains: ['security'], runtime: 'ci-pipeline',
     stars: 24500, forks: 2400, maturity: 'established', governance: 'vendor-backed',
     github_topics: ['kubernetes', 'security', 'vulnerability-scanner', 'sbom'],
+    icon: { source: 'repo-logo', source_url: 'https://raw.githubusercontent.com/aquasecurity/trivy/main/docs/imgs/logo.png', fetched_at: '2026-08-25T00:00:00.000Z' },
     install_methods: [
       { method: 'brew', command: 'brew install trivy', source_url: 'https://formulae.brew.sh/formula/trivy', verified_at: '2026-08-20T00:00:00.000Z' },
     ],

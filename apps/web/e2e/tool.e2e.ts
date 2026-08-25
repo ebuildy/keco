@@ -255,6 +255,21 @@ test.describe('tool page', () => {
 });
 
 test.describe('tool page icon', () => {
+  // The Related sidebar is the fourth surface that renders a tool, and it has its own markup.
+  test('every related entry carries an icon or a monogram', async ({ page, visit }) => {
+    await visit(`/tools/${K9S.full_name}`);
+
+    const related = page.getByRole('region', { name: 'Related' });
+    await expect(related).toBeVisible();
+
+    const entries = related.locator('li');
+    const count = await entries.count();
+    expect(count).toBeGreaterThan(0);
+    for (let index = 0; index < count; index += 1) {
+      await expect(entries.nth(index).locator('[data-icon]')).toHaveCount(1);
+    }
+  });
+
   test('shows the icon beside the heading, from the large derivative', async ({ page, visit }) => {
     await visit(`/tools/${WITH_ICON.full_name}`);
 

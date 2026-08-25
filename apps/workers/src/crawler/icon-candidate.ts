@@ -31,9 +31,25 @@ const EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'webp'];
  * the project's mark — and a bare `logo.*` at the root is next. A dedicated `logo/` directory
  * is nearly as deliberate: cert-manager, one of the most prominent projects in the corpus,
  * keeps its mark at `logo/logo.svg`, and without this entry it falls all the way through to
- * its org avatar. Found by running `mise run icon` against the real repository.
+ * its org avatar.
+ *
+ * `docs/imgs` and `docs/assets` are here for the same reason: Trivy uses the first, Argo CD
+ * the second, and `docs/images` alone missed both. Every entry in this list was added because
+ * a real, prominent repository was observed falling through to its org avatar without it —
+ * `mise run icon -- --repo owner/name` is how to check the next one.
  */
-const TREE_DIRECTORIES = ['.github', '', 'logo', 'docs', 'docs/images', 'assets', 'static', 'images'];
+const TREE_DIRECTORIES = [
+  '.github',
+  '',
+  'logo',
+  'docs',
+  'docs/images',
+  'docs/imgs',
+  'docs/assets',
+  'assets',
+  'static',
+  'images',
+];
 
 const TREE_CANDIDATES = TREE_DIRECTORIES.flatMap((dir) =>
   EXTENSIONS.map((ext) => (dir === '' ? `logo.${ext}` : `${dir}/logo.${ext}`)),

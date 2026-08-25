@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import type { ToolDocument } from '@keco/core';
 import { Kbd } from '../components/primitives/kbd';
 import { Meter } from '../components/primitives/meter';
+import { ToolIcon } from '../components/primitives/tool-icon';
 import { TopicChips } from '../components/topic-chips';
 import { formatUtcDate } from '../lib/dates';
 import { browseFacets, searchErrorMessage, whatsHot } from '../lib/search';
@@ -126,13 +127,18 @@ export function HomePage() {
                   to={`/tools/${tool.full_name}`}
                   className="block h-full rounded-card border border-line bg-surface p-3.5 shadow-card transition-colors hover:border-accent"
                 >
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold text-accent-text">{tool.name}</span>
-                    <span className="ml-auto font-mono text-xs tabular-nums text-muted">
-                      {tool.score.total.toFixed(2)}
-                    </span>
+                  <div className="flex items-start gap-2.5">
+                    <ToolIcon tool={tool} size={32} className="size-8 text-2xl" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm font-semibold text-accent-text">{tool.name}</span>
+                        <span className="ml-auto font-mono text-xs tabular-nums text-muted">
+                          {tool.score.total.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-faint">{tool.owner}</div>
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-xs text-faint">{tool.owner}</div>
                   <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-fg-2">
                     {tool.summary}
                   </p>

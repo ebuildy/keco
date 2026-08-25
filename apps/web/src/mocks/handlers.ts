@@ -2,6 +2,7 @@ import { ICON_SIZES, TOOLS_INDEX } from '@keco/core';
 import { http, HttpResponse } from 'msw';
 import { MOCK_CORPUS } from './corpus/index';
 import { runSearch, type MockSearchRequest } from './engine';
+import { decodeIcon, MOCK_REAL_ICONS } from './icons';
 import { MOCK_READMES } from './readmes';
 
 /** One entry of a `POST /multi-search` body: a search request that names its own index. */
@@ -107,7 +108,9 @@ export const handlers = [
     // Descriptor projected, bytes not yet crawled — see ICON_BYTES_MISSING above.
     if (fullName === ICON_BYTES_MISSING) return new HttpResponse(null, { status: 404 });
 
-    return new HttpResponse(MOCK_ICON_PNG, {
+    // Two fixtures carry their real artwork (see ./icons); the rest get the flat placeholder.
+    const real = MOCK_REAL_ICONS[fullName]?.[Number(size)];
+    return new HttpResponse(real === undefined ? MOCK_ICON_PNG : decodeIcon(real), {
       headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' },
     });
   }),

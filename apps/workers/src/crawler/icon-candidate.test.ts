@@ -39,6 +39,15 @@ describe('resolveIconCandidate — tier 1, the file tree', () => {
     expect(found?.url).toBe(`${RAW}/.github/logo.png`);
   });
 
+  // Argo CD uses docs/assets, Trivy uses docs/imgs. docs/images alone missed both.
+  it.each([
+    ['docs/imgs/logo.png', 'aquasecurity/trivy'],
+    ['docs/assets/logo.png', 'argoproj/argo-cd'],
+  ])('finds a mark at %s, as %s ships it', (path) => {
+    const found = resolveIconCandidate(inputs({ treePaths: [path, 'README.md'] }));
+    expect(found).toEqual({ source: 'repo-logo', url: `${RAW}/${path}` });
+  });
+
   it('ignores a logo in a directory it does not recognise', () => {
     const found = resolveIconCandidate(inputs({ treePaths: ['vendor/other/logo.png'] }));
     expect(found?.source).toBe('owner-avatar');
