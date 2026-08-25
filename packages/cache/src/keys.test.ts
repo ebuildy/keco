@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { discoveryKeys, ICON_SIZES, repoKeys } from './keys';
+import { ICON_SIZES } from '@keco/core';
+import { discoveryKeys, repoKeys } from './keys';
 
 describe('discoveryKeys', () => {
   const keys = discoveryKeys('kubernetes');
@@ -135,6 +136,8 @@ describe('repoKeys icons', () => {
   });
 
   it('exports the sizes it derives, so no caller hardcodes the list', () => {
+    // Declared in @keco/core so the portal can read it too; pinned here because `icon(size)`
+    // is the key builder that has to stay in step with it.
     expect(ICON_SIZES).toEqual([32, 64, 160]);
   });
 });

@@ -3,13 +3,9 @@
  * query layer. If you find yourself wanting to search the cache, you want the journal.
  */
 
-/**
- * The rendered sizes, and the only sizes `apps/api` will serve: 32 for a result card, 64 for
- * its 2× source, 160 for the tool page. Exported so the worker, the route and the portal all
- * read one list instead of three hardcoded ones drifting apart.
- */
-export const ICON_SIZES = [32, 64, 160] as const;
-export type IconSize = (typeof ICON_SIZES)[number];
+// The size vocabulary lives in @keco/core, not here: the portal needs it too and a browser
+// bundle may not import @keco/cache (§7). This file owns the *keys*, not the sizes.
+import type { IconSize } from '@keco/core';
 
 export const repoKeys = (repo: string) => ({
   /** GitHub repo API response, verbatim. */

@@ -100,6 +100,19 @@ export const IconDescriptor = z.object({
 });
 export type IconDescriptor = z.infer<typeof IconDescriptor>;
 
+/**
+ * The rendered icon sizes, and the only sizes `apps/api` will serve: 32 for a result card, 64
+ * for its 2× source, 160 for the tool page.
+ *
+ * Here rather than in `@keco/cache` — beside the descriptor whose bytes they size — because
+ * the portal needs this list too, and a browser bundle may not import `@keco/cache` (§7). This
+ * is the same reason `MAX_TOTAL_HITS` and `isSortKey` live in this package (§11): read-side
+ * vocabulary that both the browser and the server have to agree on. `packages/cache` imports
+ * `IconSize` back from here to type its key builder.
+ */
+export const ICON_SIZES = [32, 64, 160] as const;
+export type IconSize = (typeof ICON_SIZES)[number];
+
 /** A document in the `tools` index. Under 8 KB — the full README stays in the cache (§5). */
 export const ToolDocument = z.object({
   id: z.string(), // owner__repo — Meilisearch primary keys allow [A-Za-z0-9_-] only

@@ -1,5 +1,6 @@
 import type { Cache } from '@keco/cache';
-import { ICON_SIZES, repoKeys, type IconSize } from '@keco/cache/keys';
+import { repoKeys } from '@keco/cache/keys';
+import { ICON_SIZES, type IconSize } from '@keco/core';
 import sharp from 'sharp';
 import { resolveIconCandidate, type IconInputs } from './icon-candidate';
 
