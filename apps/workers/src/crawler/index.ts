@@ -43,6 +43,14 @@ async function main(): Promise<void> {
   //      releases, always conditional on the stored ETag.
   //   4. write repo.json / readme.md / readme.json / tree.json / releases.json / manifests
   //      verbatim, compute contentHash(), write _fetch.json, emit RepoFetched.
+  //   5. icons — call updateIcon() from ./icon with the repo.json, tree.json and readme.md
+  //      just written (docs/superpowers/specs/2026-08-24-project-icons-design.md §2.3). It
+  //      never throws: a repo with no usable icon records why in icon.json and the crawl
+  //      carries on. Icon bytes are deliberately NOT part of contentHash() — a logo that
+  //      moves changes tree.json and so changes the hash already, and folding the bytes in
+  //      would invalidate the whole corpus for a cosmetic field.
+  //      Until this loop exists, `mise run icon -- --repo owner/name` runs the same pipeline
+  //      for one repo.
   //   Honour x-ratelimit-remaining and back off on 403/429 — a crawl that gets the token
   //   throttled is a failed crawl.
   void ownsShard;

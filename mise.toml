@@ -81,6 +81,10 @@ run = [
   "pnpm -F @keco/api check",
 ]
 
+[tasks.icon]
+description = "Fetch and derive one repo's icon, standalone. Args: --repo owner/name"
+run = "pnpm -F @keco/workers icon"
+
 [tasks."admin:hash"]
 description = "Hash a password for ADMIN_PASSWORD_HASH. Args: --password 'secret'"
 run = "pnpm -F @keco/api admin:hash"

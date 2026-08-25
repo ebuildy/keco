@@ -25,6 +25,20 @@ describe('resolveIconCandidate — tier 1, the file tree', () => {
     expect(found).toEqual({ source: 'repo-logo', url: `${RAW}/docs/images/logo.png` });
   });
 
+  // cert-manager keeps its mark at logo/logo.svg. Before this entry existed it fell through
+  // to the org avatar, which is a weaker claim about a project that clearly has its own logo.
+  it('finds a mark in a dedicated logo/ directory', () => {
+    const found = resolveIconCandidate(inputs({ treePaths: ['logo/logo.svg', 'README.md'] }));
+    expect(found).toEqual({ source: 'repo-logo', url: `${RAW}/logo/logo.svg` });
+  });
+
+  it('still prefers .github/ over a logo/ directory', () => {
+    const found = resolveIconCandidate(
+      inputs({ treePaths: ['logo/logo.svg', '.github/logo.png'] }),
+    );
+    expect(found?.url).toBe(`${RAW}/.github/logo.png`);
+  });
+
   it('ignores a logo in a directory it does not recognise', () => {
     const found = resolveIconCandidate(inputs({ treePaths: ['vendor/other/logo.png'] }));
     expect(found?.source).toBe('owner-avatar');

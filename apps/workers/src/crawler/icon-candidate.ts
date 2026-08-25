@@ -28,9 +28,12 @@ const EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'webp'];
 
 /**
  * Ordered best-first. `.github/` is the strongest signal — a file there was put there to be
- * the project's mark — and a bare `logo.*` at the root is next.
+ * the project's mark — and a bare `logo.*` at the root is next. A dedicated `logo/` directory
+ * is nearly as deliberate: cert-manager, one of the most prominent projects in the corpus,
+ * keeps its mark at `logo/logo.svg`, and without this entry it falls all the way through to
+ * its org avatar. Found by running `mise run icon` against the real repository.
  */
-const TREE_DIRECTORIES = ['.github', '', 'docs', 'docs/images', 'assets', 'static', 'images'];
+const TREE_DIRECTORIES = ['.github', '', 'logo', 'docs', 'docs/images', 'assets', 'static', 'images'];
 
 const TREE_CANDIDATES = TREE_DIRECTORIES.flatMap((dir) =>
   EXTENSIONS.map((ext) => (dir === '' ? `logo.${ext}` : `${dir}/logo.${ext}`)),
