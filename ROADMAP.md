@@ -32,7 +32,11 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
 - ⬜ **crawler** — registry seeds (CNCF landscape, krew index, Artifact Hub, OperatorHub,
   curated `awesome-*`) before keyword search; sharded GitHub Search by stars/created windows;
   GraphQL for bulk metadata, REST for README/tree/releases; ETag on everything; skip rules with
-  a recorded reason.
+  a recorded reason. **Icons ship ahead of it**: `apps/workers/src/crawler/icon.ts` finds a
+  project's mark (committed logo → README image → owner avatar), stores the bytes verbatim and
+  derives 32/64/160 PNGs with sharp. The call site is written into the crawler's TODO, and
+  `mise run icon -- --repo owner/name` runs the pipeline standalone today. See
+  `docs/superpowers/specs/2026-08-24-project-icons-design.md`.
 - ⬜ **analyzer pass 1** — local rules over cached payloads, each new rule shipping with a
   fixture that proves it.
 - ⬜ **analyzer pass 2** — Scorecard, deps.dev, OSV, Homebrew, krew, Artifact Hub behind the TTL
@@ -52,8 +56,9 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
   keyboard navigation (`/`, arrows, enter, escape) and empty states that suggest a next step.
 - 🚧 **Tool page** — prerendered for the top 1000 by score, README rendered from the cache by
   `apps/api` (sanitised, relative URLs rewritten, badge paragraph stripped, Shiki), install tabs
-  with registry proof, and a score breakdown showing `quality_coverage`. Still to do: adopters
-  with an `evidence_url` — blocked on the projector emitting them, not on the UI.
+  with registry proof, a project icon beside the heading, and a score breakdown showing
+  `quality_coverage`. Still to do: adopters with an `evidence_url` — blocked on the projector
+  emitting them, not on the UI.
 - ✅ **Theme** — light/dark design system across all four routes, tokens through Tailwind v4's
   `@theme inline`, applied before first paint and asserted by the prerender. Colour encodes state
   rather than taxonomy category, and every text token clears WCAG 4.5:1. See

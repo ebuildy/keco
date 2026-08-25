@@ -122,6 +122,9 @@ cache/
 │   ├── tree.json           # file tree (paths only, truncated flag)
 │   ├── releases.json       # latest N releases
 │   ├── manifests/          # go.mod, Chart.yaml, package.json, Cargo.toml… when present
+│   ├── icon.src            # icon bytes, verbatim; the real content type is in icon.json
+│   ├── icon-{32,64,160}.png # derived with sharp — re-derivable offline, never re-crawled
+│   ├── icon.json           # { source, source_url, content_type, bytes, etag, sizes, fetched_at, error }
 │   └── _fetch.json         # { etags, fetched_at, content_hash, source }
 ├── external/{provider}/{key}.json   # every third-party response + { fetched_at, ttl, status }
 ├── analysis/{owner}/{repo}.json     # analyzer output, schema-validated
@@ -368,6 +371,7 @@ the backoffice can exist without giving anyone write access to anything.
   signals: { scorecard: { score, checks, fetched_at } | null,
              osv: { open_vulns } | null, dependents: number | null },
   readme_excerpt,              // ~1.5 KB — the full README comes from the cache, via apps/api
+  icon,                        // { source, source_url, fetched_at } | null — bytes via apps/api
   _vectors,                    // v2
   analysis_method, analysis_model, content_hash, signals_used[], indexed_at
 }
@@ -590,6 +594,14 @@ markdown by key and returns **sanitised** HTML (rehype-sanitize), with relative 
 URLs rewritten against `image_base_url`, the top badge-only paragraph stripped, and Shiki
 highlighting applied server-side. Rendering untrusted README markdown in the browser without
 that server-side sanitise step is a stored-XSS hole across the whole corpus.
+
+**The icon comes the same way, and for the same reason.** `GET /api/icon/{owner}/{repo}/{32|64|160}.png`
+serves a PNG the crawler rasterised from the verbatim `icon.src`, so nothing active from a
+stranger's SVG ever reaches a reader — the rasterise *is* the sanitise, with `nosniff` and a
+`default-src 'none'` CSP behind it. The document's `icon` descriptor says whether one exists,
+so an iconless repo renders a deterministic monogram tile and fires no request at all. The
+monogram's hue is decorative and derived from the repo name: it encodes no state, which is
+what keeps it clear of the colour rule above.
 
 ### SEO without SSR
 
