@@ -102,6 +102,10 @@ export function makeTool(overrides: ToolOverrides): ToolDocument {
 
     readme_excerpt: `# ${name}\n\nMock README excerpt for ${repo}.`,
 
+    // Most of the corpus has no icon until the crawler reaches it; curated.ts overrides the
+    // handful that exercise the other states.
+    icon: null,
+
     analysis_method: 'rules',
     analysis_model: null,
     content_hash: `mock-${toDocumentId(repo)}`,

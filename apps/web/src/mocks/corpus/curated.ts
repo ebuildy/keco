@@ -39,6 +39,7 @@ export const CURATED: ToolDocument[] = [
     kind: 'cli', domains: ['dev-experience', 'troubleshooting'], runtime: 'workstation',
     stars: 28900, forks: 1800, maturity: 'established', governance: 'individual',
     github_topics: ['kubernetes', 'cli', 'terminal', 'k9s'],
+    icon: { source: 'repo-logo', source_url: 'https://raw.githubusercontent.com/derailed/k9s/master/assets/logo.png', fetched_at: '2026-08-24T00:00:00.000Z' },
     install_methods: [
       { method: 'brew', command: 'brew install k9s', source_url: 'https://formulae.brew.sh/formula/k9s', verified_at: '2026-08-20T00:00:00.000Z' },
     ],
@@ -63,6 +64,7 @@ export const CURATED: ToolDocument[] = [
     kind: 'operator', domains: ['security', 'secrets'], runtime: 'in-cluster',
     stars: 12600, forks: 2100, maturity: 'cncf-graduated', governance: 'foundation',
     github_topics: ['kubernetes', 'tls', 'certificates', 'acme'],
+    icon: { source: 'owner-avatar', source_url: 'https://avatars.githubusercontent.com/u/39950598?s=460', fetched_at: '2026-08-24T00:00:00.000Z' },
     score: { popularity: 0.8, activity: 0.86, adoption: 0.82, quality: 0.87, quality_coverage: 1, total: 0.84, momentum: 0.45 },
   }),
   makeTool({
@@ -72,6 +74,7 @@ export const CURATED: ToolDocument[] = [
     kind: 'kubectl-plugin', domains: ['dev-experience'], runtime: 'workstation',
     stars: 18200, forks: 1300, maturity: 'established', governance: 'individual',
     github_topics: ['kubernetes', 'kubectl', 'kubectl-plugin', 'kubernetes-cli'],
+    icon: { source: 'repo-logo', source_url: 'https://raw.githubusercontent.com/ahmetb/kubectx/master/img/logo.png', fetched_at: '2026-08-24T00:00:00.000Z' },
     install_methods: [
       { method: 'brew', command: 'brew install kubectx', source_url: 'https://formulae.brew.sh/formula/kubectx', verified_at: '2026-08-20T00:00:00.000Z' },
       { method: 'krew', command: 'kubectl krew install ctx', source_url: 'https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/ctx.yaml', verified_at: '2026-08-20T00:00:00.000Z' },

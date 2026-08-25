@@ -1,4 +1,5 @@
 import { toDocumentId } from '@keco/core';
+import { MOCK_CORPUS } from './corpus/index';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { handlers } from './handlers';
@@ -94,5 +95,26 @@ describe('mock handlers', () => {
   it('404s a README that was never cached — an ordinary pre-crawl state', async () => {
     const response = await fetch('http://localhost:7700/api/readme/mockcorp/nothing-here');
     expect(response.status).toBe(404);
+  });
+
+  it('serves PNG bytes for a tool that has an icon', async () => {
+    const withIcon = MOCK_CORPUS.find((tool) => tool.icon !== null)!;
+    const response = await fetch(`http://localhost:7700/api/icon/${withIcon.full_name}/32.png`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  });
+
+  it('404s an icon for a tool that has none, like the real route', async () => {
+    const without = MOCK_CORPUS.find((tool) => tool.icon === null)!;
+    const response = await fetch(`http://localhost:7700/api/icon/${without.full_name}/32.png`);
+    expect(response.status).toBe(404);
+  });
+
+  // A mock that answered 200 to a size apps/api rejects would hide the bug, not surface it.
+  it('rejects an icon size the real route does not derive', async () => {
+    const withIcon = MOCK_CORPUS.find((tool) => tool.icon !== null)!;
+    const response = await fetch(`http://localhost:7700/api/icon/${withIcon.full_name}/128.png`);
+    expect(response.status).toBe(400);
   });
 });

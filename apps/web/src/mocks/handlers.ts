@@ -1,4 +1,4 @@
-import { TOOLS_INDEX } from '@keco/core';
+import { ICON_SIZES, TOOLS_INDEX } from '@keco/core';
 import { http, HttpResponse } from 'msw';
 import { MOCK_CORPUS } from './corpus/index';
 import { runSearch, type MockSearchRequest } from './engine';
@@ -17,6 +17,14 @@ type MockMultiSearchQuery = MockSearchRequest & { indexUid: string };
  * Patterns are host-wildcarded (each begins with a bare `*`) so interception works whatever
  * VITE_MEILI_HOST is set to, without this module reading Vite's env.
  */
+/** A real 1x1 PNG in the accent blue, which the browser scales into a solid placeholder tile. */
+const MOCK_ICON_PNG = Uint8Array.from(
+  atob(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMwynn6HwAE2gKDj5MdkgAAAABJRU5ErkJggg==',
+  ),
+  (character) => character.charCodeAt(0),
+);
+
 export const handlers = [
   http.post(`*/indexes/${TOOLS_INDEX}/search`, async ({ request }) => {
     const body = (await request.json()) as MockSearchRequest;
@@ -67,6 +75,27 @@ export const handlers = [
         indexUid,
         ...runSearch(MOCK_CORPUS, query),
       })),
+    });
+  }),
+
+  /**
+   * Mirrors `apps/api`'s icon route, including its refusals — a mock that answered 200 to a
+   * size the real route rejects would hide the bug rather than surface it.
+   *
+   * The bytes are a flat square, deliberately not a fabricated *logo*: the portal's contract
+   * is that an icon is the project's own mark, and a mock that invented plausible artwork
+   * would teach the wrong thing to anyone reading it.
+   */
+  http.get('*/api/icon/:owner/:repo/:size.png', ({ params }) => {
+    const fullName = `${String(params.owner)}/${String(params.repo)}`;
+    const size = String(params.size);
+    if (!ICON_SIZES.map(String).includes(size)) return new HttpResponse(null, { status: 400 });
+
+    const tool = MOCK_CORPUS.find((candidate) => candidate.full_name === fullName);
+    if (!tool || tool.icon === null) return new HttpResponse(null, { status: 404 });
+
+    return new HttpResponse(MOCK_ICON_PNG, {
+      headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' },
     });
   }),
 
