@@ -115,4 +115,39 @@ describe('run', () => {
     expect(exitCode).toBe(1);
     expect(errors[0]?.err).toBe('cache is on fire');
   });
+
+  /**
+   * This is the branch that actually fires in production. Commander's `_callParseArg` catches
+   * every `InvalidArgumentError` thrown by our own validators — `positiveInteger`, `repoName`,
+   * and so on — at real parse time and rewraps it into exactly this shape: a `CommanderError`
+   * with `code: 'commander.invalidArgument'` and `exitCode: 1`. So a mistyped `--limit 0` does
+   * not take the "ordinary failure" path above; it takes this one. Commander has already
+   * printed its own "error: option ... is invalid" message to stderr, which is why the
+   * fallthrough must stay silent — a future edit that started logging here would double every
+   * bad-flag message a user sees, and nothing but this test would notice.
+   */
+  it('stays silent on the fallthrough branch for an ordinary commander parse error', async () => {
+    const errors: unknown[] = [];
+    const warnings: unknown[] = [];
+    const exitCode = await run(
+      'test',
+      async () => {
+        throw new CommanderError(
+          1,
+          'commander.invalidArgument',
+          "error: option '-l, --limit <n>' argument '0' is invalid. must be a positive integer",
+        );
+      },
+      {
+        log: {
+          error: (fields) => errors.push(fields),
+          warn: (fields) => warnings.push(fields),
+        },
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(errors).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
 });
