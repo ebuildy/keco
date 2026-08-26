@@ -188,7 +188,11 @@ Consequences that matter:
   cheap to iterate on.
 - The projector is pure: cache in, index out, no network. It must stay that way — it is the
   thing you re-run most often.
-- The projector is the only writer to Meilisearch. Nothing else writes to it, ever.
+- The projector is the only writer to Meilisearch. Nothing else writes to it, ever. The one
+  exception is `engine seed` (`apps/workers/src/engine`), dev-only tooling that pushes
+  `infra/mock/corpus.json` into a local index so the search engine can be exercised before
+  the projector fills it: it consumes no journal, advances no checkpoint and writes only
+  sentinel-stamped fixtures. It refuses a non-local `MEILI_HOST` (§8).
 - Scale out by **deterministic sharding** (`hash(repo) % SHARD_COUNT == SHARD_INDEX`), not by
   locks or leases. There is no coordination primitive here and you must not invent one.
 - Every worker is safe to kill at any moment. Crash mid-batch ⇒ checkpoint not advanced ⇒
@@ -535,6 +539,10 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run e2e` | Portal end-to-end tests — Playwright drives the real SPA against the in-browser mock backend, so no Meilisearch, no `apps/api` and no token (§9). Not part of `ci`: it needs a browser download, which `e2e:install` does once |
 | `mise run format` | prettier |
 | `mise run ci` | check + lint + test + taxonomy:check — the gate for §15 |
+| `mise run engine -- --help` | The read-model CLI (`apps/workers/src/engine`, commander): `index create` and `seed`. Every command takes `--host` and `--index` |
+| `mise run engine:index` | `engine index create` — bootstrap an index with the real `tools` settings. **Safe on production**: it applies settings only to an index that is missing or empty, and refuses to reindex a populated one without `--force-settings` (§5) |
+| `mise run engine:seed` | `engine seed` — validate `infra/mock/corpus.json` and upsert it. Fabricated data: it refuses a non-local host without `--force` (§14) |
+| `mise run mock` / `mock:corpus` | The local search sandbox (`engine:index` + `engine:seed --clear`) · re-emit the corpus JSON from `apps/web/src/mocks/corpus`, the only seam the two sides share (§7) |
 | `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
 
 `package.json`'s own `scripts` exist only so `pnpm <script>` works from muscle memory; each one

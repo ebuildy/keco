@@ -10,7 +10,8 @@
     "discovery": "node --import tsx src/discovery/index.ts",
     "analyzer": "tsx src/analyzer/index.ts",
     "projector": "tsx src/projector/index.ts",
-    "replay": "tsx src/replay/index.ts"
+    "replay": "tsx src/replay/index.ts",
+    "engine": "tsx src/engine/cli.ts"
   },
   "dependencies": {
     "@keco/analyze": "workspace:*",
@@ -19,6 +20,7 @@
     "@keco/github": "workspace:*",
     "@keco/search": "workspace:*",
     "@keco/signals": "workspace:*",
+    "commander": "^15.0.0",
     "dotenv": "^17.4.2",
     "pino": "^10.3.1",
     "sharp": "^0.35.3",

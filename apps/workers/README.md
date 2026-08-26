@@ -7,6 +7,9 @@ cache → append events → advance the checkpoint.
 There is no queue server, no broker, no lock manager and no database. The filesystem is the job
 state.
 
+Alongside them lives **[`engine`](#the-engine-cli)**, which is not a worker at all: a one-shot
+operator CLI for the read model, run by hand rather than by a schedule.
+
 > [!NOTE]
 > These processes are the **write side**. None of them may ever read a read model — an analyzer
 > that queries Meilisearch to decide what to work on has broken the pattern, and the coupling
@@ -30,6 +33,7 @@ state.
 | **projector** | `RepoAnalyzed` | Meilisearch `tools`, `repos_state` | none | ⬜ scaffolded |
 
 `replay` is the fifth entrypoint and not a worker: it resets one consumer's checkpoint.
+`engine` is the sixth, and also not a worker — see [The `engine` CLI](#the-engine-cli).
 
 > [!IMPORTANT]
 > The scaffolded three run, log their checkpoint, walk the journal and exit. Each carries a
@@ -85,6 +89,10 @@ mise run rebuild                                    # projector --rebuild: full 
 
 mise run replay    -- --consumer analyzer           # reset a checkpoint
 mise run pipeline                                   # crawl 200 seeded repos → analyze → project
+
+mise run engine    -- --help                        # the read-model CLI: index create, seed
+mise run engine:index                               # create `tools` with the real settings
+mise run mock                                       # …and fill it with fixtures, for local search
 ```
 
 > [!TIP]
@@ -111,7 +119,7 @@ Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl.
 ### Test, check, lint
 
 ```bash
-pnpm vitest run apps/workers     # this app's suites (6 files, 68 tests)
+pnpm vitest run apps/workers     # this app's suites (11 files, 139 tests)
 pnpm -F @keco/workers check      # tsc --noEmit
 mise run ci                      # what must be green before you call it done
 ```
@@ -136,10 +144,137 @@ Validated with zod at boot (`src/lib/config.ts`).
 | `GITHUB_TOKEN` | `''` | Classic PAT, `public_repo` scope |
 | `GITHUB_QUOTA_CRAWLER_SHARE` | `0.8` | How the 5000 points/hour splits between crawler and analyzer |
 | `CACHE_DIR` | `.cache` | The write model. A relative path resolves against the **workspace root**, not the process cwd, so every worker and `apps/api` share one cache |
-| `MEILI_HOST` / `MEILI_MASTER_KEY` | `localhost:7700` | Projector only |
+| `MEILI_HOST` / `MEILI_MASTER_KEY` | `localhost:7700` | Projector and `engine`; both accept `--host` to override for one run |
 | `SHARD_COUNT` / `SHARD_INDEX` | `1` / `0` | Deterministic sharding — `hash(repo) % SHARD_COUNT == SHARD_INDEX` |
 | `ANTHROPIC_API_KEY` / `ANALYZER_MODEL` | — / `claude-haiku-4-5-20251001` | Analyzer pass 3, deliberately a cheap model |
 | `LOG_LEVEL` | `info` | pino |
+
+## The `engine` CLI
+
+Not a worker: a one-shot command that runs to completion, consumes no journal and advances no
+checkpoint. It is the tooling you run *around* the read model rather than inside the pipeline.
+Built with [commander](https://github.com/tj/commander.js).
+
+```
+engine
+├── index create      bootstrap an index with the real `tools` settings     (safe on production)
+└── seed              fill an index with the mock corpus                    (local only)
+```
+
+```bash
+mise run engine -- --help              # every command
+mise run engine -- seed --help         # one command's flags
+```
+
+The two commands have deliberately different blast radii, and each owns its own guard rather
+than sharing one: creating an index is how a fresh deployment starts, while seeding pushes
+fabricated `install_methods` and must never reach a real corpus (§6).
+
+Both take the same two flags:
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-H, --host <url>` | `$MEILI_HOST`, else `http://localhost:7700` | Which Meilisearch to talk to |
+| `-i, --index <uid>` | `tools` | Which index to act on |
+
+They are attached to each command rather than to the root, so `engine index create --index x`
+works and reads the right way round.
+
+### `engine index create`
+
+Creates the index if it is missing and applies the real `tools` settings from `@keco/search` —
+the searchable, filterable and sortable attributes plus the ranking rules. An index without
+them is not worth searching: no facets, no `score.total` tie-break, no typo tolerance.
+
+**This is the one command here that is safe to run against production.** It is how a new
+deployment's index is bootstrapped, and it is idempotent. What it will *not* do is re-apply
+settings to an index that already holds documents, because a settings change reindexes the
+whole corpus and §5 forbids that on the live alias.
+
+| Index state | What happens |
+|---|---|
+| Missing | Created, settings applied |
+| Exists, empty | Settings applied — nothing to reindex |
+| Exists, populated | **Settings not applied.** Warns, exits `0` |
+| Exists, populated, `--force-settings` | Settings applied — reindexes every document |
+
+```bash
+mise run engine:index                                       # bootstrap `tools` locally
+mise run engine -- index create --host https://search.internal --index tools_20260826
+mise run engine -- index create --force-settings            # only on a disposable index
+```
+
+The populated case exits `0` rather than failing, so a bootstrap step in a deploy script stays
+idempotent; it logs at `warn` so the decision is visible in a deploy log.
+
+> [!IMPORTANT]
+> To change settings on a corpus that is already serving, `--force-settings` is the wrong tool.
+> Build a new index, apply settings to it, verify the document count, then swap the alias
+> (§4.4) — that is the path with a rollback.
+
+### `engine seed`
+
+Reads [`infra/mock/corpus.json`](../../infra/mock/README.md) — 300 fabricated documents shared
+with the portal's mock backend — validates every one, and upserts them in batches, awaiting
+each Meilisearch task before starting the next.
+
+It exists because the projector is still scaffolded. Until it lands, nothing fills `tools`, and
+the search engine cannot be exercised at all without something in it.
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-b, --batch <n>` | `500` | Documents per batch |
+| `--clear` | off | Delete every existing document first |
+| `--force` | off | Allow a non-local `--host` |
+
+```bash
+mise run mock                          # index create + seed --clear, from nothing
+mise run engine:seed -- --clear        # reseed after editing the fixtures
+mise run engine -- seed --batch 50     # smaller batches, to watch the task queue
+```
+
+`mise run engine:seed` depends on `mock:corpus`, so the JSON is re-emitted from
+`apps/web/src/mocks/corpus` before every seed and cannot go stale.
+
+#### Three guards, and why
+
+The corpus carries invented stars, scores and — the one that matters — invented
+`install_methods`. §6 calls a `brew install` line for a formula that does not exist the worst
+bug this project can ship. So:
+
+1. **Every document must carry the mock sentinel** (`KECO_MOCK_CORPUS_DO_NOT_SHIP`) in
+   `discovery_source`. The command refuses a corpus where one does not, so it cannot be
+   repurposed to push real documents — and anything it wrote can be found by filtering on it.
+2. **Every document is parsed through `ToolDocument`.** The taxonomy is data (§6), so
+   `governance: 'vendor_backed'` is not a type error; Meilisearch would accept it happily and
+   no chip would ever match. Validation is the only thing that catches it.
+3. **A non-local `--host` is refused** unless you type `--force`.
+
+It also refuses an index that does not exist rather than creating an unconfigured one — run
+`engine index create` first.
+
+### Output and exit codes
+
+Structured pino JSON on stdout, like the workers. `0` on success, including the
+populated-index case above, which is a decision rather than a failure. `1` on any error, with
+the message on the `err` field. Commander handles `--help`, unknown flags and invalid argument
+values itself, so `--batch 0` is a usage error rather than an exception.
+
+### A local search sandbox from nothing
+
+```bash
+mise run infra:up      # Meilisearch on :7700
+mise run mock          # engine index create + engine seed --clear
+mise run web           # the portal, now searching a real engine
+```
+
+### Where the logic lives
+
+`index.ts` entrypoints cannot be unit-tested (see above), and the same rule shaped this CLI:
+`cli.ts` is argument wiring only. `planIndexCreate` in `create-index.ts` decides what to do to
+an index from its observed state, `seed.ts` holds the batching loop and the local-host guard
+with no Meilisearch client in sight, and `corpus.ts` owns loading and validation. All three are
+unit-tested; `cli.ts` is not, because there is nothing in it to test.
 
 ## Rules this app is held to
 
@@ -171,4 +306,6 @@ Validated with zod at boot (`src/lib/config.ts`).
   not invent one.
 - **The projector stays pure** — cache in, index out, no network beyond Meilisearch — and is
   the **only** writer to Meilisearch. Advance its checkpoint only after `waitForTask`, or a
-  crash loses a batch silently.
+  crash loses a batch silently. `engine seed` is the one documented exception (§4), and it
+  earns it: no journal, no checkpoint, sentinel-stamped fixtures only, and it refuses a
+  non-local host. It is not precedent for a second writer that does none of those things.

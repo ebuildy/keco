@@ -162,6 +162,34 @@ run = [
   "pnpm -F @keco/workers projector",
 ]
 
+# ── read-model engine + mock corpus ──────────────────────────────────────────
+
+[tasks.engine]
+description = "Read-model CLI (commander). `mise run engine -- --help` lists the commands: index create, seed"
+run = "pnpm -F @keco/workers engine"
+
+[tasks."engine:index"]
+description = "Create the target index with the real tools settings. Idempotent, and safe on production: it refuses to reindex an index that already holds documents unless --force-settings. Args: --index tools --host URL"
+run = "pnpm -F @keco/workers engine index create"
+
+[tasks."engine:seed"]
+description = "Fill the index with infra/mock/corpus.json — fabricated data, local Meilisearch only. Args: --index tools --batch 500 --clear --force"
+depends = ["mock:corpus"]
+run = "pnpm -F @keco/workers engine seed"
+
+[tasks."mock:corpus"]
+description = "Emit the portal's mock corpus to infra/mock/corpus.json — the shared fixture the seeder reads. Fabricated data, dev only"
+run = "pnpm -F @keco/web mock:corpus"
+sources = ["apps/web/src/mocks/corpus/*.ts", "apps/web/scripts/emit-mock-corpus.ts"]
+outputs = ["infra/mock/corpus.json"]
+
+[tasks.mock]
+description = "Local search sandbox: create the index and fill it with the mock corpus, so Meilisearch itself can be exercised before the projector exists"
+run = [
+  "mise run engine:index",
+  "mise run engine:seed -- --clear",
+]
+
 # ── read side / infra ────────────────────────────────────────────────────────
 
 [tasks."search:settings"]
