@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "prerender": "node --import tsx prerender/index.ts",
     "assert:no-mocks": "node --import tsx scripts/assert-no-mocks.ts dist",
+    "mock:corpus": "node --import tsx scripts/emit-mock-corpus.ts",
     "check": "tsc --noEmit"
   },
   "dependencies": {
