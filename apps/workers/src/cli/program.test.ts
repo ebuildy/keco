@@ -1,5 +1,6 @@
 import { CommanderError } from 'commander';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { config } from '../lib/config';
 import { buildProgram, type Handlers } from './program';
 
 /**
@@ -77,6 +78,11 @@ describe('repo crawl', () => {
   it('validates --repo as owner/name', async () => {
     await expect(parse('repo', 'crawl', '--repo', 'argo-cd')).rejects.toThrow(CommanderError);
   });
+
+  it('passes a valid --repo through', async () => {
+    await parse('repo', 'crawl', '--repo', 'argoproj/argo-cd');
+    expect(optionsPassedTo('repoCrawl')).toMatchObject({ repo: 'argoproj/argo-cd' });
+  });
 });
 
 describe('repo analyze', () => {
@@ -127,11 +133,59 @@ describe('project', () => {
 });
 
 describe('index', () => {
-  it('create defaults --index to the tools alias and --force-settings to false', async () => {
+  it('create defaults --host to config.MEILI_HOST, --index to the tools alias and --force-settings to false', async () => {
     await parse('index', 'create');
     expect(optionsPassedTo('indexCreate')).toMatchObject({
+      host: config.MEILI_HOST,
       index: 'tools',
       forceSettings: false,
+    });
+  });
+
+  it('create reads --host and --index', async () => {
+    await parse(
+      'index',
+      'create',
+      '--host',
+      'http://meili.internal:7700',
+      '--index',
+      'tools_20260101',
+    );
+    expect(optionsPassedTo('indexCreate')).toMatchObject({
+      host: 'http://meili.internal:7700',
+      index: 'tools_20260101',
+    });
+  });
+
+  it('create reads the short forms -H and -i', async () => {
+    await parse('index', 'create', '-H', 'http://meili.internal:7700', '-i', 'tools_20260101');
+    expect(optionsPassedTo('indexCreate')).toMatchObject({
+      host: 'http://meili.internal:7700',
+      index: 'tools_20260101',
+    });
+  });
+
+  it('seed defaults --batch to 500, --clear to false and --force to false', async () => {
+    await parse('index', 'seed');
+    expect(optionsPassedTo('indexSeed')).toMatchObject({
+      batch: 500,
+      clear: false,
+      force: false,
+    });
+  });
+
+  it('seed reads --host and --index', async () => {
+    await parse(
+      'index',
+      'seed',
+      '--host',
+      'http://meili.internal:7700',
+      '--index',
+      'tools_20260101',
+    );
+    expect(optionsPassedTo('indexSeed')).toMatchObject({
+      host: 'http://meili.internal:7700',
+      index: 'tools_20260101',
     });
   });
 
