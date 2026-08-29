@@ -365,7 +365,7 @@ export function assertDocumentId(id: string, collection: string, primaryKey: str
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.test.ts`
-Expected: PASS, 17 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -660,7 +660,7 @@ export function describeDataStore(
 - [ ] **Step 2: Verify it compiles and collects nothing on its own**
 
 Run: `pnpm -F @keco/workers check && pnpm vitest run apps/workers/src/lib/`
-Expected: typecheck passes; vitest runs only `data-store.test.ts` (17 tests) — the conformance
+Expected: typecheck passes; vitest runs only `data-store.test.ts` (16 tests) — the conformance
 file is not a `*.test.ts` and is not collected.
 
 - [ ] **Step 3: Commit**
