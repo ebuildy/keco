@@ -65,9 +65,11 @@ describe('assertDocumentId', () => {
   });
 
   it('rejects an id past the filesystem-safe length bound', () => {
-    const tooLong = 'a'.repeat(256);
-    expect(() => assertDocumentId(tooLong, 'widgets', 'id')).toThrow(/widgets\.id/);
-    expect(() => assertDocumentId('a'.repeat(255), 'widgets', 'id')).not.toThrow();
+    // 250, not the 255-byte NAME_MAX: the filesystem store appends `.json` to the id, and
+    // this assertion pins the length message specifically so a wrong-but-truthy error from
+    // the charset check further down could not slip past it unnoticed.
+    expect(() => assertDocumentId('a'.repeat(251), 'widgets', 'id')).toThrow(/251 characters/);
+    expect(() => assertDocumentId('a'.repeat(250), 'widgets', 'id')).not.toThrow();
   });
 });
 

@@ -139,6 +139,10 @@ export function projectFields(
  * documents (`5` vs `'abc'`) has the same non-antisymmetry problem, because both `<`
  * comparisons come back false. A sortable field holding mixed types is a data bug in the
  * caller, not something this port should paper over with an invented type-ordering rule.
+ * `NaN` is the same hole and is additionally non-reflexive — `NaN !== NaN` skips the
+ * equality check, and `NaN < 5` and `5 < NaN` are both false — but `Document` is declared
+ * JSON-serialisable and JSON has no `NaN`, so only the in-memory store's `structuredClone`
+ * can ever produce one; the filesystem and Meilisearch stores cannot.
  */
 export function compareBySort(sort: Sort): (a: Document, b: Document) => number {
   return (a, b) => {
@@ -176,8 +180,13 @@ export const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
  * memory store and Meilisearch both accept and the filesystem store rejects with
  * `ENAMETOOLONG`, a per-implementation divergence the conformance suite would surface as a
  * mysterious, backend-specific failure. This bound is what makes all three agree.
+ *
+ * 250, not 255: the filesystem store keys a document as `data/{collection}/{id}.json`, so
+ * the final path segment is the id plus the 5-byte `.json` suffix. Budgeting the full
+ * `NAME_MAX` for the id alone leaves no room for that suffix and still fails with
+ * `ENAMETOOLONG` at exactly the boundary this constant exists to guard.
  */
-export const MAX_DOCUMENT_ID_LENGTH = 255;
+export const MAX_DOCUMENT_ID_LENGTH = 250;
 
 export function assertDocumentId(
   id: unknown,
