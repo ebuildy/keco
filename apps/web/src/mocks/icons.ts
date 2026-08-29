@@ -4,7 +4,7 @@
  *
  * Development and test only, like everything in this directory. These are the genuine bytes
  * the crawler fetched — each comment above records the URL `resolveIconCandidate` picked and
- * `mise run icon -- --repo owner/name` downloaded — rasterised to the three derived sizes by
+ * `mise run repo:icon -- --repo owner/name` downloaded — rasterised to the three derived sizes by
  * the same `sharp` step the real pipeline uses. Nothing here is invented: an icon is a claim
  * about whose project it is, and a mock that drew its own would teach the wrong thing.
  *

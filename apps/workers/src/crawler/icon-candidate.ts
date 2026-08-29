@@ -36,7 +36,7 @@ const EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'webp'];
  * `docs/imgs` and `docs/assets` are here for the same reason: Trivy uses the first, Argo CD
  * the second, and `docs/images` alone missed both. Every entry in this list was added because
  * a real, prominent repository was observed falling through to its org avatar without it —
- * `mise run icon -- --repo owner/name` is how to check the next one.
+ * `mise run repo:icon -- --repo owner/name` is how to check the next one.
  */
 const TREE_DIRECTORIES = [
   '.github',
