@@ -33,8 +33,15 @@ beforeEach(() => {
 const parse = (...argv: string[]) =>
   buildProgram(handlers).parseAsync(argv, { from: 'user' });
 
-const optionsPassedTo = (name: (typeof handlerNames)[number]) =>
-  vi.mocked(handlers[name]).mock.calls[0]?.[0];
+// Generic on `K`, with an explicit return type, rather than the plain union so each call site
+// narrows to that one handler's option type — `optionsPassedTo('repoCrawl')` returns
+// `CrawlOptions | undefined`, not a union of every handler's options. A non-generic signature
+// (or an inferred return type, which resolves the indexed access eagerly against the whole
+// union before `K` is substituted) type-checks the body once against all eight and throws away
+// the exact type a caller actually wants.
+const optionsPassedTo = <K extends (typeof handlerNames)[number]>(
+  name: K,
+): Parameters<Handlers[K]>[0] | undefined => vi.mocked(handlers[name]).mock.calls[0]?.[0];
 
 describe('discovery sweep', () => {
   it('defaults query to kubernetes and leaves limit unset', async () => {
