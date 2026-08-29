@@ -140,9 +140,25 @@ describe('assertDocumentId', () => {
     expect(() => assertDocumentId('a.b', 'widgets', 'id')).toThrow();
   });
 
-  it('rejects an empty id and an undefined one', () => {
+  it('rejects an empty id and the string "undefined"', () => {
     expect(() => assertDocumentId('', 'widgets', 'id')).toThrow(/widgets\.id/);
     expect(() => assertDocumentId('undefined', 'widgets', 'id')).toThrow(/missing/);
+  });
+
+  it('rejects a genuinely undefined id, not just the string "undefined"', () => {
+    // RegExp.test(undefined) coerces its argument to "undefined" and returns true, so the
+    // charset check alone does not catch a missing primary key — which is the one thing this
+    // function exists to catch.
+    expect(() => assertDocumentId(undefined, 'widgets', 'id')).toThrow(/missing/);
+    expect(() => assertDocumentId(42, 'widgets', 'id')).toThrow(/missing/);
+  });
+
+  it('rejects an id longer than a filename can be', () => {
+    // Without this bound the memory and Meilisearch stores accept an id the filesystem store
+    // rejects with ENAMETOOLONG — a divergence that surfaces as a mysterious per-backend
+    // conformance failure rather than as the input error it is.
+    expect(() => assertDocumentId('a'.repeat(256), 'widgets', 'id')).toThrow(/256 characters/);
+    expect(() => assertDocumentId('a'.repeat(255), 'widgets', 'id')).not.toThrow();
   });
 });
 
@@ -168,10 +184,23 @@ describe('compareBySort', () => {
     expect(sorted.map((d) => d.id)).toEqual(['b', 'c', 'a']);
   });
 
-  it('orders missing values last regardless of direction', () => {
-    const rows = [{ id: 'x' }, { id: 'y', rank: 5 }];
-    expect(rows.slice().sort(compareBySort([['rank', 'asc']])).map((d) => d.id)).toEqual(['y', 'x']);
-    expect(rows.slice().sort(compareBySort([['rank', 'desc']])).map((d) => d.id)).toEqual(['y', 'x']);
+  it('orders missing values last regardless of direction or input order', () => {
+    // Input order matters here, and a longer array does not help: V8's insertion sort always
+    // passes the LATER element as `left`, so a one-order test only ever reaches the
+    // `right`-missing branch and a mutation of the other branch stays invisible.
+    const present = { id: 'y', rank: 5 };
+    const absent = { id: 'x' };
+    const nulled = { id: 'z', rank: null };
+    for (const dir of ['asc', 'desc'] as const) {
+      const cmp = compareBySort([['rank', dir]]);
+      expect([absent, present].sort(cmp).map((d) => d.id)).toEqual(['y', 'x']);
+      expect([present, absent].sort(cmp).map((d) => d.id)).toEqual(['y', 'x']);
+    }
+    // null and absent are one equivalence class: they must compare equal BOTH ways, or the
+    // comparator is not antisymmetric and the sorted order depends on input order.
+    const cmp = compareBySort([['rank', 'asc']]);
+    expect(cmp(absent, nulled)).toBe(0);
+    expect(cmp(nulled, absent)).toBe(0);
   });
 
   it('compares strings by codepoint, not locale', () => {
@@ -194,9 +223,12 @@ Expected: FAIL — `Failed to resolve import "./data-store"`.
  * The persistence port for the write side's *non-cache* data (AGENTS.md §4).
  *
  * This file must never import a backend. Workers depend on this interface; exactly one file
- * in the repo — `apps/workers/src/cli/data-store.ts` — knows what implements it, and
- * `eslint.config.mjs` enforces that. The whole point of the port is that a worker cannot tell
- * whether it is talking to Meilisearch, the filesystem or a Map.
+ * in the repo — `apps/workers/src/cli/data-store.ts` — knows what implements it. The whole
+ * point of the port is that a worker cannot tell whether it is talking to Meilisearch, the
+ * filesystem or a Map.
+ *
+ * That is a convention today and a lint rule from Task 17 of the migration, which adds
+ * `apps/workers/src/lib/**` to `eslint.config.mjs`'s `@keco/search` ban.
  *
  * Related but distinct: `Storage` in @keco/cache is the port for *cached* artifacts, which
  * are keyed blobs with no filtering. This one is for documents you need to filter, sort and
@@ -328,9 +360,23 @@ export function compareBySort(sort: Sort): (a: Document, b: Document) => number 
     for (const [field, direction] of sort) {
       const left = a[field];
       const right = b[field];
+      // Missing is ONE equivalence class. `null` and absent must compare equal, or the
+      // comparator stops being antisymmetric (`cmp(null, absent)` and `cmp(absent, null)`
+      // would both answer 1) and the sorted order starts depending on input order — the very
+      // non-determinism this function exists to prevent. It is reachable: `duration_ms` is
+      // sortable on `discovery_runs`, and a run still `running` has no duration, which one
+      // backend stores as null and another omits.
+      //
+      // Known and deliberately unfixed: a field holding two different types (`5` vs `'abc'`)
+      // has the same hole, because both `<` comparisons are false. A sortable field with
+      // mixed types is a data bug, and fixing it needs a type-ordering rule the port has no
+      // business inventing.
+      const leftMissing = left === undefined || left === null;
+      const rightMissing = right === undefined || right === null;
+      if (leftMissing && rightMissing) continue;
+      if (leftMissing) return 1;
+      if (rightMissing) return -1;
       if (left === right) continue;
-      if (left === undefined || left === null) return 1;
-      if (right === undefined || right === null) return -1;
       const order = left < right ? -1 : 1;
       return direction === 'desc' ? -order : order;
     }
@@ -349,10 +395,33 @@ export function compareBySort(sort: Sort): (a: Document, b: Document) => number 
  */
 export const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-export function assertDocumentId(id: string, collection: string, primaryKey: string): void {
-  if (id === 'undefined' || id === 'null') {
+/**
+ * `NAME_MAX` is 255 on every filesystem this runs on. Without the bound, a long `--query`
+ * produces an id the memory and Meilisearch stores accept and the filesystem store rejects
+ * with ENAMETOOLONG — a per-implementation divergence that surfaces as a mysterious
+ * conformance failure rather than as the input-validation error it actually is.
+ */
+export const MAX_DOCUMENT_ID_LENGTH = 255;
+
+/**
+ * Takes `unknown`, not `string`, and that is load-bearing. `document[primaryKey]` is typed
+ * `unknown`, so a `string` signature invites `assertDocumentId(doc[pk] as string, …)` at every
+ * call site — and the cast defeats the guard entirely: `/^[A-Za-z0-9_-]+$/.test(undefined)`
+ * coerces its argument to the string `"undefined"` and returns **true**, so a genuinely
+ * missing primary key would sail through the exact check meant to catch it.
+ */
+export function assertDocumentId(
+  id: unknown,
+  collection: string,
+  primaryKey: string,
+): asserts id is string {
+  if (typeof id !== 'string' || id === '' || id === 'undefined' || id === 'null') {
+    throw new Error(`document for ${collection}.${primaryKey} is missing its primary key`);
+  }
+  if (id.length > MAX_DOCUMENT_ID_LENGTH) {
     throw new Error(
-      `document for collection "${collection}" is missing its primary key "${primaryKey}"`,
+      `document id for ${collection}.${primaryKey} is ${id.length} characters — ` +
+        `the limit is ${MAX_DOCUMENT_ID_LENGTH}`,
     );
   }
   if (!DOCUMENT_ID_PATTERN.test(id)) {
@@ -367,7 +436,7 @@ export function assertDocumentId(id: string, collection: string, primaryKey: str
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.test.ts`
-Expected: PASS, 16 tests.
+Expected: PASS, 18 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -662,7 +731,7 @@ export function describeDataStore(
 - [ ] **Step 2: Verify it compiles and collects nothing on its own**
 
 Run: `pnpm -F @keco/workers check && pnpm vitest run apps/workers/src/lib/`
-Expected: typecheck passes; vitest runs only `data-store.test.ts` (16 tests) — the conformance
+Expected: typecheck passes; vitest runs only `data-store.test.ts` (18 tests) — the conformance
 file is not a `*.test.ts` and is not collected.
 
 - [ ] **Step 3: Commit**
@@ -748,7 +817,9 @@ export class InMemoryDataStore implements DataStore {
     const primaryKey = this.primaryKeyOf(collection);
     const target = this.collectionOf(collection);
     for (const copy of copies) {
-      const id = String(copy[primaryKey]);
+      // Raw, not String(): assertDocumentId takes `unknown` precisely so a missing primary
+      // key reaches its typeof check instead of arriving as the string "undefined".
+      const id = copy[primaryKey];
       assertDocumentId(id, collection, primaryKey);
       target.set(id, copy);
     }
@@ -934,7 +1005,7 @@ export class FsDataStore implements DataStore {
     // caller does to its arrays afterwards.
     const primaryKey = this.primaryKeyOf(collection);
     const writes = documents.map((document) => {
-      const id = String(document[primaryKey]);
+      const id = document[primaryKey];
       assertDocumentId(id, collection, primaryKey);
       return { key: documentKey(collection, id), body: JSON.stringify(document) };
     });
@@ -1284,7 +1355,7 @@ export class MeilisearchDataStore implements DataStore {
     const primaryKey = this.primaryKeyOf(collection);
     const copies = documents.map((document) => {
       const copy = structuredClone(document) as Document;
-      assertDocumentId(String(copy[primaryKey]), collection, primaryKey);
+      assertDocumentId(copy[primaryKey], collection, primaryKey);
       return copy;
     });
 
