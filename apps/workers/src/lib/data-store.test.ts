@@ -56,6 +56,19 @@ describe('assertDocumentId', () => {
     expect(() => assertDocumentId('', 'widgets', 'id')).toThrow(/widgets\.id/);
     expect(() => assertDocumentId('undefined', 'widgets', 'id')).toThrow(/missing/);
   });
+
+  it('rejects a genuinely undefined id, not just the string "undefined"', () => {
+    // RegExp.test(undefined) coerces to "undefined" and passes, so the charset check alone
+    // does not catch a missing primary key.
+    expect(() => assertDocumentId(undefined, 'widgets', 'id')).toThrow(/missing/);
+    expect(() => assertDocumentId(42, 'widgets', 'id')).toThrow(/missing/);
+  });
+
+  it('rejects an id past the filesystem-safe length bound', () => {
+    const tooLong = 'a'.repeat(256);
+    expect(() => assertDocumentId(tooLong, 'widgets', 'id')).toThrow(/widgets\.id/);
+    expect(() => assertDocumentId('a'.repeat(255), 'widgets', 'id')).not.toThrow();
+  });
 });
 
 describe('compareBySort', () => {
@@ -80,10 +93,20 @@ describe('compareBySort', () => {
     expect(sorted.map((d) => d.id)).toEqual(['b', 'c', 'a']);
   });
 
-  it('orders missing values last regardless of direction', () => {
-    const rows = [{ id: 'x' }, { id: 'y', rank: 5 }];
-    expect(rows.slice().sort(compareBySort([['rank', 'asc']])).map((d) => d.id)).toEqual(['y', 'x']);
-    expect(rows.slice().sort(compareBySort([['rank', 'desc']])).map((d) => d.id)).toEqual(['y', 'x']);
+  it('orders missing values last regardless of direction or input order', () => {
+    const present = { id: 'y', rank: 5 };
+    const absent = { id: 'x' };
+    const nulled = { id: 'z', rank: null };
+    for (const dir of ['asc', 'desc'] as const) {
+      const cmp = compareBySort([['rank', dir]]);
+      expect([absent, present].sort(cmp).map((d) => d.id)).toEqual(['y', 'x']);
+      expect([present, absent].sort(cmp).map((d) => d.id)).toEqual(['y', 'x']);
+    }
+    // null and absent are one equivalence class: they must compare equal both ways, or the
+    // sorted order depends on input order.
+    const cmp = compareBySort([['rank', 'asc']]);
+    expect(cmp(absent, nulled)).toBe(0);
+    expect(cmp(nulled, absent)).toBe(0);
   });
 
   it('compares strings by codepoint, not locale', () => {

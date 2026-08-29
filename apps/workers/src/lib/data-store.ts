@@ -2,9 +2,10 @@
  * The persistence port for the write side's *non-cache* data (AGENTS.md §4).
  *
  * This file must never import a backend. Workers depend on this interface; exactly one file
- * in the repo — `apps/workers/src/cli/data-store.ts` — knows what implements it, and
- * `eslint.config.mjs` enforces that. The whole point of the port is that a worker cannot tell
- * whether it is talking to Meilisearch, the filesystem or a Map.
+ * in the repo — `apps/workers/src/cli/data-store.ts` — knows what implements it. Task 17 of
+ * this plan adds an `eslint.config.mjs` rule that enforces that; until then it is a convention,
+ * not yet a guarantee. The whole point of the port is that a worker cannot tell whether it is
+ * talking to Meilisearch, the filesystem or a Map.
  *
  * Related but distinct: `Storage` in @keco/cache is the port for *cached* artifacts, which
  * are keyed blobs with no filtering. This one is for documents you need to filter, sort and
@@ -129,16 +130,27 @@ export function projectFields(
  * Codepoint comparison, never `localeCompare` — ICU collation differs between machines, and
  * the same data sorting differently on two hosts turns every listing into a spurious diff.
  * Missing values sort last in both directions: "no value" is not smaller than every value,
- * it is absent, and burying it is what an operator reading a table expects.
+ * it is absent, and burying it is what an operator reading a table expects. `null` and
+ * `undefined` are one equivalence class here — different implementations store an absent
+ * field differently (an omitted key vs. an explicit `null`), and they must sort identically
+ * or the result depends on which backend wrote the document.
+ *
+ * Known remaining hole, deliberately unfixed: a field holding two different types across
+ * documents (`5` vs `'abc'`) has the same non-antisymmetry problem, because both `<`
+ * comparisons come back false. A sortable field holding mixed types is a data bug in the
+ * caller, not something this port should paper over with an invented type-ordering rule.
  */
 export function compareBySort(sort: Sort): (a: Document, b: Document) => number {
   return (a, b) => {
     for (const [field, direction] of sort) {
       const left = a[field];
       const right = b[field];
+      const leftMissing = left === undefined || left === null;
+      const rightMissing = right === undefined || right === null;
+      if (leftMissing && rightMissing) continue;
+      if (leftMissing) return 1;
+      if (rightMissing) return -1;
       if (left === right) continue;
-      if (left === undefined || left === null) return 1;
-      if (right === undefined || right === null) return -1;
       const order = left < right ? -1 : 1;
       return direction === 'desc' ? -order : order;
     }
@@ -157,10 +169,31 @@ export function compareBySort(sort: Sort): (a: Document, b: Document) => number 
  */
 export const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-export function assertDocumentId(id: string, collection: string, primaryKey: string): void {
-  if (id === 'undefined' || id === 'null') {
+/**
+ * The charset alone does not make an id a safe filename — a long one still is not. The
+ * filesystem store keys a document by its id, and most filesystems cap a single path segment
+ * at 255 bytes (`NAME_MAX`); without this bound a long `--query` slug produces an id the
+ * memory store and Meilisearch both accept and the filesystem store rejects with
+ * `ENAMETOOLONG`, a per-implementation divergence the conformance suite would surface as a
+ * mysterious, backend-specific failure. This bound is what makes all three agree.
+ */
+export const MAX_DOCUMENT_ID_LENGTH = 255;
+
+export function assertDocumentId(
+  id: unknown,
+  collection: string,
+  primaryKey: string,
+): asserts id is string {
+  // `typeof id !== 'string'` catches a genuinely missing id — including a raw `undefined`,
+  // which `DOCUMENT_ID_PATTERN.test(undefined)` would otherwise accept by coercing it to the
+  // string `"undefined"` and matching that against the charset below.
+  if (typeof id !== 'string' || id === '' || id === 'undefined' || id === 'null') {
+    throw new Error(`document for ${collection}.${primaryKey} is missing its primary key`);
+  }
+  if (id.length > MAX_DOCUMENT_ID_LENGTH) {
     throw new Error(
-      `document for collection "${collection}" is missing its primary key "${primaryKey}"`,
+      `document id for ${collection}.${primaryKey} is ${id.length} characters — ` +
+        `the limit is ${MAX_DOCUMENT_ID_LENGTH}`,
     );
   }
   if (!DOCUMENT_ID_PATTERN.test(id)) {
