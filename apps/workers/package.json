@@ -5,13 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",
-    "crawler": "tsx src/crawler/index.ts",
-    "icon": "tsx src/crawler/icon-cli.ts",
-    "discovery": "node --import tsx src/discovery/index.ts",
-    "analyzer": "tsx src/analyzer/index.ts",
-    "projector": "tsx src/projector/index.ts",
-    "replay": "tsx src/replay/index.ts",
-    "engine": "tsx src/engine/cli.ts"
+    "kecoctl": "node --import tsx src/cli.ts"
   },
   "dependencies": {
     "@keco/analyze": "workspace:*",
