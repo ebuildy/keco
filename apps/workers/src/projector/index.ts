@@ -1,4 +1,3 @@
-import { parseArgs } from 'node:util';
 import { awaitTask, createAdminClient, TOOLS_ALIAS } from '@keco/search';
 import { workerLogger } from '../lib/logger';
 import { createRuntime } from '../lib/runtime';
@@ -14,25 +13,23 @@ import { createRuntime } from '../lib/runtime';
  */
 const log = workerLogger('projector');
 
-const { values } = parseArgs({
-  options: {
-    rebuild: { type: 'boolean', default: false },
-    batch: { type: 'string', default: '1000' },
-  },
-  allowPositionals: true,
-});
+export type ProjectOptions = {
+  /** Full offline replay into a new index plus an alias swap, rather than an incremental run. */
+  rebuild: boolean;
+  batch: number;
+};
 
-async function main(): Promise<void> {
+export async function runProjector({ rebuild, batch }: ProjectOptions): Promise<void> {
   const { journal } = createRuntime();
   const client = createAdminClient();
   const checkpoint = await journal.checkpoint('projector');
 
   log.info(
-    { rebuild: values.rebuild, checkpoint: checkpoint.last_event_id, batchSize: Number(values.batch) },
+    { rebuild, checkpoint: checkpoint.last_event_id, batchSize: batch },
     'projector start',
   );
 
-  if (values.rebuild) {
+  if (rebuild) {
     // TODO(projector): full rebuild (§4.3): read every analysis/** from cache, build
     // tools_<ts> via createRebuildIndex(), upsert in batches of <=1000 awaiting each task,
     // verify the document count, then promote() to swap the alias. Keep the previous index
@@ -85,5 +82,3 @@ async function main(): Promise<void> {
 
   log.warn('projection is not implemented yet — see the TODO in this file and AGENTS.md §4.3');
 }
-
-await main();
