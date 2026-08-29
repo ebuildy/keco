@@ -23,7 +23,8 @@ AGENTS.md §4 says "the projector is the only writer to Meilisearch" and §2.1 s
 side never reads a read model". Both are about **searchable read models** — `tools`, the public
 corpus the portal and API query. They are not about the Meilisearch *process*.
 
-§5 already draws the other half of the line: "`searchableAttributes: []` makes an index a plain
+AGENTS.md §5 already draws the other half of the line: "`searchableAttributes: []` makes an
+index a plain
 key-value store … use it for everything that isn't the search corpus."
 
 So there are two usages of one deployed instance:
@@ -33,12 +34,13 @@ So there are two usages of one deployed instance:
 | Searchable read model | `tools`, `repos_state`, `traces` | projector | yes, from cache, zero network |
 | Key-value data store | `discovery_repos`, `discovery_runs`, `discovery_state` | discovery | **no** — only by re-sweeping GitHub |
 
-§4's rule is restated as **only the projector writes searchable read models**, which remains
+AGENTS.md §4's rule is restated as **only the projector writes searchable read models**, which
+remains
 true. Discovery writes write-model data through a storage port, the way it already writes
 `repos/**` through `Storage`.
 
 **Workers never learn which backend implements that port.** That is the load-bearing
-constraint of this design, and §7's lint rules enforce it.
+constraint of this design, and AGENTS.md §7's lint rules enforce it.
 
 ## 3. The `DataStore` port
 
@@ -57,6 +59,7 @@ export type CollectionSpec = {
   primaryKey: string;
   /** Fields a `Where` may reference. */
   filterable?: readonly string[];
+  /** Fields a `ListQuery.sort` may reference. */
   sortable?: readonly string[];
   /**
    * Fields exposed to full-text search by backends that have one. A provisioning
@@ -75,13 +78,25 @@ export type PutOptions = {
   durable?: boolean;
 };
 
-export type ListQuery = { where?: Where; fields?: readonly string[] };
+/** Field + direction. Every field named here must be declared `sortable` on the spec. */
+export type Sort = readonly (readonly [field: string, direction: 'asc' | 'desc'])[];
+
+export type ListQuery = {
+  where?: Where;
+  fields?: readonly string[];
+  sort?: Sort;
+  /** Stop after N documents. Lets an implementation avoid over-fetching a 100k collection. */
+  limit?: number;
+};
 
 export interface DataStore {
   /** Idempotent. Called once at startup. */
   ensure(specs: readonly CollectionSpec[]): Promise<void>;
   put(collection: string, documents: readonly Document[], options?: PutOptions): Promise<void>;
   get(collection: string, id: string): Promise<Document | null>;
+  /** Cardinality without streaming. `list` cannot serve this: counting 100k documents to
+   *  produce one number is exactly what the explore commands (§8) must not do. */
+  count(collection: string, where?: Where): Promise<number>;
   /** Pages internally; the caller never sees an offset. */
   list(collection: string, query?: ListQuery): AsyncIterable<Document>;
   remove(collection: string, where: Where): Promise<void>;
@@ -92,7 +107,7 @@ export interface DataStore {
 
 The port cannot search, on purpose. `CollectionSpec.searchable` tells an implementation that
 supports full-text to build an index over those fields; the filesystem implementation ignores
-it. Discovery only ever calls `get`, `list`, `put` and `remove`.
+it. Discovery only ever calls `get`, `list`, `count`, `put` and `remove`.
 
 The consequence is that `discovery_repos` *is* searchable for a human or the backoffice
 querying the index directly, while no worker can express a relevance query. Adding `search()`
@@ -107,7 +122,7 @@ change this design exists to prevent.
 | `lib/data-store.fs.ts` | `DISCOVERY_STORE=fs` | JSON per document through the existing `Storage` port. Preserves offline sweeps and hand-inspectable data. `remove(where)` scans the collection and filters in memory — acceptable for a dev path, and documented as such. |
 | `cli/data-store.ts` | production, default | Meilisearch. The only file on discovery's path that imports `@keco/search` — the others are the projector and `handlers.ts`'s two `index` commands, both pre-existing. |
 
-All three run the same conformance suite (§8).
+All three run the same conformance suite (§9).
 
 ## 4. Composition
 
@@ -144,6 +159,9 @@ apps/workers/src/discovery/store/
   collections.ts         the three CollectionSpecs + document mappers
   store.ts               DiscoveryStore: in-memory maps, flush cadence,
                          first-wins, run bookkeeping. Depends on DataStore only.
+
+apps/workers/src/discovery/
+  explore.ts             count / list / reset (§8). DataStore only.
 
 apps/workers/src/cli/
   data-store.ts          Meilisearch implementation
@@ -228,7 +246,8 @@ for await (const doc of dataStore.list('discovery_repos', {
 ```
 
 Roughly 100 backend round-trips at 100k repos, once at startup, hidden behind the
-`AsyncIterable`. On Meilisearch this is `getDocuments` with offset/limit — §5's documented
+`AsyncIterable`. On Meilisearch this is `getDocuments` with offset/limit — AGENTS.md §5's
+documented
 admin-listing pattern, so the `pagination.maxTotalHits` search cap does not apply.
 
 ### `--fresh` gains teeth
@@ -267,21 +286,123 @@ await.** Missing this serialises a half-mutated queue, which loses windows silen
 The conformance suite covers it: mutate the arrays from a `then()` on the in-flight put and
 assert the persisted document matches the pre-call snapshot.
 
-## 8. Testing
+## 8. Exploring the dataset
+
+Three operator commands under the existing `discovery` noun. `reset`, not `destroy` — kecoctl
+already spends that word in `checkpoint reset`, and inventing a second one for the same idea
+makes the CLI harder to guess, not safer.
+
+All three go through `DataStore`, never a backend directly, so they keep working under
+`DISCOVERY_STORE=fs`. The logic is `apps/workers/src/discovery/explore.ts`, depending on the
+port alone — no new lint exemption, and `handlers.ts` wires the store exactly as it does for
+`discoverySweep`.
+
+Results go to **stdout** as a table, or NDJSON under `--json`; pino keeps stderr. That is the
+split the progress bar already uses, and it is what makes `--json` pipe into `jq` cleanly. A
+query command's output is its result, not a log line.
+
+### `kecoctl discovery count [--query <q>]`
+
+Every collection at once — with no target flag, because a partial answer is not what anyone
+opens this for. Grouped by query unless `--query` narrows it.
+
+```
+$ kecoctl discovery count
+QUERY         REPOS   RUNS   PENDING WINDOWS   LAST SWEEP
+kubernetes   31,204     47               118   2026-08-28 03:14  complete
+istio           892      6                 0   2026-08-27 22:01  complete
+                ---     ---
+totals       32,096     53
+```
+
+`PENDING WINDOWS` is the number that says whether a sweep finished or is mid-resume, so it
+earns a column rather than living behind a flag.
+
+### `kecoctl discovery list [runs|repos] [--query <q>] [--limit N] [--sort <field>] [--json]`
+
+Defaults to `runs`: the history is what this change exists to expose.
+
+```
+$ kecoctl discovery list runs --query kubernetes --limit 5
+STARTED            DUR    OUTCOME       NEW  CHANGED  PAGES  WINDOWS
+2026-08-28 03:14   1h12m  complete    1,204    8,891    742  318/318
+2026-08-27 03:14     58m  complete       88    9,102    698  318/318
+2026-08-26 11:02      4m  interrupted    12      340     41   18/318
+2026-08-25 03:14   1h04m  complete      412    8,770    731  318/318
+2026-08-24 03:14      2m  failed          0        0     11    6/318
+```
+
+That row is the question the whole change was asked to answer: new projects found, how long it
+took, how many GitHub Search calls it cost.
+
+`repos` caps at 20 rows sorted by stars; `--limit` raises it and `--json` streams NDJSON
+without buffering the corpus:
+
+```
+$ kecoctl discovery list repos --query kubernetes
+STARS    REPO                     LANG    PUSHED
+112,034  kubernetes/kubernetes    Go      2d ago
+ 28,901  argoproj/argo-cd         Go      4h ago
+…
+showing 20 of 31,204 — raise with --limit, or pipe --json
+```
+
+`--sort` accepts any field the collection declares `sortable` (§6); anything else is rejected
+by name, listing what is available, rather than silently ignored.
+
+### `kecoctl discovery reset (--query <q> | --all) [--include-runs] [--yes]`
+
+Deletes the corpus and resume state, **keeping `discovery_runs`**. The history is the one
+collection nothing can reconstruct — not from the cache, not from GitHub — and a reset is
+precisely when someone wants to look back at what the previous sweeps did. `--include-runs`
+destroys it too, explicitly.
+
+```
+$ kecoctl discovery reset --query kubernetes
+  discovery_repos   31,204  → delete
+  discovery_state        1  → delete
+  discovery_runs        47  → keep (--include-runs to delete)
+
+this is not rebuildable offline; the next sweep re-queries GitHub Search
+continue? [y/N]
+```
+
+Guards, all mandatory:
+
+- **No implicit target.** Without `--query`, the command refuses unless `--all` is passed.
+  A reset that defaults to every query is a reset that eventually runs by accident.
+- **Confirmation** unless `--yes`, which exists for CI and scripted teardown.
+- **The plan prints before the prompt**, with real counts, so the operator confirms against
+  what is actually there rather than against what they assumed.
+
+`reset --query X` and `sweep --fresh`'s open-time deletion are the same operation and share one
+function — `--fresh` must not drift into meaning something subtly different from `reset`.
+
+## 9. Testing
 
 - **Conformance suite** — one shared suite all three implementations run: put/get round-trip,
-  `list` paging and `fields` projection, `where` equality, `remove` by filter, `durable`
-  ordering, and the deep-copy requirement above.
+  `list` paging and `fields` projection, `where` equality, `sort` direction and `limit`,
+  `count` with and without a filter, `remove` by filter, `durable` ordering, and the deep-copy
+  requirement above. `count` is asserted against a collection larger than one page, since
+  the failure mode is an implementation quietly counting one page.
 - **`DiscoveryStore` unit tests** — today's `store.test.ts` (514 lines) re-pointed at the
   in-memory implementation. Record/dedupe/first-wins/resume/flush-cadence assertions carry
   over; the fs-key assertions are replaced by collection assertions.
 - **New unit tests** — run-document assembly, run- vs sweep-scoped counter derivation, the
   `running` → `interrupted` transition, `--fresh` deletion.
+- **Explore command tests** (§8) — against the in-memory implementation: `count` grouping and
+  totals, `list` defaulting to `runs`, the `--sort` rejection path naming the sortable fields,
+  the 20-row cap and its "showing N of M" line, `--json` emitting NDJSON. `reset` gets its own
+  set, because every one of its guards is a way to not lose data by accident: refusal without
+  `--query` or `--all`, the plan printing before the prompt, `--yes` skipping it, run history
+  surviving by default, and `--include-runs` removing it.
+- **Shared-path test** — `reset --query X` and `sweep --fresh` produce identical deletions.
 - **Integration suite** — against the compose Meilisearch: `ensure()` provisioning, resume
-  paging at >1000 documents, `--fresh`, and the durability ordering test.
+  paging at >1000 documents, `--fresh`, `count` over a multi-page collection, and the
+  durability ordering test.
 - `mise run ci` green.
 
-## 9. Boundaries and tooling
+## 10. Boundaries and tooling
 
 ### Lint gets stricter, not looser
 
@@ -301,7 +422,8 @@ is **not** rebuildable offline — only by re-sweeping GitHub Search, which is h
 requests.
 
 The task grows a preflight that reports what it is about to destroy and requires confirmation,
-with `--yes` for CI:
+with `--yes` for CI. It calls the same function behind `kecoctl discovery count` (§8) rather
+than re-deriving the numbers, so the two can never disagree about what is on disk:
 
 ```
 $ mise run infra:reset
@@ -319,15 +441,20 @@ exist in `apps/workers/src/lib/config.ts`. `ulid` is added to `apps/workers` dep
 `kecoctl index create` provisions the three discovery collections alongside `tools`, so a
 deployment bootstrap covers both usages in one step.
 
+Every dev script is a mise task (§8 of AGENTS.md), so the three explore commands get
+`discovery:count`, `discovery:list` and `discovery:reset` alongside the existing
+`discovery:sweep`.
+
 ### Documentation
 
 - `docs/adr/0002-discovery-datastore.md` — records §2's distinction, the port, and the
   `infra:reset` consequence.
 - AGENTS.md §3 (discovery is no longer under `.cache/`), §4 and §4.1 (the `DataStore`
   dependency and the run history), §5 (the two usages table), §7 (module layout and the
-  tightened lint rules), §8 (`infra:reset`), §14 (the queue-aliasing hazard).
+  tightened lint rules), §8 (the three new commands and the guarded `infra:reset`), §14 (the
+  queue-aliasing hazard).
 
-## 10. Out of scope
+## 11. Out of scope
 
 **The projector is not migrated.** Its job is defined as writing the searchable read model,
 and it needs alias swaps, count-verified promotion and rebuild-index creation — none of which
