@@ -117,6 +117,44 @@ describe('run', () => {
   });
 
   /**
+   * A worker can report failure WITHOUT throwing, and two of them do.
+   *
+   * `runDiscovery` sets `process.exitCode = 1` and returns normally when the token is missing
+   * or when a sweep completed with failed windows — those are *results* (a truncated corpus),
+   * not exceptions, and the sweep still has artifacts worth flushing. Returning a bare 0 from
+   * the success path erased that: `cli.ts` assigns this return value straight onto
+   * `process.exitCode`, so a scheduled sweep that silently dropped an entire star band reported
+   * success to its orchestrator. That is precisely the failure `discovery/index.ts:196-206`
+   * exists to prevent, and the boundary was undoing it.
+   */
+  it('preserves an exit code the work set on itself without throwing', async () => {
+    const before = process.exitCode;
+    try {
+      const exitCode = await run(
+        'test',
+        async () => {
+          process.exitCode = 1;
+        },
+        { log: silent },
+      );
+
+      expect(exitCode).toBe(1);
+    } finally {
+      process.exitCode = before;
+    }
+  });
+
+  it('still reports 0 when nothing set an exit code', async () => {
+    const before = process.exitCode;
+    try {
+      process.exitCode = 0;
+      expect(await run('test', async () => {}, { log: silent })).toBe(0);
+    } finally {
+      process.exitCode = before;
+    }
+  });
+
+  /**
    * This is the branch that actually fires in production. Commander's `_callParseArg` catches
    * every `InvalidArgumentError` thrown by our own validators — `positiveInteger`, `repoName`,
    * and so on — at real parse time and rewraps it into exactly this shape: a `CommanderError`

@@ -1,26 +1,25 @@
-import { awaitTask, createAdminClient } from '@keco/search';
 import { workerLogger } from '../lib/logger';
-import { loadCorpus, MOCK_CORPUS_PATH } from '../read-model/corpus';
-import { createIndex, readIndexState } from '../read-model/create-index';
-import { assertSeedTarget, seedDocuments } from '../read-model/seed';
 import type { Handlers } from './program';
 
 /**
  * The real handlers behind `kecoctl`.
  *
- * Every worker is loaded with a dynamic `import()` rather than a static one. A single static
- * graph would pull `sharp`, the Meilisearch client, the GitHub client and `@keco/analyze` into
- * every invocation — `kecoctl --help` and `kecoctl checkpoint reset` included. Specifiers are
- * extensionless because `moduleResolution` is `bundler` (tsconfig.base.json).
+ * **Nothing heavy is imported at the top of this file.** Every dependency arrives through a
+ * dynamic `import()` inside the handler that needs it. A single static graph would pull
+ * `sharp`, the Meilisearch client, the GitHub client and `@keco/analyze` into every invocation —
+ * `kecoctl --help` and `kecoctl checkpoint reset` included. Specifiers are extensionless
+ * because `moduleResolution` is `bundler` (tsconfig.base.json).
+ *
+ * That applies to `@keco/search` too, which is easy to get wrong: it was static here at first,
+ * and a module-resolution trace showed `meilisearch` loading for all eight commands — including
+ * `--help` — while `sharp` and `@keco/analyze` stayed correctly absent. The cost of one more
+ * `await import()` in two handlers is smaller than a claim in this comment that is not true.
  *
  * The two `index` commands are implemented here rather than in a worker module because they are
  * operator tooling with no worker behind them: they are the whole of what `engine cli.ts` used
  * to be.
  */
-const log = workerLogger('engine');
-
-/** Every command talks to one Meilisearch; `--host` overrides MEILI_HOST for a one-off run. */
-const clientFor = (host: string) => createAdminClient({ ...process.env, MEILI_HOST: host });
+const log = workerLogger('index');
 
 export const handlers: Handlers = {
   discoverySweep: async (options) => (await import('../discovery')).runDiscovery(options),
@@ -31,7 +30,15 @@ export const handlers: Handlers = {
   checkpointReset: async (options) => (await import('../replay')).runCheckpointReset(options),
 
   indexCreate: async ({ host, index: uid, forceSettings }) => {
-    const plan = await createIndex(clientFor(host), uid, forceSettings);
+    const { createAdminClient } = await import('@keco/search');
+    const { createIndex } = await import('../read-model/create-index');
+
+    // `--host` overrides MEILI_HOST for a one-off run.
+    const plan = await createIndex(
+      createAdminClient({ ...process.env, MEILI_HOST: host }),
+      uid,
+      forceSettings,
+    );
 
     log.info(
       { index: uid, host, ...plan },
@@ -45,10 +52,17 @@ export const handlers: Handlers = {
   },
 
   indexSeed: async ({ host, index: uid, batch, clear, force }) => {
+    const { awaitTask, createAdminClient } = await import('@keco/search');
+    const { loadCorpus, MOCK_CORPUS_PATH } = await import('../read-model/corpus');
+    const { readIndexState } = await import('../read-model/create-index');
+    const { assertSeedTarget, seedDocuments } = await import('../read-model/seed');
+
+    // Before anything is read or connected: seeding fabricated install_methods into a real
+    // corpus is the worst bug this project can ship (§6).
     assertSeedTarget(host, force);
 
     const documents = await loadCorpus();
-    const client = clientFor(host);
+    const client = createAdminClient({ ...process.env, MEILI_HOST: host });
 
     // Settings are what make a seeded index worth searching — facets, ranking, sorts. Refuse to
     // fill an unconfigured index rather than quietly producing a corpus with none of them.

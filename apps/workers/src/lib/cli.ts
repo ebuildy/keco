@@ -108,7 +108,13 @@ export async function run(
 ): Promise<number> {
   try {
     await work();
-    return 0;
+    // Not a bare `0`. A worker can report failure without throwing: `runDiscovery` sets
+    // `process.exitCode = 1` and returns normally when the token is missing, or when a sweep
+    // finished with failed windows — a truncated corpus is a *result*, and the run still has
+    // artifacts worth flushing, so it is deliberately not an exception. `cli.ts` assigns this
+    // return value straight onto `process.exitCode`, so returning 0 here would overwrite that
+    // signal and tell a scheduled sweep it had succeeded.
+    return typeof process.exitCode === 'number' ? process.exitCode : 0;
   } catch (error) {
     if (error instanceof CommanderError) {
       // Help and version have already printed and are not failures. Logging them as errors is

@@ -1,4 +1,4 @@
-import { CommanderError } from 'commander';
+import { CommanderError, type Command } from 'commander';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { config } from '../lib/config';
 import { buildProgram, type Handlers } from './program';
@@ -30,8 +30,22 @@ beforeEach(() => {
 });
 
 /** `from: 'user'` means argv without the node/script prefix. */
+/**
+ * Half of these cases are deliberate parse failures, and commander writes its usage and error
+ * text straight to the real stdout/stderr on the way to throwing — so a fully passing run still
+ * printed several screens of help into the CI log. Silence it at every level: `configureOutput`
+ * is copied into a subcommand by `copyInheritedSettings` at `.command()` time, which has already
+ * happened by the time `buildProgram` returns, so setting it on the root alone would leave every
+ * leaf still writing.
+ */
+const silenceOutput = (command: Command): Command => {
+  command.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+  for (const child of command.commands) silenceOutput(child);
+  return command;
+};
+
 const parse = (...argv: string[]) =>
-  buildProgram(handlers).parseAsync(argv, { from: 'user' });
+  silenceOutput(buildProgram(handlers)).parseAsync(argv, { from: 'user' });
 
 // Generic on `K`, with an explicit return type, rather than the plain union so each call site
 // narrows to that one handler's option type — `optionsPassedTo('repoCrawl')` returns

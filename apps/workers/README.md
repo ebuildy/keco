@@ -279,12 +279,23 @@ mise run web           # the portal, now searching a real engine
 
 ### Where the logic lives
 
-`index.ts` entrypoints cannot be unit-tested (see above), and the same rule shaped this CLI:
-`src/cli/program.ts` and `src/cli/handlers.ts` are wiring only. `planIndexCreate` in
-`read-model/create-index.ts` decides what to do to an index from its observed state, `seed.ts`
-holds the batching loop and the local-host guard with no Meilisearch client in sight, and
-`corpus.ts` owns loading and validation. All three are unit-tested; the CLI wiring is not,
-because there is nothing in it to test.
+Argument parsing used to be six hand-rolled `parseArgs` blocks that executed on import, so no
+test could reach them — and one of them silently dropped every flag after a `--`, starting a
+full sweep with defaults. The CLI is split three ways to make that testable:
+
+- **`src/cli/program.ts`** builds the command tree and takes its handlers as a *parameter*, so
+  `program.test.ts` asserts what each argv produces against stubs — no cache, no Meilisearch,
+  no network. This is where flags, defaults and validators live, and it is unit-tested.
+- **`src/cli/handlers.ts`** is the only untested file, deliberately: it is `await import()` plus
+  the two `index` command bodies, and testing it would mean standing up the real dependencies it
+  exists to defer.
+- **`src/lib/cli.ts`** holds the validators and `run()`, the error boundary — both unit-tested,
+  including that a worker setting `process.exitCode` on itself survives the boundary.
+
+Underneath, `planIndexCreate` in `read-model/create-index.ts` decides what to do to an index
+from its observed state, `seed.ts` holds the batching loop and the local-host guard with no
+Meilisearch client in sight, and `corpus.ts` owns loading and validation. All three are
+unit-tested.
 
 ## Rules this app is held to
 
