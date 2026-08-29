@@ -1,4 +1,3 @@
-import { parseArgs } from 'node:util';
 import { ownsShard } from '@keco/github';
 import { config } from '../lib/config';
 import { workerLogger } from '../lib/logger';
@@ -17,21 +16,20 @@ import { createRuntime } from '../lib/runtime';
  */
 const log = workerLogger('crawler');
 
-const { values } = parseArgs({
-  options: {
-    seed: { type: 'string', default: 'cncf,krew' },
-    limit: { type: 'string', default: '200' },
-    repo: { type: 'string' },
-  },
-  allowPositionals: true,
-});
+export type CrawlOptions = {
+  seeds: string[];
+  limit: number;
+  /** Crawl a single repo instead of the seed lists. `null` means the full run. */
+  repo: string | null;
+};
 
-async function main(): Promise<void> {
+export async function runCrawler({ seeds, limit, repo }: CrawlOptions): Promise<void> {
   const { journal } = createRuntime();
-  const seeds = values.seed!.split(',').filter(Boolean);
-  const limit = Number(values.limit);
 
-  log.info({ seeds, limit, checkpoint: 'n/a — the crawler is driven by seeds, not a checkpoint' }, 'crawler start');
+  log.info(
+    { seeds, limit, repo, checkpoint: 'n/a — the crawler is driven by seeds, not a checkpoint' },
+    'crawler start',
+  );
 
   // TODO(crawler): implement, in this order (§4.1):
   //   1. discovery — registry seeds first, then sharded GitHub Search queries;
@@ -49,15 +47,15 @@ async function main(): Promise<void> {
   //      carries on. Icon bytes are deliberately NOT part of contentHash() — a logo that
   //      moves changes tree.json and so changes the hash already, and folding the bytes in
   //      would invalidate the whole corpus for a cosmetic field.
-  //      Until this loop exists, `mise run icon -- --repo owner/name` runs the same pipeline
+  //      Until this loop exists, `mise run repo:icon -- --repo owner/name` runs the same
+  //      pipeline
   //      for one repo.
   //   Honour x-ratelimit-remaining and back off on 403/429 — a crawl that gets the token
   //   throttled is a failed crawl.
   void ownsShard;
   void config;
   void journal;
+  void repo;
 
   log.warn('crawler is not implemented yet — see the TODO in this file and AGENTS.md §4.1');
 }
-
-await main();
