@@ -6,7 +6,7 @@ import { ToolDocument } from '@keco/core';
  * The portal's mock corpus, read from the JSON artifact `apps/web` emits.
  *
  * Fabricated repos, scores and install commands — development and test only (AGENTS.md §14).
- * Nothing in the pipeline reads this; `src/engine/**` is operator tooling that lives beside
+ * Nothing in the pipeline reads this; `src/read-model/**` is operator tooling that lives beside
  * the workers because writing to Meilisearch is a write-side act.
  */
 
