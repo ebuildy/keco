@@ -7,6 +7,9 @@ cache → append events → advance the checkpoint.
 There is no queue server, no broker, no lock manager and no database. The filesystem is the job
 state.
 
+Alongside them lives **[`kecoctl`](#the-kecoctl-cli)**, a single commander CLI: worker runs and
+read-model operator commands are its subcommands, not separate entrypoints.
+
 > [!NOTE]
 > These processes are the **write side**. None of them may ever read a read model — an analyzer
 > that queries Meilisearch to decide what to work on has broken the pattern, and the coupling
@@ -29,7 +32,8 @@ state.
 | **analyzer** | `RepoFetched` where `changed`, or an expired signal TTL | `analysis/**`, `RepoAnalyzed` | signal providers + LLM, **all cached** | ⬜ scaffolded |
 | **projector** | `RepoAnalyzed` | Meilisearch `tools`, `repos_state` | none | ⬜ scaffolded |
 
-`replay` is the fifth entrypoint and not a worker: it resets one consumer's checkpoint.
+`kecoctl` is the one CLI over all of this: `checkpoint reset` resets one consumer's checkpoint,
+and the read-model operator commands live under it too — see [The `kecoctl` CLI](#the-kecoctl-cli).
 
 > [!IMPORTANT]
 > The scaffolded three run, log their checkpoint, walk the journal and exit. Each carries a
@@ -70,21 +74,25 @@ is already in `_hashes.json`, so emitting `RepoDiscovered` later is a small addi
 
 ## Development
 
-Every entrypoint is a mise task. Arguments go after `--`.
+Every command is a mise task over `kecoctl`. Arguments go after `--`.
 
 ```bash
-mise run discovery -- --query kubernetes            # resumes from _state.json by default
-mise run discovery -- --query kubernetes --fresh    # start this keyword's sweep over
-mise run discovery -- --query kubernetes --limit 500
+mise run discovery:sweep -- --query kubernetes            # resumes from _state.json by default
+mise run discovery:sweep -- --query kubernetes --fresh    # start this keyword's sweep over
+mise run discovery:sweep -- --query kubernetes --limit 500
 
-mise run crawler   -- --seed cncf,krew --limit 200
-mise run analyzer
-mise run analyzer  -- --force-refresh scorecard     # the only TTL bypass, and it is manual
-mise run projector
-mise run rebuild                                    # projector --rebuild: full offline replay + alias swap
+mise run repo:crawl   -- --seed cncf,krew --limit 200
+mise run repo:analyze
+mise run repo:analyze -- --force-refresh scorecard        # the only TTL bypass, and it is manual
+mise run project
+mise run rebuild                                          # project --rebuild: full offline replay + alias swap
 
-mise run replay    -- --consumer analyzer           # reset a checkpoint
-mise run pipeline                                   # crawl 200 seeded repos → analyze → project
+mise run checkpoint:reset -- --consumer analyzer           # reset a checkpoint
+mise run pipeline                                          # crawl 200 seeded repos → analyze → project
+
+mise run kecoctl   -- --help                        # every command, grouped by noun
+mise run index:create                               # create `tools` with the real settings
+mise run mock                                       # …and fill it with fixtures, for local search
 ```
 
 > [!TIP]
@@ -97,8 +105,8 @@ projector (`mise run infra:up`).
 ### Replay is normal operation
 
 ```bash
-mise run replay -- --consumer analyzer
-mise run analyzer && mise run rebuild
+mise run checkpoint:reset -- --consumer analyzer
+mise run repo:analyze && mise run rebuild
 ```
 
 Because every external call — GitHub, Scorecard, deps.dev, OSV, registries — landed in the
@@ -111,7 +119,7 @@ Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl.
 ### Test, check, lint
 
 ```bash
-pnpm vitest run apps/workers     # this app's suites (6 files, 68 tests)
+pnpm vitest run apps/workers     # this app's suites (11 files, 139 tests)
 pnpm -F @keco/workers check      # tsc --noEmit
 mise run ci                      # what must be green before you call it done
 ```
@@ -136,10 +144,158 @@ Validated with zod at boot (`src/lib/config.ts`).
 | `GITHUB_TOKEN` | `''` | Classic PAT, `public_repo` scope |
 | `GITHUB_QUOTA_CRAWLER_SHARE` | `0.8` | How the 5000 points/hour splits between crawler and analyzer |
 | `CACHE_DIR` | `.cache` | The write model. A relative path resolves against the **workspace root**, not the process cwd, so every worker and `apps/api` share one cache |
-| `MEILI_HOST` / `MEILI_MASTER_KEY` | `localhost:7700` | Projector only |
+| `MEILI_HOST` / `MEILI_MASTER_KEY` | `localhost:7700` | `project` and the `index` commands; both accept `--host` to override for one run |
 | `SHARD_COUNT` / `SHARD_INDEX` | `1` / `0` | Deterministic sharding — `hash(repo) % SHARD_COUNT == SHARD_INDEX` |
 | `ANTHROPIC_API_KEY` / `ANALYZER_MODEL` | — / `claude-haiku-4-5-20251001` | Analyzer pass 3, deliberately a cheap model |
 | `LOG_LEVEL` | `info` | pino |
+
+## The `kecoctl` CLI
+
+`kecoctl` is the one entrypoint for `apps/workers` — every worker run and every read-model
+operator command is one of its subcommands. Built with
+[commander](https://github.com/tj/commander.js), over a three-layer split: `src/cli/program.ts`
+builds the command tree and takes its handlers as a parameter, `src/cli/handlers.ts` supplies
+them as lazy imports, and each worker module exports `run*(options)` and executes nothing on
+import.
+
+```
+kecoctl
+├── discovery sweep    enumerate repos into discovery/{query}/*.yaml
+├── repo crawl         fetch discovered + seeded repos into the cache
+├── repo analyze       classify everything with a changed content_hash or an expired TTL
+├── repo icon          fetch and derive one repo's icon, standalone
+├── project            project analyses into Meilisearch — the only writer to the read model
+├── index create       bootstrap an index with the real `tools` settings   (safe on production)
+├── index seed         fill an index with the mock corpus                  (local only)
+└── checkpoint reset   reset a consumer's checkpoint
+```
+
+```bash
+mise run kecoctl -- --help                       # every command
+mise run kecoctl -- index seed --help            # one command's flags
+```
+
+`index create` and `index seed` have deliberately different blast radii, and each owns its own
+guard rather than sharing one: creating an index is how a fresh deployment starts, while seeding
+pushes fabricated `install_methods` and must never reach a real corpus (§6).
+
+Both take the same two flags:
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-H, --host <url>` | `$MEILI_HOST`, else `http://localhost:7700` | Which Meilisearch to talk to |
+| `-i, --index <uid>` | `tools` | Which index to act on |
+
+They are attached to each command rather than to the root, so `kecoctl index create --index x`
+works and reads the right way round.
+
+### `kecoctl index create`
+
+Creates the index if it is missing and applies the real `tools` settings from `@keco/search` —
+the searchable, filterable and sortable attributes plus the ranking rules. An index without
+them is not worth searching: no facets, no `score.total` tie-break, no typo tolerance.
+
+**This is the one command here that is safe to run against production.** It is how a new
+deployment's index is bootstrapped, and it is idempotent. What it will *not* do is re-apply
+settings to an index that already holds documents, because a settings change reindexes the
+whole corpus and §5 forbids that on the live alias.
+
+| Index state | What happens |
+|---|---|
+| Missing | Created, settings applied |
+| Exists, empty | Settings applied — nothing to reindex |
+| Exists, populated | **Settings not applied.** Warns, exits `0` |
+| Exists, populated, `--force-settings` | Settings applied — reindexes every document |
+
+```bash
+mise run index:create                                       # bootstrap `tools` locally
+mise run kecoctl -- index create --host https://search.internal --index tools_20260826
+mise run kecoctl -- index create --force-settings           # only on a disposable index
+```
+
+The populated case exits `0` rather than failing, so a bootstrap step in a deploy script stays
+idempotent; it logs at `warn` so the decision is visible in a deploy log.
+
+> [!IMPORTANT]
+> To change settings on a corpus that is already serving, `--force-settings` is the wrong tool.
+> Build a new index, apply settings to it, verify the document count, then swap the alias
+> (§4.4) — that is the path with a rollback.
+
+### `kecoctl index seed`
+
+Reads [`infra/mock/corpus.json`](../../infra/mock/README.md) — 300 fabricated documents shared
+with the portal's mock backend — validates every one, and upserts them in batches, awaiting
+each Meilisearch task before starting the next.
+
+It exists because the projector is still scaffolded. Until it lands, nothing fills `tools`, and
+the search engine cannot be exercised at all without something in it.
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-b, --batch <n>` | `500` | Documents per batch |
+| `--clear` | off | Delete every existing document first |
+| `--force` | off | Allow a non-local `--host` |
+
+```bash
+mise run mock                                # index create + seed --clear, from nothing
+mise run index:seed -- --clear               # reseed after editing the fixtures
+mise run kecoctl -- index seed --batch 50    # smaller batches, to watch the task queue
+```
+
+`mise run index:seed` depends on `mock:corpus`, so the JSON is re-emitted from
+`apps/web/src/mocks/corpus` before every seed and cannot go stale.
+
+#### Three guards, and why
+
+The corpus carries invented stars, scores and — the one that matters — invented
+`install_methods`. §6 calls a `brew install` line for a formula that does not exist the worst
+bug this project can ship. So:
+
+1. **Every document must carry the mock sentinel** (`KECO_MOCK_CORPUS_DO_NOT_SHIP`) in
+   `discovery_source`. The command refuses a corpus where one does not, so it cannot be
+   repurposed to push real documents — and anything it wrote can be found by filtering on it.
+2. **Every document is parsed through `ToolDocument`.** The taxonomy is data (§6), so
+   `governance: 'vendor_backed'` is not a type error; Meilisearch would accept it happily and
+   no chip would ever match. Validation is the only thing that catches it.
+3. **A non-local `--host` is refused** unless you type `--force`.
+
+It also refuses an index that does not exist rather than creating an unconfigured one — run
+`kecoctl index create` first.
+
+### Output and exit codes
+
+Structured pino JSON on stdout, like the workers. `0` on success, including the
+populated-index case above, which is a decision rather than a failure. `1` on any error, with
+the message on the `err` field. Commander handles `--help`, unknown flags and invalid argument
+values itself, so `--batch 0` is a usage error rather than an exception.
+
+### A local search sandbox from nothing
+
+```bash
+mise run infra:up      # Meilisearch on :7700
+mise run mock          # kecoctl index create + kecoctl index seed --clear
+mise run web           # the portal, now searching a real engine
+```
+
+### Where the logic lives
+
+Argument parsing used to be six hand-rolled `parseArgs` blocks that executed on import, so no
+test could reach them — and one of them silently dropped every flag after a `--`, starting a
+full sweep with defaults. The CLI is split three ways to make that testable:
+
+- **`src/cli/program.ts`** builds the command tree and takes its handlers as a *parameter*, so
+  `program.test.ts` asserts what each argv produces against stubs — no cache, no Meilisearch,
+  no network. This is where flags, defaults and validators live, and it is unit-tested.
+- **`src/cli/handlers.ts`** is the only untested file, deliberately: it is `await import()` plus
+  the two `index` command bodies, and testing it would mean standing up the real dependencies it
+  exists to defer.
+- **`src/lib/cli.ts`** holds the validators and `run()`, the error boundary — both unit-tested,
+  including that a worker setting `process.exitCode` on itself survives the boundary.
+
+Underneath, `planIndexCreate` in `read-model/create-index.ts` decides what to do to an index
+from its observed state, `seed.ts` holds the batching loop and the local-host guard with no
+Meilisearch client in sight, and `corpus.ts` owns loading and validation. All three are
+unit-tested.
 
 ## Rules this app is held to
 
@@ -171,4 +327,6 @@ Validated with zod at boot (`src/lib/config.ts`).
   not invent one.
 - **The projector stays pure** — cache in, index out, no network beyond Meilisearch — and is
   the **only** writer to Meilisearch. Advance its checkpoint only after `waitForTask`, or a
-  crash loses a batch silently.
+  crash loses a batch silently. `kecoctl index seed` is the one documented exception (§4), and
+  it earns it: no journal, no checkpoint, sentinel-stamped fixtures only, and it refuses a
+  non-local host. It is not precedent for a second writer that does none of those things.

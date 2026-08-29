@@ -1,7 +1,7 @@
 /**
  * Progress reporting for long sweeps (design 2026-08-02).
  *
- * Writes to stderr, never stdout: pino owns stdout, and `mise run discovery > out.log` has to
+ * Writes to stderr, never stdout: pino owns stdout, and `mise run discovery:sweep > out.log` has to
  * stay parseable JSON. Without a TTY it degrades to periodic log lines rather than filling a
  * CI log with carriage returns.
  */

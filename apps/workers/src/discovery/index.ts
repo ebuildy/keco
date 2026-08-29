@@ -1,4 +1,3 @@
-import { parseArgs } from 'node:util';
 import { SearchClient, type SearchItem } from '@keco/github';
 import { config } from '../lib/config';
 import { workerLogger } from '../lib/logger';
@@ -22,41 +21,21 @@ import { queryOf } from './windows';
  *
  * Thin by construction: the window algebra is `windows.ts`, the split/paginate decision is
  * `plan.ts`, the resume-vs-new-sweep decision is `sweep.ts`, the signal handling is
- * `lib/shutdown.ts`, all persistence is `store.ts`. This file executes `main()` on import, so
- * nothing declared here can be unit-tested — anything that carries a decision belongs in one
- * of those modules, and every one of them exists because a bug was found in it.
+ * `lib/shutdown.ts`, all persistence is `store.ts`. Argument parsing is `cli/program.ts`, and
+ * this module executes nothing on import — it exports `runDiscovery`, which `kecoctl
+ * discovery sweep` calls. Anything that carries a decision belongs in one of those modules,
+ * and every one of them exists because a bug was found in it.
  */
 const log = workerLogger('discovery');
 
-const { values, positionals } = parseArgs({
-  options: {
-    query: { type: 'string', default: 'kubernetes' },
-    limit: { type: 'string' },
-    fresh: { type: 'boolean', default: false },
-  },
-  allowPositionals: true,
-});
+export type DiscoveryOptions = {
+  query: string;
+  /** `null` means no limit. Validated as a positive integer by the CLI. */
+  limit: number | null;
+  fresh: boolean;
+};
 
-async function main(): Promise<void> {
-  // `node:util`'s parseArgs treats everything after a bare `--` as positional, and pnpm
-  // forwards that separator verbatim — so `pnpm -F @keco/workers discovery -- --limit 5`
-  // parses to zero options and starts a full two-hour sweep with the flags silently dropped.
-  // `mise run discovery -- --limit 5` is unaffected (mise appends the args, no separator), but
-  // the other spelling is the one people reach for, so it fails loudly instead.
-  if (positionals.length > 0) {
-    throw new Error(
-      `discovery takes no positional arguments, got ${JSON.stringify(positionals)}. ` +
-        'If you invoked it as `pnpm -F @keco/workers discovery -- --flag`, drop the `--`; ' +
-        'everything after it is treated as positional and the flags are ignored.',
-    );
-  }
-
-  const query = values.query!;
-  const limit = values.limit === undefined ? null : Number(values.limit);
-  if (limit !== null && (!Number.isFinite(limit) || limit <= 0)) {
-    throw new Error(`--limit must be a positive number, got "${values.limit}"`);
-  }
-
+export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): Promise<void> {
   // Unauthenticated search is 10 req/min, which turns a two-hour sweep into a six-hour one.
   if (config.GITHUB_TOKEN === '') {
     log.error('GITHUB_TOKEN is required for discovery — unauthenticated search is 10 req/min');
@@ -72,7 +51,7 @@ async function main(): Promise<void> {
 
   const { cache } = createRuntime();
   const store = await DiscoveryStore.open(cache, query, {
-    fresh: values.fresh,
+    fresh,
     now,
     logger: log,
   });
@@ -92,7 +71,7 @@ async function main(): Promise<void> {
     {
       query,
       limit,
-      fresh: values.fresh,
+      fresh,
       resuming,
       known_repos: store.size,
       windows: queue.length,
@@ -246,11 +225,4 @@ async function recordAll(
       );
     }
   }
-}
-
-try {
-  await main();
-} catch (error) {
-  log.error({ error: error instanceof Error ? error.message : String(error) }, 'discovery failed');
-  process.exitCode = 1;
 }

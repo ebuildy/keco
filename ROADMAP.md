@@ -35,7 +35,7 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
   a recorded reason. **Icons ship ahead of it**: `apps/workers/src/crawler/icon.ts` finds a
   project's mark (committed logo → README image → owner avatar), stores the bytes verbatim and
   derives 32/64/160 PNGs with sharp. The call site is written into the crawler's TODO, and
-  `mise run icon -- --repo owner/name` runs the pipeline standalone today. See
+  `mise run repo:icon -- --repo owner/name` runs the pipeline standalone today. See
   `docs/superpowers/specs/2026-08-24-project-icons-design.md`.
 - ⬜ **analyzer pass 1** — local rules over cached payloads, each new rule shipping with a
   fixture that proves it.

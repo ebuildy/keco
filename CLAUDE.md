@@ -188,7 +188,11 @@ Consequences that matter:
   cheap to iterate on.
 - The projector is pure: cache in, index out, no network. It must stay that way — it is the
   thing you re-run most often.
-- The projector is the only writer to Meilisearch. Nothing else writes to it, ever.
+- The projector is the only writer to Meilisearch. Nothing else writes to it, ever. The one
+  exception is `kecoctl index seed` (`apps/workers/src/read-model`), dev-only tooling that
+  pushes `infra/mock/corpus.json` into a local index so the search engine can be exercised
+  before the projector fills it: it consumes no journal, advances no checkpoint and writes only
+  sentinel-stamped fixtures. It refuses a non-local `MEILI_HOST` (§8).
 - Scale out by **deterministic sharding** (`hash(repo) % SHARD_COUNT == SHARD_INDEX`), not by
   locks or leases. There is no coordination primitive here and you must not invent one.
 - Every worker is safe to kill at any moment. Crash mid-batch ⇒ checkpoint not advanced ⇒
@@ -467,7 +471,7 @@ keco/
 │   ├── api/                       # Fastify — the only backend process
 │   │   └── src/routes/            # v1 · mcp · chat · readme · admin · commands
 │   └── workers/
-│       └── src/{discovery,crawler,analyzer,projector,replay,lib}/
+│       └── src/{cli,discovery,crawler,analyzer,projector,replay,read-model,lib}/
 ├── packages/
 │   ├── core/                      # zod schemas, taxonomy, scoring, event types
 │   ├── cache/                     # Storage port + fs adapter, journal, checkpoints, keys
@@ -485,6 +489,14 @@ pnpm workspaces (no Turborepo), TypeScript, ESM, `strict: true`, Node 24, pnpm 1
 **Three deployables, two of them static.** `apps/web` and `apps/backoffice` build to `dist/`;
 `apps/api` serves both with `@fastify/static` (portal at `/`, backoffice at `/admin`) alongside
 its JSON routes. One Node process in production, next to Meilisearch and the worker container.
+
+**`apps/workers` is one CLI, `kecoctl`.** Eight commands grouped by noun — `discovery sweep`,
+`repo crawl|analyze|icon`, `project`, `index create|seed`, `checkpoint reset` — over a
+three-layer split: `src/cli/program.ts` builds the command tree and takes its handlers as a
+parameter, `src/cli/handlers.ts` supplies them as lazy imports, and each worker module exports
+`run*(options)` and executes nothing on import. That last property is the point: argument
+parsing used to be six hand-rolled `parseArgs` blocks that no test could reach, and one of them
+silently dropped every flag after a `--`.
 
 **Import boundaries, enforced by lint** (`eslint.config.mjs` — each rule encodes one line of the
 CQRS contract; if you need to relax one, re-read §2 first):
@@ -519,13 +531,14 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run web:mock` | Portal alone on `:5173` against the in-browser mock backend — fabricated data, **dev and test only**, provably absent from production builds (§14) |
 | `mise run build` | Build the portal, prerender its top tool pages, typecheck the API |
 | `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from the read model (§9) — `build` already runs this after `vite build`; run it alone to re-prerender without a fresh bundle |
-| `mise run discovery -- --query kubernetes --fresh` | Enumerate repos into `discovery/*.yaml` (resumes by default) |
-| `mise run crawler -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
-| `mise run analyzer` | Classify everything with a changed `content_hash` or an expired signal TTL |
-| `mise run analyzer -- --force-refresh scorecard` | Ignore TTL for one provider |
-| `mise run projector` | Project analyses into Meilisearch |
+| `mise run discovery:sweep -- --query kubernetes --fresh` | Enumerate repos into `discovery/*.yaml` (resumes by default) |
+| `mise run repo:crawl -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
+| `mise run repo:icon -- --repo owner/name` | Fetch and derive one repo's icon, standalone — the pipeline the crawler will call inline |
+| `mise run repo:analyze` | Classify everything with a changed `content_hash` or an expired signal TTL |
+| `mise run repo:analyze -- --force-refresh scorecard` | Ignore TTL for one provider |
+| `mise run project` | Project analyses into Meilisearch |
 | `mise run rebuild` | Full offline replay → new index → alias swap, zero GitHub calls |
-| `mise run replay -- --consumer analyzer` | Reset a checkpoint |
+| `mise run checkpoint:reset -- --consumer analyzer` | Reset a checkpoint |
 | `mise run pipeline` | crawl → analyze → project, end to end, on a small seeded set |
 | `mise run search:settings` | Apply index settings (idempotent) |
 | `mise run search:key` | Mint or fetch the browser's search-only Meilisearch key and write it into `.env` (§12) — idempotent, never overwrites a value already set |
@@ -535,6 +548,10 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run e2e` | Portal end-to-end tests — Playwright drives the real SPA against the in-browser mock backend, so no Meilisearch, no `apps/api` and no token (§9). Not part of `ci`: it needs a browser download, which `e2e:install` does once |
 | `mise run format` | prettier |
 | `mise run ci` | check + lint + test + taxonomy:check — the gate for §15 |
+| `mise run kecoctl -- --help` | The write-side CLI (`apps/workers/src/cli`, commander): `discovery sweep`, `repo crawl\|analyze\|icon`, `project`, `index create\|seed`, `checkpoint reset`. Every index command takes `--host` and `--index` |
+| `mise run index:create` | `kecoctl index create` — bootstrap an index with the real `tools` settings. **Safe on production**: it applies settings only to an index that is missing or empty, and refuses to reindex a populated one without `--force-settings` (§5) |
+| `mise run index:seed` | `kecoctl index seed` — validate `infra/mock/corpus.json` and upsert it. Fabricated data: it refuses a non-local host without `--force` (§14) |
+| `mise run mock` / `mock:corpus` | The local search sandbox (`index:create` + `index:seed --clear`) · re-emit the corpus JSON from `apps/web/src/mocks/corpus`, the only seam the two sides share (§7) |
 | `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
 
 `package.json`'s own `scripts` exist only so `pnpm <script>` works from muscle memory; each one

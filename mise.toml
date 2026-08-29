@@ -81,10 +81,6 @@ run = [
   "pnpm -F @keco/api check",
 ]
 
-[tasks.icon]
-description = "Fetch and derive one repo's icon, standalone. Args: --repo owner/name"
-run = "pnpm -F @keco/workers icon"
-
 [tasks."admin:hash"]
 description = "Hash a password for ADMIN_PASSWORD_HASH. Args: --password 'secret'"
 run = "pnpm -F @keco/api admin:hash"
@@ -128,38 +124,70 @@ depends = ["check", "lint", "test", "taxonomy:check"]
 description = "Format sources with prettier"
 run = "pnpm prettier --write ."
 
-# ── write side: the three workers ────────────────────────────────────────────
+# ── write side: kecoctl ───────────────────────────────────────────────────────
 
-[tasks.discovery]
-description = "Enumerate every GitHub repo matching a keyword into discovery/{query}/*.yaml — one namespace per keyword, so several can share a cache. Resumes by default. Args: --query kubernetes --fresh (starts this keyword's sweep over, leaving the others alone) --limit 500 (stops at the first window boundary past 500 total repos, so it overshoots and is for dev runs only)"
-run = "pnpm -F @keco/workers discovery"
+[tasks."discovery:sweep"]
+description = "Enumerate every GitHub repo matching a keyword into discovery/{query}/*.yaml. Resumes by default. `kecoctl discovery sweep --help` for the full contract. Args: --query kubernetes --fresh --limit 500"
+run = "pnpm -F @keco/workers kecoctl discovery sweep"
 
-[tasks.crawler]
-description = "Discover + fetch repos into the cache. Args: --seed cncf,krew --limit 200"
-run = "pnpm -F @keco/workers crawler"
+[tasks."repo:crawl"]
+description = "Fetch discovered and seeded repos into the cache. Args: --seed cncf,krew --limit 200 --repo owner/name"
+run = "pnpm -F @keco/workers kecoctl repo crawl"
 
-[tasks.analyzer]
-description = "Classify everything with a changed content_hash or an expired signal TTL"
-run = "pnpm -F @keco/workers analyzer"
+[tasks."repo:icon"]
+description = "Fetch and derive one repo's icon, standalone. `kecoctl repo icon --help` for details. Args: --repo owner/name"
+run = "pnpm -F @keco/workers kecoctl repo icon"
 
-[tasks.projector]
-description = "Project analyses into Meilisearch. Args: --rebuild for a full replay + alias swap"
-run = "pnpm -F @keco/workers projector"
+[tasks."repo:analyze"]
+description = "Classify everything with a changed content_hash or an expired signal TTL. Args: --force-refresh scorecard"
+run = "pnpm -F @keco/workers kecoctl repo analyze"
 
-[tasks.replay]
-description = "Reset a consumer checkpoint. Args: --consumer analyzer"
-run = "pnpm -F @keco/workers replay"
+[tasks.project]
+description = "Project analyses into Meilisearch — the only writer to the read model. Args: --rebuild for a full replay + alias swap"
+run = "pnpm -F @keco/workers kecoctl project"
+
+[tasks."checkpoint:reset"]
+description = "Reset a consumer checkpoint so it replays from the beginning. Args: --consumer analyzer"
+run = "pnpm -F @keco/workers kecoctl checkpoint reset"
 
 [tasks.rebuild]
 description = "Full offline rebuild of the read model from cache (no GitHub calls)"
-run = "pnpm -F @keco/workers projector --rebuild"
+run = "pnpm -F @keco/workers kecoctl project --rebuild"
 
 [tasks.pipeline]
 description = "Small end-to-end run: crawl 200 seeded repos, analyze, project"
 run = [
-  "pnpm -F @keco/workers crawler --seed cncf,krew --limit 200",
-  "pnpm -F @keco/workers analyzer",
-  "pnpm -F @keco/workers projector",
+  "pnpm -F @keco/workers kecoctl repo crawl --seed cncf,krew --limit 200",
+  "pnpm -F @keco/workers kecoctl repo analyze",
+  "pnpm -F @keco/workers kecoctl project",
+]
+
+# ── read model + mock corpus ──────────────────────────────────────────────────
+
+[tasks.kecoctl]
+description = "The write-side CLI. `mise run kecoctl -- --help` lists every command"
+run = "pnpm -F @keco/workers kecoctl"
+
+[tasks."index:create"]
+description = "Create the target index with the real tools settings. Idempotent, and safe on production: it refuses to reindex an index that already holds documents unless --force-settings. Args: --index tools --host URL"
+run = "pnpm -F @keco/workers kecoctl index create"
+
+[tasks."index:seed"]
+description = "Fill the index with infra/mock/corpus.json — fabricated data, local Meilisearch only. Args: --index tools --batch 500 --clear --force"
+depends = ["mock:corpus"]
+run = "pnpm -F @keco/workers kecoctl index seed"
+
+[tasks."mock:corpus"]
+description = "Emit the portal's mock corpus to infra/mock/corpus.json — the shared fixture the seeder reads. Fabricated data, dev only"
+run = "pnpm -F @keco/web mock:corpus"
+sources = ["apps/web/src/mocks/corpus/*.ts", "apps/web/scripts/emit-mock-corpus.ts"]
+outputs = ["infra/mock/corpus.json"]
+
+[tasks.mock]
+description = "Local search sandbox: create the index and fill it with the mock corpus, so Meilisearch itself can be exercised before the projector exists"
+run = [
+  "mise run index:create",
+  "mise run index:seed -- --clear",
 ]
 
 # ── read side / infra ────────────────────────────────────────────────────────

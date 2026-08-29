@@ -92,7 +92,7 @@ export class Journal {
     } satisfies Checkpoint);
   }
 
-  /** Reset a consumer to the beginning of time. `mise run replay --consumer analyzer`. */
+  /** Reset a consumer to the beginning of time. `mise run checkpoint:reset -- --consumer analyzer`. */
   async reset(consumer: string): Promise<void> {
     await this.cache.putJSON(checkpointKey(consumer), {
       consumer,

@@ -146,9 +146,9 @@ mise run setup                               # .env, dependencies, Meilisearch, 
 mise run dev                                 # portal http://localhost:5173 (proxies /api to :3000)
 
 # fill a small corpus (~200 repos, a few minutes)
-mise run crawler -- --seed cncf,krew --limit 200
-mise run analyzer
-mise run projector
+mise run repo:crawl -- --seed cncf,krew --limit 200
+mise run repo:analyze
+mise run project
 ```
 
 `mise run build` builds the portal and prerenders its top tool pages into `apps/web/dist`;
@@ -158,8 +158,8 @@ that combined, single-process address is the one a deployment actually answers o
 Re-classify everything from cache, without re-fetching:
 
 ```bash
-mise run replay -- --consumer analyzer
-mise run analyzer && mise run rebuild
+mise run checkpoint:reset -- --consumer analyzer
+mise run repo:analyze && mise run rebuild
 ```
 
 `mise tasks` lists the rest — `check`, `lint`, `test`, `ci`, `search:settings`, `search:key`,

@@ -1,4 +1,3 @@
-import { parseArgs } from 'node:util';
 import { workerLogger } from '../lib/logger';
 import { createRuntime } from '../lib/runtime';
 
@@ -15,19 +14,24 @@ import { createRuntime } from '../lib/runtime';
  */
 const log = workerLogger('analyzer');
 
-const { values } = parseArgs({
-  options: {
-    'force-refresh': { type: 'string' }, // provider name — the only TTL bypass, and it is manual
-    repo: { type: 'string' },
-    'min-confidence': { type: 'string' },
-  },
-  allowPositionals: true,
-});
+export type AnalyzeOptions = {
+  /** Provider name — the only TTL bypass, and it is manual. `null` honours every TTL. */
+  forceRefresh: string | null;
+  repo: string | null;
+  minConfidence: number | null;
+};
 
-async function main(): Promise<void> {
+export async function runAnalyzer({
+  forceRefresh,
+  repo,
+  minConfidence,
+}: AnalyzeOptions): Promise<void> {
   const { journal } = createRuntime();
   const checkpoint = await journal.checkpoint('analyzer');
-  log.info({ checkpoint: checkpoint.last_event_id, forceRefresh: values['force-refresh'] }, 'analyzer start');
+  log.info(
+    { checkpoint: checkpoint.last_event_id, forceRefresh, repo, minConfidence },
+    'analyzer start',
+  );
 
   let seen = 0;
   let lastId = checkpoint.last_event_id;
@@ -72,5 +76,3 @@ async function main(): Promise<void> {
 
   log.warn('analyzer passes are not implemented yet — see the TODO in this file and AGENTS.md §4.2');
 }
-
-await main();
