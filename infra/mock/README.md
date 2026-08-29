@@ -6,7 +6,7 @@ the projector exists to fill it from a crawl.
 
 ```sh
 mise run infra:up     # Meilisearch on :7700
-mise run mock         # engine index create + engine seed --clear
+mise run mock         # index:create + index:seed --clear
 mise run web          # the portal, now searching a real engine
 ```
 
@@ -15,15 +15,15 @@ Individually:
 | Task | What it does |
 |---|---|
 | `mise run mock:corpus` | Re-emits `corpus.json` from `apps/web/src/mocks/corpus` |
-| `mise run engine:index` | `engine index create` — creates the target index and applies the real `tools` settings |
-| `mise run engine:seed` | `engine seed` — validates `corpus.json` and upserts it in batches |
+| `mise run index:create` | `kecoctl index create` — creates the target index and applies the real `tools` settings |
+| `mise run index:seed` | `kecoctl index seed` — validates `corpus.json` and upserts it in batches |
 
-Both are subcommands of the `engine` CLI (`apps/workers/src/engine`, commander), so
-`mise run engine -- --help` and `mise run engine -- seed --help` list every flag. Both take
-`--host <url>` and `--index <uid>` (default `tools`); `seed` also takes `--batch <n>`,
+Both are subcommands of `kecoctl` (`apps/workers/src/cli`, commander), so
+`mise run kecoctl -- --help` and `mise run kecoctl -- index seed --help` list every flag. Both
+take `--host <url>` and `--index <uid>` (default `tools`); `seed` also takes `--batch <n>`,
 `--clear` and `--force`.
 
-`engine index create` is the one command here that is **not** mock-specific — it is how a fresh
+`kecoctl index create` is the one command here that is **not** mock-specific — it is how a fresh
 deployment's index is bootstrapped, production included. It applies settings only to an index
 that is missing or empty, and refuses to reindex a populated one without `--force-settings`,
 because a settings change on a live alias reindexes the whole corpus (AGENTS.md §5).
