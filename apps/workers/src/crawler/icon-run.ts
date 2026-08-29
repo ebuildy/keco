@@ -1,4 +1,3 @@
-import { parseArgs } from 'node:util';
 import { repoKeys } from '@keco/cache/keys';
 import { config } from '../lib/config';
 import { workerLogger } from '../lib/logger';
@@ -6,7 +5,7 @@ import { createRuntime } from '../lib/runtime';
 import { updateIcon } from './icon';
 
 /**
- * `mise run icon -- --repo owner/name` — the icon pipeline, standalone.
+ * `kecoctl repo icon --repo owner/name` — the icon pipeline, standalone.
  *
  * The crawler is still a stub (AGENTS.md §0), so this exists to prove the pipeline works
  * against real GitHub responses before there is a crawl to run it inside. It fetches only the
@@ -15,16 +14,10 @@ import { updateIcon } from './icon';
  */
 const log = workerLogger('icon');
 
-const { values } = parseArgs({ options: { repo: { type: 'string' } }, allowPositionals: true });
-
-const repo = values.repo;
-if (repo === undefined || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
-  log.error('usage: mise run icon -- --repo owner/name');
-  process.exit(1);
-}
-
-const { cache } = createRuntime();
-const keys = repoKeys(repo);
+export type IconOptions = {
+  /** Validated as `owner/name` by the CLI before this runs. */
+  repo: string;
+};
 
 type RepoJson = { default_branch?: string; owner?: { avatar_url?: string } };
 type TreeJson = { tree?: { path?: string; type?: string }[] };
@@ -45,23 +38,31 @@ const github = async <T>(path: string): Promise<T> => {
   return (await response.json()) as T;
 };
 
-const repoJson = (await cache.getJSON<RepoJson>(keys.repo)) ?? (await github<RepoJson>(`/repos/${repo}`));
-const branch = repoJson.default_branch ?? 'main';
-const treeJson =
-  (await cache.getJSON<TreeJson>(keys.tree)) ??
-  (await github<TreeJson>(`/repos/${repo}/git/trees/${branch}?recursive=1`));
-const readme = (await cache.getText(keys.readme)) ?? '';
+export async function runIcon({ repo }: IconOptions): Promise<void> {
+  const { cache } = createRuntime();
+  const keys = repoKeys(repo);
 
-const meta = await updateIcon(
-  cache,
-  {
-    repo,
-    defaultBranch: branch,
-    avatarUrl: repoJson.owner?.avatar_url ?? null,
-    treePaths: (treeJson.tree ?? []).filter((entry) => entry.type === 'blob').map((entry) => entry.path ?? ''),
-    readme,
-  },
-  { fetch: globalThis.fetch },
-);
+  const repoJson =
+    (await cache.getJSON<RepoJson>(keys.repo)) ?? (await github<RepoJson>(`/repos/${repo}`));
+  const branch = repoJson.default_branch ?? 'main';
+  const treeJson =
+    (await cache.getJSON<TreeJson>(keys.tree)) ??
+    (await github<TreeJson>(`/repos/${repo}/git/trees/${branch}?recursive=1`));
+  const readme = (await cache.getText(keys.readme)) ?? '';
 
-log.info({ repo, ...meta }, meta.source === null ? 'no icon' : 'icon updated');
+  const meta = await updateIcon(
+    cache,
+    {
+      repo,
+      defaultBranch: branch,
+      avatarUrl: repoJson.owner?.avatar_url ?? null,
+      treePaths: (treeJson.tree ?? [])
+        .filter((entry) => entry.type === 'blob')
+        .map((entry) => entry.path ?? ''),
+      readme,
+    },
+    { fetch: globalThis.fetch },
+  );
+
+  log.info({ repo, ...meta }, meta.source === null ? 'no icon' : 'icon updated');
+}
