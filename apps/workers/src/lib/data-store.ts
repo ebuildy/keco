@@ -117,7 +117,9 @@ export function projectFields(
   if (fields === undefined) return document;
   const out: Document = {};
   for (const field of fields) {
-    // `in`, not `!== undefined`: a field explicitly stored as null must survive projection.
+    // The guard is what keeps a named-but-absent field out of the result rather than adding
+    // it as `undefined`. `in` rather than `!== undefined` so a field the document genuinely
+    // carries counts as present whatever it holds; only absence drops it.
     if (field in document) out[field] = document[field];
   }
   return out;
