@@ -740,9 +740,18 @@ export function describeDataStore(
 
 - [ ] **Step 2: Verify it compiles and collects nothing on its own**
 
-Run: `pnpm -F @keco/workers check && pnpm vitest run apps/workers/src/lib/`
-Expected: typecheck passes; vitest runs only `data-store.test.ts` (18 tests) — the conformance
-file is not a `*.test.ts` and is not collected.
+Run: `pnpm -F @keco/workers check`
+Expected: passes.
+
+Then confirm the file contributes no tests of its own — it is not a `*.test.ts`, so vitest's
+`include` glob must not collect it:
+
+Run: `pnpm vitest run apps/workers/src/lib/ --reporter=verbose | grep -c "DataStore conformance"`
+Expected: `0`.
+
+(`apps/workers/src/lib/` already holds `cli.test.ts`, `progress.test.ts` and
+`shutdown.test.ts`, so the directory's total test count is not a useful signal here. The
+absence of the suite's own describe block is.)
 
 - [ ] **Step 3: Commit**
 
