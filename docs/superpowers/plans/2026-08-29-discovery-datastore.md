@@ -154,11 +154,13 @@ describe('assertDocumentId', () => {
   });
 
   it('rejects an id longer than a filename can be', () => {
-    // Without this bound the memory and Meilisearch stores accept an id the filesystem store
-    // rejects with ENAMETOOLONG — a divergence that surfaces as a mysterious per-backend
-    // conformance failure rather than as the input error it is.
-    expect(() => assertDocumentId('a'.repeat(256), 'widgets', 'id')).toThrow(/256 characters/);
-    expect(() => assertDocumentId('a'.repeat(255), 'widgets', 'id')).not.toThrow();
+    // The boundary is 250, not 255: the filesystem store appends `.json`, so a 255-character
+    // id makes a 260-byte path segment and hits the ENAMETOOLONG this bound exists to prevent.
+    // Asserting the length message specifically, not just the field name — both other error
+    // paths mention `widgets.id` too, so a weaker pattern would not catch this check throwing
+    // the wrong error.
+    expect(() => assertDocumentId('a'.repeat(251), 'widgets', 'id')).toThrow(/251 characters/);
+    expect(() => assertDocumentId('a'.repeat(250), 'widgets', 'id')).not.toThrow();
   });
 });
 
@@ -368,9 +370,11 @@ export function compareBySort(sort: Sort): (a: Document, b: Document) => number 
       // backend stores as null and another omits.
       //
       // Known and deliberately unfixed: a field holding two different types (`5` vs `'abc'`)
-      // has the same hole, because both `<` comparisons are false. A sortable field with
-      // mixed types is a data bug, and fixing it needs a type-ordering rule the port has no
-      // business inventing.
+      // has the same hole, because both `<` comparisons are false — as does `NaN`, which is
+      // additionally non-reflexive, so `cmp(NaN, NaN)` answers 1. `Document` is
+      // JSON-serialisable and JSON has no NaN, so only the in-memory store can hold one
+      // (structuredClone preserves it). A sortable field with mixed types is a data bug, and
+      // fixing either case needs a type-ordering rule the port has no business inventing.
       const leftMissing = left === undefined || left === null;
       const rightMissing = right === undefined || right === null;
       if (leftMissing && rightMissing) continue;
@@ -396,12 +400,18 @@ export function compareBySort(sort: Sort): (a: Document, b: Document) => number 
 export const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /**
- * `NAME_MAX` is 255 on every filesystem this runs on. Without the bound, a long `--query`
- * produces an id the memory and Meilisearch stores accept and the filesystem store rejects
- * with ENAMETOOLONG — a per-implementation divergence that surfaces as a mysterious
- * conformance failure rather than as the input-validation error it actually is.
+ * Without a bound, a long `--query` produces an id the memory and Meilisearch stores accept
+ * and the filesystem store rejects with ENAMETOOLONG — a per-implementation divergence that
+ * surfaces as a mysterious conformance failure rather than as the input-validation error it
+ * actually is.
+ *
+ * 250 rather than 255, and the five bytes are not slack: `NAME_MAX` is 255, and the
+ * filesystem store appends `.json` to the id to form the final path segment
+ * (`data/{collection}/{id}.json`), so the id itself gets 250. The charset is ASCII-only, so
+ * characters equal bytes and the arithmetic is exact. Raise this to 255 and a maximum-length
+ * id produces a 260-byte filename — the exact failure the bound exists to prevent.
  */
-export const MAX_DOCUMENT_ID_LENGTH = 255;
+export const MAX_DOCUMENT_ID_LENGTH = 250;
 
 /**
  * Takes `unknown`, not `string`, and that is load-bearing. `document[primaryKey]` is typed
