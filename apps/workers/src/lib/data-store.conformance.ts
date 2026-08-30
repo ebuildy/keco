@@ -272,6 +272,52 @@ export function describeDataStore(
       });
     });
 
+    it('copies on the way out, so a caller cannot edit the store by mutating what it read', async () => {
+      // Unpinned until now, and it is the load-bearing contract for the in-memory store's
+      // role as a test double: a backend that hands back a live reference lets a worker
+      // silently persist a mutation in memory-backed tests that would not persist against a
+      // real backend. That failure mode is other tasks' tests passing when they should not.
+      await withStore(async (store) => {
+        await store.put(WIDGETS, [widget('a', 'x', 1)], { durable: true });
+
+        const first = (await store.get(WIDGETS, 'a')) as Record<string, unknown>;
+        first.rank = 999;
+        expect(await store.get(WIDGETS, 'a')).toMatchObject({ rank: 1 });
+
+        const [listed] = await collect(store.list(WIDGETS));
+        (listed as Record<string, unknown>).rank = 998;
+        expect(await store.get(WIDGETS, 'a')).toMatchObject({ rank: 1 });
+      });
+    });
+
+    it('refuses every operation on a collection that was never ensured', async () => {
+      // An unknown collection is a programming error, not a miss: `ensure` runs at startup
+      // with a static list. Backends must agree on this — one returning null where the
+      // others throw turns a typo into a silent empty result.
+      await withStore(async (store) => {
+        await expect(store.get('never_ensured', 'a')).rejects.toThrow();
+        await expect(store.count('never_ensured')).rejects.toThrow();
+        await expect(collect(store.list('never_ensured'))).rejects.toThrow();
+        await expect(store.put('never_ensured', [{ id: 'a' }])).rejects.toThrow();
+        await expect(store.remove('never_ensured', { group: 'x' })).rejects.toThrow();
+      });
+    });
+
+    it('writes nothing when any document in a batch is invalid', async () => {
+      // The batch is atomic. Without this a backend can leave a partial write behind, and the
+      // primary-key test above would not notice because it uses a single-document batch.
+      await withStore(async (store) => {
+        await expect(
+          store.put(
+            WIDGETS,
+            [widget('a', 'x', 1), widget('b', 'x', 2), { group: 'x', rank: 3 }],
+            { durable: true },
+          ),
+        ).rejects.toThrow(/primary key/);
+        expect(await store.count(WIDGETS)).toBe(0);
+      });
+    });
+
     it('a durable put implies every earlier put is durable too', async () => {
       // The ordering half of PutOptions.durable. Discovery writes its corpus without waiting
       // and its resume state with it; if state can land first, a crash leaves state claiming

@@ -33,16 +33,21 @@ export class InMemoryDataStore implements DataStore {
   async put(collection: string, documents: readonly Document[]): Promise<void> {
     // Synchronous copy before any await — the port's deep-copy contract. structuredClone is
     // the whole of it here: callers hand us live arrays they keep mutating.
-    const copies = documents.map((document) => structuredClone(document) as Document);
+    //
+    // Validation happens in this pass, before anything is written, so a batch with one bad
+    // document lands nothing. The filesystem and Meilisearch stores get that for free by
+    // building their whole payload before issuing a write; doing it by accident here would
+    // leave the reference double with partial-write behaviour neither real backend has.
     const primaryKey = this.primaryKeyOf(collection);
-    const target = this.collectionOf(collection);
-    for (const copy of copies) {
-      // Raw, not String(): assertDocumentId takes `unknown` precisely so a missing primary
-      // key reaches its typeof check instead of arriving as the string "undefined".
+    const copies = documents.map((document) => {
+      const copy = structuredClone(document) as Document;
       const id = copy[primaryKey];
       assertDocumentId(id, collection, primaryKey);
-      target.set(id, copy);
-    }
+      return [id, copy] as const;
+    });
+
+    const target = this.collectionOf(collection);
+    for (const [id, copy] of copies) target.set(id, copy);
   }
 
   async get(collection: string, id: string): Promise<Document | null> {

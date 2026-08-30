@@ -309,7 +309,14 @@ export interface DataStore {
    */
   count(collection: string, where?: Where): Promise<number>;
 
-  /** Pages internally; the caller never sees an offset. */
+  /**
+   * Pages internally; the caller never sees an offset.
+   *
+   * Mutating the collection *during* an iteration is undefined: the three implementations
+   * genuinely differ (one snapshots up front, one snapshots keys and reads through, one
+   * pages by offset and can skip or repeat a row as offsets shift). Read fully, then write —
+   * which is what discovery's resume path does.
+   */
   list(collection: string, query?: ListQuery): AsyncIterable<Document>;
 
   /**
@@ -778,6 +785,43 @@ export function describeDataStore(
       });
     });
 
+    it('copies on the way out, so a caller cannot edit the store by mutating what it read', async () => {
+      await withStore(async (store) => {
+        await store.put(WIDGETS, [widget('a', 'x', 1)], { durable: true });
+
+        const first = (await store.get(WIDGETS, 'a')) as Record<string, unknown>;
+        first.rank = 999;
+        expect(await store.get(WIDGETS, 'a')).toMatchObject({ rank: 1 });
+
+        const [listed] = await collect(store.list(WIDGETS));
+        (listed as Record<string, unknown>).rank = 998;
+        expect(await store.get(WIDGETS, 'a')).toMatchObject({ rank: 1 });
+      });
+    });
+
+    it('refuses every operation on a collection that was never ensured', async () => {
+      await withStore(async (store) => {
+        await expect(store.get('never_ensured', 'a')).rejects.toThrow();
+        await expect(store.count('never_ensured')).rejects.toThrow();
+        await expect(collect(store.list('never_ensured'))).rejects.toThrow();
+        await expect(store.put('never_ensured', [{ id: 'a' }])).rejects.toThrow();
+        await expect(store.remove('never_ensured', { group: 'x' })).rejects.toThrow();
+      });
+    });
+
+    it('writes nothing when any document in a batch is invalid', async () => {
+      await withStore(async (store) => {
+        await expect(
+          store.put(
+            WIDGETS,
+            [widget('a', 'x', 1), widget('b', 'x', 2), { group: 'x', rank: 3 }],
+            { durable: true },
+          ),
+        ).rejects.toThrow(/primary key/);
+        expect(await store.count(WIDGETS)).toBe(0);
+      });
+    });
+
     it('a durable put implies every earlier put is durable too', async () => {
       // The ordering half of PutOptions.durable. Discovery writes its corpus without waiting
       // and its resume state with it; if state can land first, a crash leaves state claiming
@@ -890,16 +934,24 @@ export class InMemoryDataStore implements DataStore {
   async put(collection: string, documents: readonly Document[]): Promise<void> {
     // Synchronous copy before any await — the port's deep-copy contract. structuredClone is
     // the whole of it here: callers hand us live arrays they keep mutating.
-    const copies = documents.map((document) => structuredClone(document) as Document);
+    //
+    // Validation happens in this pass, before anything is written, so a batch with one bad
+    // document lands nothing. The filesystem and Meilisearch stores get that for free by
+    // building their whole payload before issuing a write; doing it by accident here would
+    // leave the reference double with partial-write behaviour neither real backend has.
+    //
+    // The id is passed raw, not String()-ed: assertDocumentId takes `unknown` precisely so a
+    // missing primary key reaches its typeof check instead of arriving as "undefined".
     const primaryKey = this.primaryKeyOf(collection);
-    const target = this.collectionOf(collection);
-    for (const copy of copies) {
-      // Raw, not String(): assertDocumentId takes `unknown` precisely so a missing primary
-      // key reaches its typeof check instead of arriving as the string "undefined".
+    const copies = documents.map((document) => {
+      const copy = structuredClone(document) as Document;
       const id = copy[primaryKey];
       assertDocumentId(id, collection, primaryKey);
-      target.set(id, copy);
-    }
+      return [id, copy] as const;
+    });
+
+    const target = this.collectionOf(collection);
+    for (const [id, copy] of copies) target.set(id, copy);
   }
 
   async get(collection: string, id: string): Promise<Document | null> {
@@ -957,7 +1009,7 @@ export class InMemoryDataStore implements DataStore {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.memory.test.ts`
-Expected: PASS, 21 tests (the full conformance suite).
+Expected: PASS, 24 tests (the full conformance suite).
 
 - [ ] **Step 5: Commit**
 
@@ -1094,6 +1146,10 @@ export class FsDataStore implements DataStore {
   }
 
   async get(collection: string, id: string): Promise<Document | null> {
+    // Validate the collection first, even though the key would resolve without it: an unknown
+    // collection must throw here exactly as it does in the other two implementations, or a
+    // typo silently reads as "no such document".
+    this.primaryKeyOf(collection);
     const buffer = await this.storage.get(documentKey(collection, id));
     if (buffer === null) return null;
     return JSON.parse(buffer.toString('utf8')) as Document;
@@ -1172,7 +1228,7 @@ export class FsDataStore implements DataStore {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.fs.test.ts`
-Expected: PASS, 23 tests (21 conformance + 2 layout).
+Expected: PASS, 26 tests (24 conformance + 2 layout).
 
 - [ ] **Step 5: Commit**
 
@@ -1476,7 +1532,9 @@ export class MeilisearchDataStore implements DataStore {
       if ((error as { cause?: { code?: string } } | null)?.cause?.code === 'document_not_found') {
         return null;
       }
-      if (isIndexNotFound(error)) return null;
+      // index_not_found is deliberately NOT swallowed. A missing collection is a programming
+      // error — `ensure` runs at startup with a static list — and returning null for it would
+      // make this the one implementation where a typo reads as an empty result.
       throw error;
     }
   }
@@ -1625,7 +1683,7 @@ mise run infra:up
 MEILI_INTEGRATION=1 pnpm vitest run apps/workers/src/cli/data-store.integration.test.ts
 ```
 
-Expected: PASS, 22 tests (21 conformance + the durability ordering test).
+Expected: PASS, 25 tests (24 conformance + the durability ordering test).
 
 Then confirm it is skipped by default:
 

@@ -84,7 +84,14 @@ export interface DataStore {
    */
   count(collection: string, where?: Where): Promise<number>;
 
-  /** Pages internally; the caller never sees an offset. */
+  /**
+   * Pages internally; the caller never sees an offset.
+   *
+   * Mutating the collection *during* an iteration is undefined: the three implementations
+   * genuinely differ (one snapshots up front, one snapshots keys and reads through, one
+   * pages by offset and can skip or repeat a row as offsets shift). Read fully, then write —
+   * which is what discovery's resume path does.
+   */
   list(collection: string, query?: ListQuery): AsyncIterable<Document>;
 
   /**
