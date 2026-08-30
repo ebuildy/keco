@@ -2368,42 +2368,36 @@ export function toRunDocument(input: RunDocumentInput): Document {
 Run: `pnpm vitest run apps/workers/src/discovery/store/collections.test.ts`
 Expected: PASS, 20 tests.
 
-- [ ] **Step 5: Delete the dead discovery keys**
+- [ ] **Step 5: Confirm nothing here broke anything else**
 
-In `packages/cache/src/keys.ts`, delete `bucketChar`, `MAX_SLUG_LENGTH`, `slugifyQuery`,
-`discoveryKeys`, `DiscoveryKeys` and `legacyDiscoveryStateKey` — everything from the
-`/** Discovery output (design 2026-08-02) … */` comment to the end of the file. Keep
-`repoKeys`, `externalKey`, `analysisKey`, `journalKey`, `journalDayPrefix`, `checkpointKey`
-and `dayOf`.
+Run: `mise run ci`
+Expected: green.
 
-In `packages/cache/src/keys.test.ts`, delete the `describe('discoveryKeys', …)` block and any
-`slugifyQuery` / `legacyDiscoveryStateKey` assertions.
+`slugifyQuery` now exists in two places — here and in `packages/cache/src/keys.ts`. That is
+deliberate and temporary. **The `@keco/cache` copy is deleted in Task 10, not here**, because
+`apps/workers/src/discovery/store.ts` still imports `discoveryKeys` and is not deleted until
+then. Removing the keys now would leave `tsc` broken and `store.test.ts` unable to load for
+four tasks — losing CI as a signal exactly while Tasks 7-9 build that file's replacement, and
+switching off the ~47 tests currently protecting it.
 
-- [ ] **Step 6: Verify nothing else referenced them**
-
-Run: `grep -rn "discoveryKeys\|legacyDiscoveryStateKey" apps packages --include="*.ts"`
-Expected: only `apps/workers/src/discovery/store.ts` and `store.test.ts`, both deleted in
-Task 7. If anything else appears, it is a caller this plan missed — fix it before continuing.
-
-Run: `pnpm vitest run packages/cache`
-Expected: PASS.
+Every task in this plan must leave `mise run ci` green. If one cannot, it is sequenced wrong.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add apps/workers/src/discovery/store/collections.ts \
-        apps/workers/src/discovery/store/collections.test.ts \
-        packages/cache/src/keys.ts packages/cache/src/keys.test.ts
+        apps/workers/src/discovery/store/collections.test.ts
 git commit -m "feat(discovery): declare the three collections and their mappers
 
 Pure data and pure functions — specs, slug, document ids, mappers.
 Nothing here touches a DataStore, which is what makes it all testable
 without one.
 
-slugifyQuery moves out of @keco/cache along with discoveryKeys: it is
-discovery vocabulary, and the cache no longer has a discovery key to
-build. The GitHub repo id moves to repo_id because id is now the
-composite {slug}_{repo_id} primary key."
+slugifyQuery is duplicated from @keco/cache rather than moved: the old
+filesystem store still imports discoveryKeys and is not deleted until
+Task 10, so removing it now would break the build for four tasks. The
+GitHub repo id moves to repo_id because id is now the composite
+{slug}_{repo_id} primary key."
 ```
 
 ---
@@ -3542,11 +3536,27 @@ as one run's cost."
 The orchestrator stops building its own storage and receives it. Its local `outcomes`
 bookkeeping goes away — `record()` already counts, so the store owns it.
 
-- [ ] **Step 1: Delete the old store**
+- [ ] **Step 1: Delete the old store, and the cache keys only it used**
 
 ```bash
 git rm apps/workers/src/discovery/store.ts apps/workers/src/discovery/store.test.ts
 ```
+
+Now — and only now, because this was that file's last caller — delete from
+`packages/cache/src/keys.ts`: `bucketChar`, `MAX_SLUG_LENGTH`, `slugifyQuery`,
+`discoveryKeys`, `DiscoveryKeys` and `legacyDiscoveryStateKey`, i.e. everything from the
+`/** Discovery output (design 2026-08-02) … */` comment to the end of the file. Keep
+`repoKeys`, `externalKey`, `analysisKey`, `journalKey`, `journalDayPrefix`, `checkpointKey`
+and `dayOf`. Delete the matching `describe('discoveryKeys', …)` block from
+`packages/cache/src/keys.test.ts`.
+
+This resolves the temporary duplication Task 6 left: `slugifyQuery` now lives only in
+`discovery/store/collections.ts`, where it belongs.
+
+Verify nothing else referenced them:
+
+Run: `grep -rn "discoveryKeys\|legacyDiscoveryStateKey" apps packages --include="*.ts"`
+Expected: no matches. Any hit is a caller this plan missed.
 
 - [ ] **Step 2: Add the config key** (skip if you already added it in Task 5)
 

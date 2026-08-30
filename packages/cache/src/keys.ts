@@ -46,3 +46,93 @@ export const checkpointKey = (consumer: string) => `checkpoints/${consumer}.json
 
 /** UTC day bucket for journal keys: YYYY-MM-DD. */
 export const dayOf = (date: Date): string => date.toISOString().slice(0, 10);
+
+/**
+ * Discovery output (design 2026-08-02), namespaced per query since 2026-08-16. Two letter
+ * buckets keep any one directory to a few thousand entries — which matters on a filesystem and
+ * matters more once this is object storage, where a prefix listing is billed per request.
+ *
+ * Only the bucket is lowercased. The filename preserves the real casing of owner/repo,
+ * because GitHub names are case-sensitive in principle. Two repos differing only by case
+ * would collide on a case-insensitive filesystem; that is an accepted limitation, and
+ * neither name is lost from repos-full-list.yaml.
+ */
+const bucketChar = (char: string | undefined): string =>
+  char !== undefined && /[a-z0-9]/.test(char) ? char : '_';
+
+/**
+ * Long enough for any real keyword, short enough to stay inside the 255-byte name limit every
+ * common filesystem enforces. A query longer than this truncates rather than failing with an
+ * ENAMETOOLONG a hundred windows into a sweep.
+ */
+const MAX_SLUG_LENGTH = 100;
+
+/**
+ * `--query` is free text that becomes a directory name, so it is a path-traversal surface as
+ * much as a naming one: `../..` must not resolve out of the cache, and `k8s/foo` must not
+ * silently invent a level of hierarchy. Lowercase, collapse every run of non-alphanumerics to
+ * one `-`, trim the ends, truncate; anything left with no alphanumerics at all is refused.
+ *
+ * The slug is deliberately lossy, so two queries CAN share one namespace — `kubernetes
+ * operator` and `kubernetes-operator` both give `kubernetes-operator`. Accepted: colliding
+ * queries are near-identical searches whose union is still a valid candidate corpus, the
+ * artifacts stay greppable by a human reading `.cache/discovery/`, and the escape hatch is a
+ * different CACHE_DIR. A disambiguating hash suffix would fix it at the cost of making every
+ * directory name unguessable — a bad trade for a cache people inspect by hand.
+ *
+ * ASCII only: a query with no ASCII alphanumerics (`日本語`) throws rather than sweeping into a
+ * namespace named after nothing.
+ */
+const slugifyQuery = (query: string): string => {
+  const slug = query
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_SLUG_LENGTH)
+    .replace(/-+$/g, '');
+  if (slug === '') {
+    throw new Error(
+      `discovery query ${JSON.stringify(query)} has no ASCII alphanumeric characters, so it ` +
+        'has no cache namespace. Pass a keyword such as --query kubernetes.',
+    );
+  }
+  return slug;
+};
+
+/**
+ * Every discovery key, for one query. A factory rather than a bare object because the query is
+ * part of every one of these paths: callers slugify once, at `DiscoveryStore.open()`, and the
+ * validation for a hostile query happens there — before any I/O — instead of at each key.
+ *
+ * Namespacing is what lets two keywords share a cache. Before it, `--query istio` opened the
+ * `kubernetes` corpus's full list, hash index and state, and the only protection was a
+ * runtime guard in the store; the paths simply do not overlap now.
+ */
+export const discoveryKeys = (query: string) => {
+  const slug = slugifyQuery(query);
+  return {
+    fullList: `discovery/${slug}/repos-full-list.yaml`,
+    hashes: `discovery/${slug}/_hashes.json`,
+    state: `discovery/${slug}/_state.json`,
+    detail(repo: string): string {
+      const slash = repo.indexOf('/');
+      if (slash <= 0 || slash === repo.length - 1 || slash !== repo.lastIndexOf('/')) {
+        throw new Error(`expected owner/repo, got "${repo}"`);
+      }
+      const owner = repo.slice(0, slash);
+      const name = repo.slice(slash + 1);
+      const lower = owner.toLowerCase();
+      return `discovery/${slug}/${bucketChar(lower[0])}/${bucketChar(lower[1])}/repo-details-${owner}__${name}.yaml`;
+    },
+  };
+};
+
+export type DiscoveryKeys = ReturnType<typeof discoveryKeys>;
+
+/**
+ * Where discovery's state file sat before per-query namespacing (2026-08-02 → 2026-08-16).
+ * Nothing reads or writes it: it is only a marker the worker probes so it can *say* that an
+ * old cache's artifacts are now unreachable, instead of reporting an empty corpus and
+ * re-sweeping for hours with no explanation. Delete once no such cache can plausibly exist.
+ */
+export const legacyDiscoveryStateKey = 'discovery/_state.json';
