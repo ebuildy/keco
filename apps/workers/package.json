@@ -22,6 +22,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "meilisearch": "^0.60.0",
     "tsx": "^4.23.1",
     "typescript": "5.9.3"
   }
