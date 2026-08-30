@@ -37,4 +37,54 @@ describe('FsDataStore data layout', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('returns null for a traversal-shaped id rather than reading outside the collection', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'keco-datastore-'));
+    try {
+      const storage = new FsStorage(dir);
+      // A secret that lives outside any collection's data tree entirely.
+      await storage.put('SECRET.json', JSON.stringify({ leaked: true }));
+
+      const store = new FsDataStore(storage);
+      await store.ensure([{ name: 'widgets', primaryKey: 'id' }]);
+
+      expect(await store.get('widgets', '../SECRET')).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns null for a document whose file does not parse as JSON', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'keco-datastore-'));
+    try {
+      const storage = new FsStorage(dir);
+      const store = new FsDataStore(storage);
+      await store.ensure([{ name: 'widgets', primaryKey: 'id' }]);
+      await storage.put('data/widgets/a.json', 'not valid json');
+
+      await expect(store.get('widgets', 'a')).resolves.toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the file it actually read, not one rebuilt from a mismatched id field', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'keco-datastore-'));
+    try {
+      const storage = new FsStorage(dir);
+      const store = new FsDataStore(storage);
+      await store.ensure([{ name: 'widgets', primaryKey: 'id', filterable: ['group'] }]);
+
+      // Hand-written directly through Storage, bypassing `put` (which would reject an id
+      // that disagrees with the key it's stored under) — this is exactly the "hand-edited
+      // file" scenario the store's audience produces.
+      await storage.put('data/widgets/a.json', JSON.stringify({ id: 'b', group: 'x' }));
+
+      await store.remove('widgets', { group: 'x' });
+
+      expect(await storage.get('data/widgets/a.json')).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
