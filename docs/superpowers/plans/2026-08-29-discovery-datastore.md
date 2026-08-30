@@ -312,6 +312,13 @@ export interface DataStore {
   /** Pages internally; the caller never sees an offset. */
   list(collection: string, query?: ListQuery): AsyncIterable<Document>;
 
+  /**
+   * Deletes every document matching `where`.
+   *
+   * An empty `where` is refused, not treated as "match everything" — see
+   * `assertNonEmptyWhere`. Callers that genuinely want to empty a collection say so by
+   * naming the field they are matching on.
+   */
   remove(collection: string, where: Where): Promise<void>;
 }
 
@@ -327,6 +334,23 @@ export interface DataStore {
 // Implemented once here rather than three times, because a `where` that means something
 // slightly different in the fs store than in the memory store is a bug no test would catch
 // unless every implementation ran the same suite — which is exactly why they do.
+
+/**
+ * `matchesWhere` answers true for an empty predicate, which is right for `list` and `count` —
+ * "no filter" means "everything". For `remove` the same rule would make one missing argument
+ * silently delete a whole collection, so `remove` refuses it instead.
+ *
+ * Enforced here rather than per implementation because the three would otherwise disagree in
+ * the worst possible direction: two backends wiping the corpus where the third errors.
+ */
+export function assertNonEmptyWhere(where: Where, collection: string): void {
+  if (Object.keys(where).length === 0) {
+    throw new Error(
+      `refusing to remove from "${collection}" with an empty filter — name the field to ` +
+        'match on, or delete the collection deliberately',
+    );
+  }
+}
 
 export function matchesWhere(document: Document, where: Where | undefined): boolean {
   if (where === undefined) return true;
@@ -508,7 +532,10 @@ export function conformanceSpecs(prefix = ''): readonly CollectionSpec[] {
       sortable: ['rank', 'name'],
       searchable: ['name'],
     },
-    { name: `${prefix}notes`, primaryKey: 'id', filterable: ['group'] },
+    // A DIFFERENT primary key on purpose. With `id` on both collections, an implementation
+    // that hardcodes 'id' passes the whole suite — and then breaks on `discovery_runs`
+    // (`run_id`) and `discovery_state` (`query_slug`), far from here.
+    { name: `${prefix}notes`, primaryKey: 'note_id', filterable: ['group'] },
   ];
 }
 
@@ -578,7 +605,7 @@ export function describeDataStore(
     it('keeps collections separate', async () => {
       await withStore(async (store) => {
         await store.put(WIDGETS, [widget('a', 'x', 1)]);
-        await store.put(NOTES, [{ id: 'a', group: 'x', body: 'hello' }], { durable: true });
+        await store.put(NOTES, [{ note_id: 'a', group: 'x', body: 'hello' }], { durable: true });
         expect(await store.get(NOTES, 'a')).toMatchObject({ body: 'hello' });
         expect(await store.get(WIDGETS, 'a')).not.toHaveProperty('body');
       });
@@ -721,13 +748,43 @@ export function describeDataStore(
       });
     });
 
+    it('honours each collection\'s own primary key', async () => {
+      await withStore(async (store) => {
+        await store.put(NOTES, [{ note_id: 'n1', group: 'x' }], { durable: true });
+        expect(await store.get(NOTES, 'n1')).toMatchObject({ note_id: 'n1' });
+      });
+    });
+
+    it('accepts an empty put as a no-op rather than erroring', async () => {
+      await withStore(async (store) => {
+        await store.put(WIDGETS, [], { durable: true });
+        expect(await store.count(WIDGETS)).toBe(0);
+      });
+    });
+
+    it('refuses remove with an empty filter instead of emptying the collection', async () => {
+      await withStore(async (store) => {
+        await store.put(WIDGETS, [widget('a', 'x', 1)], { durable: true });
+        await expect(store.remove(WIDGETS, {})).rejects.toThrow(/empty filter/);
+        expect(await store.count(WIDGETS)).toBe(1);
+      });
+    });
+
+    it('rejects a document with no value for its primary key', async () => {
+      await withStore(async (store) => {
+        await expect(
+          store.put(WIDGETS, [{ group: 'x', rank: 1 }], { durable: true }),
+        ).rejects.toThrow(/primary key/);
+      });
+    });
+
     it('a durable put implies every earlier put is durable too', async () => {
       // The ordering half of PutOptions.durable. Discovery writes its corpus without waiting
       // and its resume state with it; if state can land first, a crash leaves state claiming
       // windows whose repos were never written.
       await withStore(async (store) => {
         await store.put(WIDGETS, [widget('a', 'x', 1), widget('b', 'x', 2)]);
-        await store.put(NOTES, [{ id: 'state', group: 'x', done: ['a', 'b'] }], {
+        await store.put(NOTES, [{ note_id: 'state', group: 'x', done: ['a', 'b'] }], {
           durable: true,
         });
 
@@ -800,6 +857,7 @@ Expected: FAIL — `Failed to resolve import "./data-store.memory"`.
 // apps/workers/src/lib/data-store.memory.ts
 import {
   assertDocumentId,
+  assertNonEmptyWhere,
   compareBySort,
   matchesWhere,
   projectFields,
@@ -871,6 +929,7 @@ export class InMemoryDataStore implements DataStore {
   }
 
   async remove(collection: string, where: Where): Promise<void> {
+    assertNonEmptyWhere(where, collection);
     const target = this.collectionOf(collection);
     for (const [id, document] of [...target.entries()]) {
       if (matchesWhere(document, where)) target.delete(id);
@@ -898,7 +957,7 @@ export class InMemoryDataStore implements DataStore {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.memory.test.ts`
-Expected: PASS, 18 tests (the full conformance suite).
+Expected: PASS, 21 tests (the full conformance suite).
 
 - [ ] **Step 5: Commit**
 
@@ -979,6 +1038,7 @@ Expected: FAIL — `Failed to resolve import "./data-store.fs"`.
 import type { Storage } from '@keco/cache';
 import {
   assertDocumentId,
+  assertNonEmptyWhere,
   compareBySort,
   matchesWhere,
   projectFields,
@@ -1072,6 +1132,7 @@ export class FsDataStore implements DataStore {
   }
 
   async remove(collection: string, where: Where): Promise<void> {
+    assertNonEmptyWhere(where, collection);
     const primaryKey = this.primaryKeyOf(collection);
     const doomed: string[] = [];
     for await (const document of this.readAll(collection)) {
@@ -1111,7 +1172,7 @@ export class FsDataStore implements DataStore {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.fs.test.ts`
-Expected: PASS, 20 tests (18 conformance + 2 layout).
+Expected: PASS, 23 tests (21 conformance + 2 layout).
 
 - [ ] **Step 5: Commit**
 
@@ -1253,6 +1314,7 @@ import type { Settings } from 'meilisearch';
 import { config } from '../lib/config';
 import {
   assertDocumentId,
+  assertNonEmptyWhere,
   type CollectionSpec,
   type DataStore,
   type Document,
@@ -1456,11 +1518,10 @@ export class MeilisearchDataStore implements DataStore {
   }
 
   async remove(collection: string, where: Where): Promise<void> {
-    const filter = toFilter(where);
-    if (filter === undefined) {
-      throw new Error(`refusing to remove from "${collection}" with an empty filter`);
-    }
-    await this.client.index(collection).deleteDocuments({ filter }).waitTask();
+    // The shared guard, not a local throw: all three implementations must refuse an empty
+    // filter identically, or the conformance suite is testing three different contracts.
+    assertNonEmptyWhere(where, collection);
+    await this.client.index(collection).deleteDocuments({ filter: toFilter(where)! }).waitTask();
   }
 
   private primaryKeyOf(collection: string): string {
@@ -1564,7 +1625,7 @@ mise run infra:up
 MEILI_INTEGRATION=1 pnpm vitest run apps/workers/src/cli/data-store.integration.test.ts
 ```
 
-Expected: PASS, 19 tests (18 conformance + the durability ordering test).
+Expected: PASS, 22 tests (21 conformance + the durability ordering test).
 
 Then confirm it is skipped by default:
 

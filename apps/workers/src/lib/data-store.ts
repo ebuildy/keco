@@ -87,6 +87,13 @@ export interface DataStore {
   /** Pages internally; the caller never sees an offset. */
   list(collection: string, query?: ListQuery): AsyncIterable<Document>;
 
+  /**
+   * Deletes every document matching `where`.
+   *
+   * An empty `where` is refused, not treated as "match everything" — see
+   * `assertNonEmptyWhere`. Callers that genuinely want to empty a collection say so by
+   * naming the field they are matching on.
+   */
   remove(collection: string, where: Where): Promise<void>;
 }
 
@@ -102,6 +109,23 @@ export interface DataStore {
 // Implemented once here rather than three times, because a `where` that means something
 // slightly different in the fs store than in the memory store is a bug no test would catch
 // unless every implementation ran the same suite — which is exactly why they do.
+
+/**
+ * `matchesWhere` answers true for an empty predicate, which is right for `list` and `count` —
+ * "no filter" means "everything". For `remove` the same rule would make one missing argument
+ * silently delete a whole collection, so `remove` refuses it instead.
+ *
+ * Enforced here rather than per implementation because the three would otherwise disagree in
+ * the worst possible direction: two backends wiping the corpus where the third errors.
+ */
+export function assertNonEmptyWhere(where: Where, collection: string): void {
+  if (Object.keys(where).length === 0) {
+    throw new Error(
+      `refusing to remove from "${collection}" with an empty filter — name the field to ` +
+        'match on, or delete the collection deliberately',
+    );
+  }
+}
 
 export function matchesWhere(document: Document, where: Where | undefined): boolean {
   if (where === undefined) return true;

@@ -22,7 +22,10 @@ export function conformanceSpecs(prefix = ''): readonly CollectionSpec[] {
       sortable: ['rank', 'name'],
       searchable: ['name'],
     },
-    { name: `${prefix}notes`, primaryKey: 'id', filterable: ['group'] },
+    // A DIFFERENT primary key on purpose. With `id` on both collections, an implementation
+    // that hardcodes 'id' passes the whole suite — and then breaks on `discovery_runs`
+    // (`run_id`) and `discovery_state` (`query_slug`), far from here.
+    { name: `${prefix}notes`, primaryKey: 'note_id', filterable: ['group'] },
   ];
 }
 
@@ -92,7 +95,7 @@ export function describeDataStore(
     it('keeps collections separate', async () => {
       await withStore(async (store) => {
         await store.put(WIDGETS, [widget('a', 'x', 1)]);
-        await store.put(NOTES, [{ id: 'a', group: 'x', body: 'hello' }], { durable: true });
+        await store.put(NOTES, [{ note_id: 'a', group: 'x', body: 'hello' }], { durable: true });
         expect(await store.get(NOTES, 'a')).toMatchObject({ body: 'hello' });
         expect(await store.get(WIDGETS, 'a')).not.toHaveProperty('body');
       });
@@ -235,13 +238,47 @@ export function describeDataStore(
       });
     });
 
+    it('honours each collection\'s own primary key', async () => {
+      await withStore(async (store) => {
+        await store.put(NOTES, [{ note_id: 'n1', group: 'x' }], { durable: true });
+        expect(await store.get(NOTES, 'n1')).toMatchObject({ note_id: 'n1' });
+      });
+    });
+
+    it('accepts an empty put as a no-op rather than erroring', async () => {
+      // A flush with nothing buffered is normal, not exceptional.
+      await withStore(async (store) => {
+        await store.put(WIDGETS, [], { durable: true });
+        expect(await store.count(WIDGETS)).toBe(0);
+      });
+    });
+
+    it('refuses remove with an empty filter instead of emptying the collection', async () => {
+      // The dangerous direction: `matchesWhere` treats {} as "match everything", so without
+      // this an accidentally-empty filter silently wipes the corpus on some backends and
+      // errors on others.
+      await withStore(async (store) => {
+        await store.put(WIDGETS, [widget('a', 'x', 1)], { durable: true });
+        await expect(store.remove(WIDGETS, {})).rejects.toThrow(/empty filter/);
+        expect(await store.count(WIDGETS)).toBe(1);
+      });
+    });
+
+    it('rejects a document with no value for its primary key', async () => {
+      await withStore(async (store) => {
+        await expect(
+          store.put(WIDGETS, [{ group: 'x', rank: 1 }], { durable: true }),
+        ).rejects.toThrow(/primary key/);
+      });
+    });
+
     it('a durable put implies every earlier put is durable too', async () => {
       // The ordering half of PutOptions.durable. Discovery writes its corpus without waiting
       // and its resume state with it; if state can land first, a crash leaves state claiming
       // windows whose repos were never written.
       await withStore(async (store) => {
         await store.put(WIDGETS, [widget('a', 'x', 1), widget('b', 'x', 2)]);
-        await store.put(NOTES, [{ id: 'state', group: 'x', done: ['a', 'b'] }], {
+        await store.put(NOTES, [{ note_id: 'state', group: 'x', done: ['a', 'b'] }], {
           durable: true,
         });
 
