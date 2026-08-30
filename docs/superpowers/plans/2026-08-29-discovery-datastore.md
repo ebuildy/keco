@@ -1407,6 +1407,20 @@ describe('settingsMatch', () => {
 Run: `pnpm vitest run apps/workers/src/cli/data-store.test.ts`
 Expected: FAIL — `Failed to resolve import "./data-store"`.
 
+Four typing details that only surface against the real `meilisearch@0.60.0`, recorded so a
+re-run does not rediscover them:
+
+- `meilisearch` must be a devDependency of `apps/workers`. `@keco/search` depends on it but
+  does not re-export `Settings`, and pnpm's strict linking hides transitive types.
+- `ManagedSettings` cannot be `Required<Pick<Settings, …>>`: in this version those fields are
+  `(string | GranularFilterableAttribute)[] | null`, and `Required` strips optionality but not
+  the null or the union. Declare the three `string[]` fields explicitly.
+- `sameSet`'s "current" side takes `unknown` and compares via `.map(String)`. A live index can
+  carry granular filterable objects, and anything richer than a plain string list must report
+  "does not match" — never suppress a reindex that is genuinely needed.
+- `getDocuments<Document>({…})` needs its generic pinned at both call sites; inference from a
+  `fields` argument alone lands on `{}` and rejects `fields` as `never[]`.
+
 - [ ] **Step 3: Write the implementation**
 
 ```ts
@@ -1626,7 +1640,20 @@ export class MeilisearchDataStore implements DataStore {
     // The shared guard, not a local throw: all three implementations must refuse an empty
     // filter identically, or the conformance suite is testing three different contracts.
     assertNonEmptyWhere(where, collection);
-    await this.client.index(collection).deleteDocuments({ filter: toFilter(where)! }).waitTask();
+    // Unlike get/count/list, deleteDocuments enqueues a task rather than rejecting
+    // synchronously — a missing index becomes a *failed task*, not a rejected promise, so
+    // awaiting it without checking its status lets a typo'd collection resolve as a silent
+    // no-op. Only a live server shows this: the fs and memory stores have no task queue.
+    this.primaryKeyOf(collection);
+    const task = await this.client
+      .index<Document>(collection)
+      .deleteDocuments({ filter: toFilter(where)! })
+      .waitTask({ timeout: TASK_TIMEOUT_MS, interval: 200 });
+    if (task.status !== 'succeeded') {
+      throw new Error(
+        `meilisearch remove failed for "${collection}": ${task.status} — ${task.error?.message ?? 'unknown'}`,
+      );
+    }
   }
 
   private primaryKeyOf(collection: string): string {
@@ -1657,7 +1684,7 @@ export function createDataStore(env: NodeJS.ProcessEnv = process.env): DataStore
 - [ ] **Step 4: Run the unit test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/cli/data-store.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 10 tests.
 
 If TypeScript complains that `config.DISCOVERY_STORE` does not exist, that is expected — it is
 added in Task 10. Add it now if you prefer to keep `pnpm -F @keco/workers check` green between
@@ -1703,7 +1730,19 @@ describe.skipIf(!enabled)('MeilisearchDataStore', () => {
 
   describeDataStore(
     'MeilisearchDataStore',
-    async () => ({ store: new MeilisearchDataStore(client) }),
+    async () => ({
+      store: new MeilisearchDataStore(client),
+      // The fs and memory harnesses hand every test a brand-new empty store. This one reuses
+      // one real index across all 25 conformance tests, so without teardown later tests see
+      // earlier tests' documents (measured: 11 failures — wrong counts, a non-empty "lists
+      // nothing for an empty collection"). Clearing documents rather than deleting the index
+      // keeps `ensure()`'s settings comparison short-circuiting instead of reindexing per test.
+      close: async () => {
+        for (const uid of [`${PREFIX}widgets`, `${PREFIX}notes`]) {
+          await client.index(uid).deleteAllDocuments().waitTask();
+        }
+      },
+    }),
     PREFIX,
   );
 
@@ -4995,7 +5034,10 @@ Replace the `files` array of the "Only the projector writes to Meilisearch" bloc
     rules: boundary(
       'Only the projector may import @keco/search. Workers take a DataStore; only ' +
         'apps/workers/src/cli/data-store.ts knows what implements it (§7).',
-      [['@keco/search']],
+      // `meilisearch` as well as `@keco/search`: the client is a direct devDependency of
+      // apps/workers since Task 5, so banning only the wrapper would leave a worker free to
+      // import the raw client and bypass the port entirely.
+      [['@keco/search', 'meilisearch']],
     ),
   },
 ```
@@ -5015,7 +5057,7 @@ Replace the `files` array of the "Only the projector writes to Meilisearch" bloc
     ignores: ['apps/workers/src/cli/handlers.ts', 'apps/workers/src/cli/data-store.ts'],
     rules: boundary(
       "apps/workers/src/cli wiring may import worker runners and commander — never a worker's own dependencies (§7).",
-      [['@keco/search', '@keco/github', '@keco/signals', '@keco/analyze']],
+      [['@keco/search', 'meilisearch', '@keco/github', '@keco/signals', '@keco/analyze']],
     ),
   },
 ```
