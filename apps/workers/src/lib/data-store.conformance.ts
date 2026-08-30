@@ -318,6 +318,34 @@ export function describeDataStore(
       });
     });
 
+    it('normalises stored documents through JSON, as every real backend does', async () => {
+      // The filesystem store stringifies and Meilisearch sends JSON over HTTP, so neither can
+      // return a Date, a NaN or an undefined-valued key. An implementation that CAN — the
+      // in-memory one, if it used structuredClone — is the dangerous kind of wrong: code doing
+      // `doc.when.toISOString()` after a read would pass in tests and throw in production.
+      await withStore(async (store) => {
+        await store.put(
+          WIDGETS,
+          [
+            {
+              id: 'a',
+              group: 'x',
+              rank: 1,
+              when: new Date('2026-01-02T03:04:05.000Z'),
+              nan: Number.NaN,
+              absent: undefined,
+            },
+          ],
+          { durable: true },
+        );
+
+        const stored = (await store.get(WIDGETS, 'a')) as Record<string, unknown>;
+        expect(stored.when).toBe('2026-01-02T03:04:05.000Z');
+        expect(stored.nan).toBeNull();
+        expect('absent' in stored).toBe(false);
+      });
+    });
+
     it('a durable put implies every earlier put is durable too', async () => {
       // The ordering half of PutOptions.durable. Discovery writes its corpus without waiting
       // and its resume state with it; if state can land first, a crash leaves state claiming

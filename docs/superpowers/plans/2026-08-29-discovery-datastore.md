@@ -401,11 +401,12 @@ export function compareBySort(sort: Sort): (a: Document, b: Document) => number 
       // backend stores as null and another omits.
       //
       // Known and deliberately unfixed: a field holding two different types (`5` vs `'abc'`)
-      // has the same hole, because both `<` comparisons are false — as does `NaN`, which is
-      // additionally non-reflexive, so `cmp(NaN, NaN)` answers 1. `Document` is
-      // JSON-serialisable and JSON has no NaN, so only the in-memory store can hold one
-      // (structuredClone preserves it). A sortable field with mixed types is a data bug, and
-      // fixing either case needs a type-ordering rule the port has no business inventing.
+      // has the same hole, because both `<` comparisons are false. `NaN` would too, and is
+      // additionally non-reflexive, but no implementation can return one: `Document` is
+      // JSON-serialisable, JSON has no NaN, and all three stores normalise through JSON on
+      // write, so a stored NaN reads back as null and lands in the missing class above.
+      // A sortable field with mixed types is a data bug in the caller, and fixing it needs a
+      // type-ordering rule the port has no business inventing.
       const leftMissing = left === undefined || left === null;
       const rightMissing = right === undefined || right === null;
       if (leftMissing && rightMissing) continue;
@@ -822,6 +823,30 @@ export function describeDataStore(
       });
     });
 
+    it('normalises stored documents through JSON, as every real backend does', async () => {
+      await withStore(async (store) => {
+        await store.put(
+          WIDGETS,
+          [
+            {
+              id: 'a',
+              group: 'x',
+              rank: 1,
+              when: new Date('2026-01-02T03:04:05.000Z'),
+              nan: Number.NaN,
+              absent: undefined,
+            },
+          ],
+          { durable: true },
+        );
+
+        const stored = (await store.get(WIDGETS, 'a')) as Record<string, unknown>;
+        expect(stored.when).toBe('2026-01-02T03:04:05.000Z');
+        expect(stored.nan).toBeNull();
+        expect('absent' in stored).toBe(false);
+      });
+    });
+
     it('a durable put implies every earlier put is durable too', async () => {
       // The ordering half of PutOptions.durable. Discovery writes its corpus without waiting
       // and its resume state with it; if state can land first, a crash leaves state claiming
@@ -920,6 +945,14 @@ import {
  * It is also the reference semantics. Where the conformance suite is ambiguous, this is what
  * the other two are matched against.
  */
+/**
+ * The normalisation every real backend applies on the way to storage. Kept here rather than in
+ * the port because it is not a rule the port imposes — it is a fact about how JSON-backed
+ * stores behave, which this double exists to reproduce.
+ */
+const jsonClone = (document: Document): Document =>
+  JSON.parse(JSON.stringify(document)) as Document;
+
 export class InMemoryDataStore implements DataStore {
   private readonly specs = new Map<string, CollectionSpec>();
   private readonly collections = new Map<string, Map<string, Document>>();
@@ -932,8 +965,13 @@ export class InMemoryDataStore implements DataStore {
   }
 
   async put(collection: string, documents: readonly Document[]): Promise<void> {
-    // Synchronous copy before any await — the port's deep-copy contract. structuredClone is
-    // the whole of it here: callers hand us live arrays they keep mutating.
+    // Synchronous copy before any await — the port's deep-copy contract.
+    //
+    // A JSON round-trip rather than structuredClone, deliberately. structuredClone is the
+    // better clone and the wrong one here: it preserves Date, NaN and undefined-valued keys,
+    // while the filesystem store (JSON.stringify) and Meilisearch (JSON over HTTP) turn those
+    // into an ISO string, null, and a dropped key. This is the reference double, so being
+    // *more* faithful than production is the dangerous direction.
     //
     // Validation happens in this pass, before anything is written, so a batch with one bad
     // document lands nothing. The filesystem and Meilisearch stores get that for free by
@@ -944,7 +982,7 @@ export class InMemoryDataStore implements DataStore {
     // missing primary key reaches its typeof check instead of arriving as "undefined".
     const primaryKey = this.primaryKeyOf(collection);
     const copies = documents.map((document) => {
-      const copy = structuredClone(document) as Document;
+      const copy = jsonClone(document);
       const id = copy[primaryKey];
       assertDocumentId(id, collection, primaryKey);
       return [id, copy] as const;
@@ -957,7 +995,7 @@ export class InMemoryDataStore implements DataStore {
   async get(collection: string, id: string): Promise<Document | null> {
     const found = this.collectionOf(collection).get(id);
     // Copy on read too, or a caller mutating what it read silently edits the store.
-    return found === undefined ? null : (structuredClone(found) as Document);
+    return found === undefined ? null : jsonClone(found);
   }
 
   async count(collection: string, where?: Where): Promise<number> {
@@ -976,7 +1014,7 @@ export class InMemoryDataStore implements DataStore {
     if (query.sort !== undefined) rows = rows.sort(compareBySort(query.sort));
     if (query.limit !== undefined) rows = rows.slice(0, query.limit);
     for (const row of rows) {
-      yield projectFields(structuredClone(row) as Document, query.fields);
+      yield projectFields(jsonClone(row), query.fields);
     }
   }
 
@@ -1009,7 +1047,7 @@ export class InMemoryDataStore implements DataStore {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.memory.test.ts`
-Expected: PASS, 24 tests (the full conformance suite).
+Expected: PASS, 25 tests (the full conformance suite).
 
 - [ ] **Step 5: Commit**
 
@@ -1237,7 +1275,7 @@ export class FsDataStore implements DataStore {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run apps/workers/src/lib/data-store.fs.test.ts`
-Expected: PASS, 26 tests (24 conformance + 2 layout).
+Expected: PASS, 29 tests (25 conformance + 4 layout).
 
 - [ ] **Step 5: Commit**
 
@@ -1692,7 +1730,7 @@ mise run infra:up
 MEILI_INTEGRATION=1 pnpm vitest run apps/workers/src/cli/data-store.integration.test.ts
 ```
 
-Expected: PASS, 25 tests (24 conformance + the durability ordering test).
+Expected: PASS, 26 tests (25 conformance + the durability ordering test).
 
 Then confirm it is skipped by default:
 

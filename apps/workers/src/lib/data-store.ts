@@ -170,10 +170,11 @@ export function projectFields(
  * documents (`5` vs `'abc'`) has the same non-antisymmetry problem, because both `<`
  * comparisons come back false. A sortable field holding mixed types is a data bug in the
  * caller, not something this port should paper over with an invented type-ordering rule.
- * `NaN` is the same hole and is additionally non-reflexive — `NaN !== NaN` skips the
- * equality check, and `NaN < 5` and `5 < NaN` are both false — but `Document` is declared
- * JSON-serialisable and JSON has no `NaN`, so only the in-memory store's `structuredClone`
- * can ever produce one; the filesystem and Meilisearch stores cannot.
+ * `NaN` would be the same hole and additionally non-reflexive — `NaN !== NaN` skips the
+ * equality check, and `NaN < 5` and `5 < NaN` are both false — but no implementation can
+ * return one. `Document` is declared JSON-serialisable, JSON has no `NaN`, and all three
+ * stores normalise through JSON on write, so a stored `NaN` reads back as `null` and lands
+ * in the missing class above.
  */
 export function compareBySort(sort: Sort): (a: Document, b: Document) => number {
   return (a, b) => {
