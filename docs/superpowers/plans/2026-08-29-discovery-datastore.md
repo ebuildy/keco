@@ -1098,6 +1098,7 @@ import {
   type DataStore,
   type Document,
   type ListQuery,
+  type PutOptions,
   type Where,
 } from './data-store';
 
@@ -1130,7 +1131,15 @@ export class FsDataStore implements DataStore {
     for (const spec of specs) this.specs.set(spec.name, spec);
   }
 
-  async put(collection: string, documents: readonly Document[]): Promise<void> {
+  async put(
+    collection: string,
+    documents: readonly Document[],
+    // Unused, but it must exist with the interface's own type: a caller holding a concrete
+    // `FsDataStore` rather than the interface — the layout test below does — would otherwise
+    // not typecheck. It is a no-op because `FsStorage.put` only resolves once its rename has
+    // landed, so a sequentially-awaited put is already durable.
+    _options?: PutOptions,
+  ): Promise<void> {
     // JSON.stringify is synchronous, so serialising here — before any await — *is* the
     // port's deep-copy contract: what lands on disk is the state at call time, whatever the
     // caller does to its arrays afterwards.
