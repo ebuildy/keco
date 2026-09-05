@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { DataStore } from '../lib/data-store';
 import { InMemoryDataStore } from '../lib/data-store.memory';
 import { DISCOVERY_COLLECTIONS, REPOS, RUNS, STATE } from './store/collections';
-import { countDiscovery, listRepos, listRuns, resolveSort } from './explore';
+import { applyReset, countDiscovery, listRepos, listRuns, planReset, resolveSort } from './explore';
 
 const seed = async (data: DataStore) => {
   await data.ensure(DISCOVERY_COLLECTIONS);
@@ -155,5 +155,90 @@ describe('listRepos', () => {
     const { rows, total } = await listRepos(data, { query: 'kubernetes', limit: 1, sort: null });
     expect(rows).toHaveLength(1);
     expect(total).toBe(2);
+  });
+});
+
+describe('planReset', () => {
+  let data: DataStore;
+  beforeEach(async () => {
+    data = new InMemoryDataStore();
+    await seed(data);
+  });
+
+  it('refuses with no target rather than defaulting to everything', async () => {
+    // A reset that defaults to every query is a reset that eventually runs by accident.
+    await expect(planReset(data, { query: null, all: false, includeRuns: false })).rejects.toThrow(
+      /--query|--all/,
+    );
+  });
+
+  it('plans one query when named', async () => {
+    const plans = await planReset(data, { query: 'kubernetes', all: false, includeRuns: false });
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ query_slug: 'kubernetes', repos: 2, state: 1, runs: 2 });
+  });
+
+  it('plans every query under --all', async () => {
+    const plans = await planReset(data, { query: null, all: true, includeRuns: false });
+    expect(plans.map((p) => p.query_slug)).toEqual(['istio', 'kubernetes']);
+  });
+
+  it('reports runs as kept by default and deleted under --include-runs', async () => {
+    const keep = await planReset(data, { query: 'kubernetes', all: false, includeRuns: false });
+    expect(keep[0]!.delete_runs).toBe(false);
+    const wipe = await planReset(data, { query: 'kubernetes', all: false, includeRuns: true });
+    expect(wipe[0]!.delete_runs).toBe(true);
+  });
+
+  it('plans an unswept query as a no-op rather than throwing', async () => {
+    const plans = await planReset(data, { query: 'never-swept', all: false, includeRuns: false });
+    expect(plans).toEqual([]);
+  });
+});
+
+describe('applyReset', () => {
+  let data: DataStore;
+  beforeEach(async () => {
+    data = new InMemoryDataStore();
+    await seed(data);
+  });
+
+  it('deletes the corpus and state, keeping the run history', async () => {
+    // The history is the one collection nothing can reconstruct — not from the cache, not
+    // from GitHub — and a reset is when someone most wants to read it.
+    const plans = await planReset(data, { query: 'kubernetes', all: false, includeRuns: false });
+    await applyReset(data, plans);
+
+    expect(await data.count(REPOS, { query_slug: 'kubernetes' })).toBe(0);
+    expect(await data.get(STATE, 'kubernetes')).toBeNull();
+    expect(await data.count(RUNS, { query_slug: 'kubernetes' })).toBe(2);
+  });
+
+  it('deletes the history too under --include-runs', async () => {
+    const plans = await planReset(data, { query: 'kubernetes', all: false, includeRuns: true });
+    await applyReset(data, plans);
+    expect(await data.count(RUNS, { query_slug: 'kubernetes' })).toBe(0);
+  });
+
+  it('leaves every other query untouched', async () => {
+    const plans = await planReset(data, { query: 'kubernetes', all: false, includeRuns: true });
+    await applyReset(data, plans);
+    expect(await data.count(REPOS, { query_slug: 'istio' })).toBe(1);
+    expect(await data.get(STATE, 'istio')).not.toBeNull();
+  });
+
+  it('is the same deletion --fresh performs', async () => {
+    // reset --query X and sweep --fresh must not drift into meaning different things.
+    const { DiscoveryStore } = await import('./store/store');
+    const other = new InMemoryDataStore();
+    await seed(other);
+
+    await applyReset(data, await planReset(data, { query: 'kubernetes', all: false, includeRuns: false }));
+    await DiscoveryStore.open(other, 'kubernetes', { runId: 'RUN9', fresh: true });
+
+    expect(await other.count(REPOS, { query_slug: 'kubernetes' })).toBe(
+      await data.count(REPOS, { query_slug: 'kubernetes' }),
+    );
+    expect(await other.get(STATE, 'kubernetes')).toEqual(await data.get(STATE, 'kubernetes'));
   });
 });

@@ -140,3 +140,61 @@ export const listRuns = (dataStore: DataStore, options: ListOptions): Promise<Li
 
 export const listRepos = (dataStore: DataStore, options: ListOptions): Promise<ListResult> =>
   listCollection(dataStore, REPOS, options);
+
+export type ResetOptions = { query: string | null; all: boolean; includeRuns: boolean };
+
+export type ResetPlan = {
+  query: string;
+  query_slug: string;
+  repos: number;
+  state: number;
+  runs: number;
+  delete_runs: boolean;
+};
+
+/**
+ * Works out what a reset would destroy, without destroying anything. The CLI prints this and
+ * then asks — an operator confirms against what is actually there, not against what they
+ * assumed was there.
+ *
+ * Refuses with no target: `--query` names one, `--all` means every query, and there is no
+ * default. A reset that defaults to everything is a reset that eventually runs by accident,
+ * and unlike the read model this data is not rebuildable offline.
+ */
+export async function planReset(
+  dataStore: DataStore,
+  options: ResetOptions,
+): Promise<ResetPlan[]> {
+  if (options.query === null && !options.all) {
+    throw new Error(
+      'refusing to reset without a target — pass --query <keyword> for one query, or --all for every query',
+    );
+  }
+
+  const rows = await countDiscovery(dataStore, { query: options.query });
+  return rows.map((row) => ({
+    query: row.query,
+    query_slug: row.query_slug,
+    repos: row.repos,
+    state: 1,
+    runs: row.runs,
+    delete_runs: options.includeRuns,
+  }));
+}
+
+/**
+ * Applies a plan. Corpus first, then state, then — only if asked — the history.
+ *
+ * State goes after the corpus for the same reason a flush writes it last: if this is
+ * interrupted halfway, a surviving state document pointing at a partly-deleted corpus is
+ * recoverable (the next sweep re-records what is missing), whereas a deleted state document
+ * over a surviving corpus would strand 31k rows that nothing will ever clean up.
+ */
+export async function applyReset(dataStore: DataStore, plans: readonly ResetPlan[]): Promise<void> {
+  for (const plan of plans) {
+    const where = { query_slug: plan.query_slug };
+    await dataStore.remove(REPOS, where);
+    await dataStore.remove(STATE, where);
+    if (plan.delete_runs) await dataStore.remove(RUNS, where);
+  }
+}
