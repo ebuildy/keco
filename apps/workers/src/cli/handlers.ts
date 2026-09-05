@@ -112,7 +112,7 @@ export const handlers: Handlers = {
 
   repoCrawl: async (options) => (await import('../crawler')).runCrawler(options),
   repoAnalyze: async (options) => (await import('../analyzer')).runAnalyzer(options),
-  repoIcon: async (options) => (await import('../crawler/icon-run')).runIcon(options),
+  repoIcon: async (options) => (await import('../crawler/seeds/github/icon-run')).runIcon(options),
   project: async (options) => (await import('../projector')).runProjector(options),
   checkpointReset: async (options) => (await import('../replay')).runCheckpointReset(options),
 
