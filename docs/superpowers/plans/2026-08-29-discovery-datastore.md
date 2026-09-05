@@ -3738,6 +3738,14 @@ distinguishable from one still running."
 
 ### Task 11: Wire the composition root
 
+> **Done as part of Task 10.** Deleting the old store broke `tsc`, and this plan requires every
+> task to leave `mise run ci` green, so Task 10 applied the `discoverySweep` wiring itself
+> rather than commit red. It also had to repoint `sweep.ts`/`sweep.test.ts`, which imported
+> `DiscoveryState` from the deleted file — an unlisted casualty this plan missed. The
+> end-to-end smoke test below was run and passed: a live `--query istio --limit 30 --fresh`
+> sweep wrote 42 repo documents, 1 state document and 1 run document to Meilisearch, with the
+> run reporting `repos_new: 42`, `duration_ms: 6019`, `pages_fetched: 3`.
+
 **Files:**
 - Modify: `apps/workers/src/cli/handlers.ts`
 - Modify: `apps/workers/src/cli/program.test.ts`
