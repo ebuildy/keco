@@ -268,9 +268,11 @@ await dataStore.put('discovery_state', [stateDoc], { durable: true });
 ```
 
 `durable: true` means "this write and every earlier write through this handle". The
-Meilisearch implementation keeps the task uids it has enqueued; a durable put awaits its own
-task, then verifies every earlier uid succeeded in one `getTasks({ uids })` call, then clears
-the list. One extra request per flush, no extra polling.
+Meilisearch implementation keeps the task uids it has enqueued and waits on the whole set with
+`client.tasks.waitForTasks(uids)` — one call, assuming nothing about the order the backend
+processes tasks in. (An earlier draft awaited only the newest task and then verified the rest,
+which quietly rested the corpus-before-state guarantee on Meilisearch's scheduler being FIFO.
+It is, today. That is not worth depending on when not depending on it is also free.)
 
 An integration test pins this: enqueue a corpus batch, enqueue a durable state write, assert
 the corpus documents are readable the instant the state put resolves.

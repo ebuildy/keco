@@ -4902,7 +4902,7 @@ In `apps/workers/src/cli/handlers.ts`, add at the top of the file (a static impo
 `node:readline` is a core module and costs nothing):
 
 ```ts
-import { createInterface } from 'node:readline/promises';
+import { createInterface } from 'node:readline';
 ```
 
 and the three handlers:
@@ -4982,12 +4982,17 @@ and the prompt helper at the bottom of the file:
  * Defaults to no on anything that is not an explicit `y`, including EOF — a reset piped from
  * a script with no `--yes` must decline rather than proceed on an empty stdin.
  */
+// NOT `readline/promises`. Its `question()` never settles on closed stdin — Node force-exits
+// via the unsettled-top-level-await path (exit 13) without running `finally`, so a reset piped
+// from a script with no --yes would HANG rather than decline. The callback interface raced
+// against its own `close` event does fire on EOF, which is the behaviour the guard needs.
 async function confirm(): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await rl.question('continue? [y/N] ')).trim().toLowerCase() === 'y';
-  } catch {
-    return false;
+    return await new Promise<boolean>((resolve) => {
+      rl.on('close', () => resolve(false));
+      rl.question('continue? [y/N] ', (answer) => resolve(answer.trim().toLowerCase() === 'y'));
+    });
   } finally {
     rl.close();
   }
