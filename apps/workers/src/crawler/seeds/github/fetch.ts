@@ -256,7 +256,7 @@ async function writeTree(
 /**
  * Manifests come from raw.githubusercontent.com, which costs no GitHub API quota. Keyed by
  * basename — only one `Chart.yaml` is ever selected, so there is nothing to collide — with the
- * tree paths recorded in `_fetch.json` so provenance is not lost.
+ * tree paths that were actually written recorded in `_fetch.json` so provenance is not lost.
  */
 async function writeManifests(
   deps: RepoFetchDeps,
@@ -266,22 +266,31 @@ async function writeManifests(
   treePaths: readonly string[],
 ): Promise<{ paths: string[]; requests: number }> {
   const selected = selectManifests(treePaths);
+  const written: string[] = [];
   let requests = 0;
 
   for (const path of selected) {
     requests += 1;
+    let body: string;
     try {
       const response = await deps.fetch(`https://raw.githubusercontent.com/${repo}/${branch}/${path}`);
       if (!response.ok) continue;
-      const body = await response.text();
-      if (Buffer.byteLength(body, 'utf8') > MAX_MANIFEST_BYTES) continue;
-      await deps.cache.putText(keys.manifest(basename(path)), body);
+      body = await response.text();
     } catch {
-      // A manifest is a nice-to-have. Degrade, never fail (§4.2).
+      // A manifest is a nice-to-have; a fetch failure here is expected (missing file, network
+      // blip) and must not abort the crawl (§4.2). A cache write failure below is a different
+      // class of problem and is deliberately NOT caught here — see the note below.
+      continue;
     }
+    if (Buffer.byteLength(body, 'utf8') > MAX_MANIFEST_BYTES) continue;
+    // Not caught: a Storage failure here is systemic (disk full, permission error), not an
+    // expected per-manifest condition, and must surface the same way every other artifact
+    // write in this file does — by throwing.
+    await deps.cache.putText(keys.manifest(basename(path)), body);
+    written.push(path);
   }
 
-  return { paths: selected, requests };
+  return { paths: written, requests };
 }
 
 const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);

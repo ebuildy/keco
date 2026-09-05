@@ -274,6 +274,21 @@ describe('fetchRepo', () => {
     expect(result).toMatchObject({ points: 4, requests: 5 });
   });
 
+  it('does not record a manifest path whose fetch 404s or exceeds the size cap', async () => {
+    const { deps: d, files } = deps({
+      fetch: vi.fn(async (url: string | URL) => {
+        if (String(url).endsWith('go.mod')) return new Response('', { status: 404 });
+        return new Response('', { status: 404 });
+      }) as unknown as typeof globalThis.fetch,
+    });
+    const { client } = fakeClient(ALL_MODIFIED);
+    const result = await fetchRepo('argoproj/argo-cd', 'cncf', { ...d, client });
+    expect(result).toMatchObject({ type: 'fetched', requests: 5 });
+    expect(files.has(repoKeys('argoproj/argo-cd').manifest('go.mod'))).toBe(false);
+    const meta = JSON.parse(files.get(repoKeys('argoproj/argo-cd').fetch)!.toString('utf8')) as FetchMeta;
+    expect(meta.manifests).toEqual([]);
+  });
+
   it('calls updateIcon and reports whether one landed', async () => {
     const { deps: d } = deps({
       fetch: vi.fn(async (url: string | URL) => {
