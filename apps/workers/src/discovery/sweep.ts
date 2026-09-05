@@ -1,4 +1,4 @@
-import type { DiscoveryState } from './store';
+import type { DiscoveryState } from './store/collections';
 import { initialWindows } from './windows';
 
 /**

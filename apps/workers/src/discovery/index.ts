@@ -1,28 +1,29 @@
 import { SearchClient, type SearchItem } from '@keco/github';
 import { config } from '../lib/config';
+import type { DataStore } from '../lib/data-store';
 import { workerLogger } from '../lib/logger';
 import { createProgress } from '../lib/progress';
-import { createRuntime } from '../lib/runtime';
 import { installShutdown } from '../lib/shutdown';
 import { MAX_RESULTS_PER_QUERY, PER_PAGE, planWindow } from './plan';
-import { DiscoveryStore, type RecordOutcome } from './store';
+import { DiscoveryStore } from './store/store';
 import { beginSweep } from './sweep';
 import { queryOf } from './windows';
 
 /**
- * discovery — GitHub Search → `discovery/**` YAML (design 2026-08-02).
+ * discovery — GitHub Search → `discovery/**` (design 2026-08-02, storage moved behind
+ * `DataStore` — docs/adr/0002-discovery-datastore.md).
  *
  * Sits before the crawler and is the only component that calls GitHub Search. It enumerates
  * every repo matching a keyword by subdividing the corpus into windows that each fit under
- * Search's 1000-result cap, and writes a full list plus one detail document per repo.
+ * Search's 1000-result cap, and records a repo document plus per-sweep state for each window.
  *
  * Deliberately *not* a journal consumer, and it emits no events — see the design's "No journal
- * events" note. It writes only under `discovery/`, only through the Storage port.
+ * events" note. It writes only through the `DataStore` port `DiscoveryStore` wraps.
  *
  * Thin by construction: the window algebra is `windows.ts`, the split/paginate decision is
  * `plan.ts`, the resume-vs-new-sweep decision is `sweep.ts`, the signal handling is
- * `lib/shutdown.ts`, all persistence is `store.ts`. Argument parsing is `cli/program.ts`, and
- * this module executes nothing on import — it exports `runDiscovery`, which `kecoctl
+ * `lib/shutdown.ts`, all persistence is `store/store.ts`. Argument parsing is `cli/program.ts`,
+ * and this module executes nothing on import — it exports `runDiscovery`, which `kecoctl
  * discovery sweep` calls. Anything that carries a decision belongs in one of those modules,
  * and every one of them exists because a bug was found in it.
  */
@@ -35,7 +36,17 @@ export type DiscoveryOptions = {
   fresh: boolean;
 };
 
-export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): Promise<void> {
+/**
+ * The DataStore arrives as a dependency rather than being built here. That is the whole
+ * point of the port: this file cannot name a backend, so it cannot accidentally couple to
+ * one. `apps/workers/src/cli/handlers.ts` is the only place that chooses.
+ */
+export type DiscoveryDeps = { dataStore: DataStore };
+
+export async function runDiscovery(
+  { query, limit, fresh }: DiscoveryOptions,
+  { dataStore }: DiscoveryDeps,
+): Promise<void> {
   // Unauthenticated search is 10 req/min, which turns a two-hour sweep into a six-hour one.
   if (config.GITHUB_TOKEN === '') {
     log.error('GITHUB_TOKEN is required for discovery — unauthenticated search is 10 req/min');
@@ -49,12 +60,7 @@ export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): P
   // window identity is a query string, so that disagreement silently breaks resume.
   const now = new Date();
 
-  const { cache } = createRuntime();
-  const store = await DiscoveryStore.open(cache, query, {
-    fresh,
-    now,
-    logger: log,
-  });
+  const store = await DiscoveryStore.open(dataStore, query, { fresh, now, limit, logger: log });
   const search = SearchClient.fromToken(config.GITHUB_TOKEN, { logger: log });
   const progress = createProgress({ log });
 
@@ -81,20 +87,16 @@ export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): P
 
   installShutdown({
     log,
-    flush: () => store.flush(),
+    flush: async () => {
+      await store.flush();
+      // The history has to say the sweep was interrupted, or a killed run is
+      // indistinguishable from one that is still going.
+      await store.finishRun('interrupted');
+    },
     done: () => progress.done(),
   });
 
   let stopped = false;
-  // Per-*process* write outcomes, as opposed to the per-*sweep* counters on `store.state`,
-  // which accumulate across every resume. The summary below names the two scopes apart
-  // (`run_` vs `sweep_`): reporting "76 pages, 0 dropped" when the 76 covers two runs and the
-  // 0 covers one is worse than reporting neither.
-  //
-  // These exist because the design's definition of done is "re-running writes zero detail files
-  // and reports every repo as unchanged", which is otherwise only checkable by stat-ing the
-  // cache.
-  const outcomes: Record<RecordOutcome, number> = { new: 0, changed: 0, unchanged: 0 };
 
   try {
     while (queue.length > 0 && !stopped) {
@@ -113,7 +115,7 @@ export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): P
           store.state.pages_fetched += 1;
           const probe = await search.page(q, 1, PER_PAGE);
           store.state.dropped += probe.dropped;
-          await recordAll(store, probe.items, q, outcomes);
+          await recordAll(store, probe.items, q);
 
           const plan = planWindow(window, probe.total_count, now);
           if (plan.truncated) {
@@ -127,7 +129,7 @@ export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): P
             store.state.pages_fetched += 1;
             const next = await search.page(q, page, PER_PAGE);
             store.state.dropped += next.dropped;
-            await recordAll(store, next.items, q, outcomes);
+            await recordAll(store, next.items, q);
           }
 
           if (plan.children.length > 0) {
@@ -175,29 +177,23 @@ export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): P
 
   const failed = store.state.failed_windows.length;
   const summary = {
-    // `sweep_` fields accumulate across every resume of this sweep; `run_` fields cover only
-    // this process. They are not comparable, so they are not named alike.
+    // `sweep_` fields accumulate across every resume; `run_` fields cover only this process.
+    // They are not comparable, so they are not named alike.
+    run_id: store.runId,
     sweep_repos: store.size,
     sweep_windows_completed: completed.size,
     sweep_windows_failed: failed,
     sweep_windows_pending: queue.length,
     sweep_pages_fetched: store.state.pages_fetched,
     sweep_dropped_items: store.state.dropped,
-    run_docs_written_new: outcomes.new,
-    run_docs_written_changed: outcomes.changed,
-    // Sightings, not repos: `record()` answers 'unchanged' both for "the payload hash matched"
-    // and for "already seen earlier in this run", and a cold sweep reports plenty of the
-    // second. Counting distinct repos here would mean a second set the size of the corpus.
-    run_sightings_skipped: outcomes.unchanged,
     stopped_at_limit: stopped,
   };
 
   if (failed > 0) {
     // A failed window is a silently truncated corpus: it is dropped from the queue, is not
-    // retried in-run, and does not come back on resume — it only returns on the next full
-    // sweep. `SearchClient` already retries throttles and transient statuses, so what reaches
-    // this point is the non-retryable class. Exiting 0 here would let a scheduled sweep hand
-    // the crawler a corpus missing an entire star band and call it a success.
+    // retried in-run, and only returns on the next full sweep. Exiting 0 would let a
+    // scheduled sweep hand the crawler an incomplete corpus and call it a success.
+    await store.finishRun('failed', new Date(), { stoppedAtLimit: stopped });
     process.exitCode = 1;
     log.error(
       { ...summary, failed_windows: store.state.failed_windows },
@@ -206,6 +202,7 @@ export async function runDiscovery({ query, limit, fresh }: DiscoveryOptions): P
     return;
   }
 
+  await store.finishRun('complete', new Date(), { stoppedAtLimit: stopped });
   log.info(summary, 'discovery complete');
 }
 
@@ -213,11 +210,10 @@ async function recordAll(
   store: DiscoveryStore,
   items: readonly SearchItem[],
   via: string,
-  outcomes: Record<RecordOutcome, number>,
 ): Promise<void> {
   for (const item of items) {
     try {
-      outcomes[await store.record(item, via)] += 1;
+      await store.record(item, via);
     } catch (error) {
       log.warn(
         { repo: item.full_name, error: error instanceof Error ? error.message : String(error) },

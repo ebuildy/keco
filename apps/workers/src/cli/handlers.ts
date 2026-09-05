@@ -22,7 +22,10 @@ import type { Handlers } from './program';
 const log = workerLogger('index');
 
 export const handlers: Handlers = {
-  discoverySweep: async (options) => (await import('../discovery')).runDiscovery(options),
+  discoverySweep: async (options) => {
+    const { createDataStore } = await import('./data-store');
+    return (await import('../discovery')).runDiscovery(options, { dataStore: createDataStore() });
+  },
   repoCrawl: async (options) => (await import('../crawler')).runCrawler(options),
   repoAnalyze: async (options) => (await import('../analyzer')).runAnalyzer(options),
   repoIcon: async (options) => (await import('../crawler/icon-run')).runIcon(options),
