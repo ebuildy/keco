@@ -1,14 +1,18 @@
 import type { SearchItem } from '@keco/github';
+import { ulid } from 'ulid';
 import type { DataStore, Document } from '../../lib/data-store';
 import {
   DISCOVERY_COLLECTIONS,
   REPOS,
+  RUNS,
   STATE,
   slugifyQuery,
   toDetail,
   toRepoDocument,
+  toRunDocument,
   toStateDocument,
   type DiscoveryState,
+  type RunOutcome,
 } from './collections';
 import { KnownRepoSchema, StateDocumentSchema } from './schemas';
 
@@ -45,8 +49,10 @@ export type OpenOptions = {
   fresh?: boolean;
   now?: Date;
   logger?: DiscoveryLogger;
-  /** Injected so tests are deterministic; `runDiscovery` lets it default to a fresh ULID. */
+  /** Injected so tests are deterministic; defaults to a fresh ULID. */
   runId?: string;
+  /** Recorded on the run document so history explains a short sweep. */
+  limit?: number | null;
 };
 
 export class DiscoveryStore {
@@ -65,6 +71,21 @@ export class DiscoveryStore {
   private windowsSinceFlush = 0;
   private lastFlushAt: number;
 
+  /** Write outcomes for THIS process, as opposed to the sweep counters on `state`. */
+  private readonly runCounts = { new: 0, changed: 0, unchanged: 0 };
+
+  /**
+   * Sweep-scoped counters as they stood when this process opened. Subtracting gives the
+   * run-scoped numbers the history reports — `state.pages_fetched` accumulates across every
+   * resume, and reporting a two-run total as one run's cost is worse than reporting nothing.
+   */
+  private readonly openedWith: {
+    pagesFetched: number;
+    dropped: number;
+    windowsCompleted: number;
+    windowsFailed: number;
+  };
+
   /**
    * Serialises overlapping `flush()` calls — the shutdown handler's and the loop's can be in
    * flight at once. Without it the two interleave *within* one flush, and if the earlier
@@ -81,9 +102,17 @@ export class DiscoveryStore {
     private readonly known: Map<number, KnownRepo>,
     readonly state: DiscoveryState,
     readonly runId: string,
-    openedAt: Date,
+    private readonly startedAt: Date,
+    private readonly fresh: boolean,
+    private readonly limit: number | null,
   ) {
-    this.lastFlushAt = openedAt.getTime();
+    this.lastFlushAt = startedAt.getTime();
+    this.openedWith = {
+      pagesFetched: state.pages_fetched,
+      dropped: state.dropped,
+      windowsCompleted: state.completed_windows.length,
+      windowsFailed: state.failed_windows.length,
+    };
   }
 
   static async open(
@@ -96,7 +125,7 @@ export class DiscoveryStore {
     // Throws for a query with no usable slug — before any I/O, so a hostile `--query` never
     // reaches the backend.
     const querySlug = slugifyQuery(query);
-    const runId = options.runId ?? '';
+    const runId = options.runId ?? ulid();
 
     await dataStore.ensure(DISCOVERY_COLLECTIONS);
 
@@ -149,7 +178,23 @@ export class DiscoveryStore {
       dropped: 0,
     };
 
-    return new DiscoveryStore(dataStore, query, querySlug, known, state, runId, now);
+    const store = new DiscoveryStore(
+      dataStore,
+      query,
+      querySlug,
+      known,
+      state,
+      runId,
+      now,
+      options.fresh === true,
+      options.limit ?? null,
+    );
+
+    // Written immediately, not at the end: a sweep that is killed still leaves evidence it
+    // started, and `outcome: 'running'` in the history is exactly how an operator spots one
+    // that never finished.
+    await store.writeRun('running');
+    return store;
   }
 
   get size(): number {
@@ -166,12 +211,16 @@ export class DiscoveryStore {
    * definition of best this design does not have, and it self-heals on the next sweep.
    */
   async record(item: SearchItem, via: string, now = new Date()): Promise<RecordOutcome> {
-    if (this.seenThisRun.has(item.id)) return 'unchanged';
+    if (this.seenThisRun.has(item.id)) {
+      this.runCounts.unchanged += 1;
+      return 'unchanged';
+    }
 
     const detail = toDetail(item, via, now.toISOString());
     const known = this.known.get(detail.repo_id);
     if (known !== undefined && known.payload_hash === detail.payload_hash) {
       this.seenThisRun.add(detail.repo_id);
+      this.runCounts.unchanged += 1;
       return 'unchanged';
     }
 
@@ -193,7 +242,9 @@ export class DiscoveryStore {
       first_seen_run_id: firstSeenRunId,
     });
     this.seenThisRun.add(detail.repo_id);
-    return known === undefined ? 'new' : 'changed';
+    const outcome = known === undefined ? 'new' : 'changed';
+    this.runCounts[outcome] += 1;
+    return outcome;
   }
 
   /**
@@ -258,6 +309,56 @@ export class DiscoveryStore {
 
     this.windowsSinceFlush = 0;
     this.lastFlushAt = now.getTime();
+  }
+
+  /**
+   * Stamps the run's ending. Called on every path out of `runDiscovery` — normal completion,
+   * a failed-window exit, and the shutdown handler.
+   *
+   * A `SIGKILL` never reaches here, so that run stays `running` in the history forever. That
+   * is deliberate: the stuck row is the signal a sweep died without cleanup, and a later run
+   * quietly repairing it would hide exactly the failure someone is looking for.
+   */
+  async finishRun(
+    outcome: Exclude<RunOutcome, 'running'>,
+    now = new Date(),
+    extra: { stoppedAtLimit?: boolean } = {},
+  ): Promise<void> {
+    await this.writeRun(outcome, now, extra);
+  }
+
+  private async writeRun(
+    outcome: RunOutcome,
+    now?: Date,
+    extra: { stoppedAtLimit?: boolean } = {},
+  ): Promise<void> {
+    await this.dataStore.put(
+      RUNS,
+      [
+        toRunDocument({
+          runId: this.runId,
+          query: this.query,
+          querySlug: this.querySlug,
+          startedAt: this.startedAt,
+          fresh: this.fresh,
+          limit: this.limit,
+          outcome,
+          ...(outcome === 'running' ? {} : { endedAt: now ?? new Date() }),
+          counts: { ...this.runCounts },
+          pagesFetched: this.state.pages_fetched - this.openedWith.pagesFetched,
+          dropped: this.state.dropped - this.openedWith.dropped,
+          windowsCompleted: this.state.completed_windows.length - this.openedWith.windowsCompleted,
+          windowsFailed: this.state.failed_windows.length - this.openedWith.windowsFailed,
+          sweepReposTotal: this.known.size,
+          sweepWindowsPending: this.state.pending_windows.length,
+          stoppedAtLimit: extra.stoppedAtLimit ?? false,
+          failedWindows: this.state.failed_windows,
+        }),
+      ],
+      // Durable: the history is the one collection nothing can reconstruct, and a run record
+      // lost to a crash is a sweep that never happened as far as anyone can tell.
+      { durable: true },
+    );
   }
 }
 

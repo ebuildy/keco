@@ -2,7 +2,7 @@ import type { SearchItem } from '@keco/github';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { DataStore } from '../../lib/data-store';
 import { InMemoryDataStore } from '../../lib/data-store.memory';
-import { REPOS, STATE } from './collections';
+import { REPOS, RUNS, STATE } from './collections';
 import { DiscoveryStore } from './store';
 
 const item = (overrides: Partial<SearchItem> = {}): SearchItem =>
@@ -223,5 +223,124 @@ describe('DiscoveryStore', () => {
     await store.record(item(), 'q');
     await expect(store.flush()).rejects.toThrow('backend down');
     await expect(store.flush()).resolves.toBeUndefined();
+  });
+});
+
+describe('DiscoveryStore run history', () => {
+  let data: DataStore;
+  beforeEach(() => {
+    data = new InMemoryDataStore();
+  });
+
+  it('writes a running record the moment the store opens', async () => {
+    await DiscoveryStore.open(data, 'kubernetes', {
+      runId: 'RUN1',
+      now: new Date('2026-08-29T03:00:00Z'),
+      fresh: true,
+      limit: 500,
+    });
+
+    expect(await data.get(RUNS, 'RUN1')).toMatchObject({
+      run_id: 'RUN1',
+      query: 'kubernetes',
+      query_slug: 'kubernetes',
+      started_at: '2026-08-29T03:00:00.000Z',
+      outcome: 'running',
+      ended_at: null,
+      duration_ms: null,
+      fresh: true,
+      limit: 500,
+    });
+  });
+
+  it('generates a sortable run id when none is injected', async () => {
+    const store = await DiscoveryStore.open(data, 'kubernetes', {});
+    expect(store.runId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  });
+
+  it('finishRun stamps the ending and the run-scoped counters', async () => {
+    const store = await DiscoveryStore.open(data, 'kubernetes', {
+      runId: 'RUN1',
+      now: new Date('2026-08-29T03:00:00Z'),
+    });
+    await store.record(item(), 'q');
+    await store.record(item({ id: 2, full_name: 'a/b', name: 'b' }), 'q');
+    await store.record(item(), 'q'); // already seen this run
+    store.state.pages_fetched += 7;
+    store.state.dropped += 1;
+    store.state.completed_windows.push('w1', 'w2');
+
+    await store.finishRun('complete', new Date('2026-08-29T04:12:00Z'));
+
+    expect(await data.get(RUNS, 'RUN1')).toMatchObject({
+      outcome: 'complete',
+      ended_at: '2026-08-29T04:12:00.000Z',
+      duration_ms: 72 * 60 * 1000,
+      repos_new: 2,
+      repos_unchanged: 1,
+      pages_fetched: 7,
+      dropped: 1,
+      windows_completed: 2,
+      sweep_repos_total: 2,
+    });
+  });
+
+  it('reports pages this run, not the sweep total carried in from a resume', async () => {
+    const first = await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN1' });
+    first.state.pages_fetched = 600;
+    first.state.completed_windows.push('w1');
+    await first.flush();
+    await first.finishRun('interrupted');
+
+    const second = await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN2' });
+    expect(second.state.pages_fetched).toBe(600); // sweep-scoped, carried in
+    second.state.pages_fetched += 42;
+    await second.finishRun('complete');
+
+    const run = await data.get(RUNS, 'RUN2');
+    expect(run).toMatchObject({ pages_fetched: 42, sweep_windows_pending: 0 });
+  });
+
+  it('counts windows completed by this run, not by the sweep', async () => {
+    const first = await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN1' });
+    first.state.completed_windows.push('w1', 'w2', 'w3');
+    await first.flush();
+    await first.finishRun('interrupted');
+
+    const second = await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN2' });
+    second.state.completed_windows.push('w4');
+    await second.finishRun('complete');
+
+    expect(await data.get(RUNS, 'RUN2')).toMatchObject({ windows_completed: 1 });
+  });
+
+  it('records failed windows and the stopped-at-limit flag', async () => {
+    const store = await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN1' });
+    store.state.failed_windows.push({ window: 'w', error: 'boom' });
+    await store.finishRun('failed', undefined, { stoppedAtLimit: true });
+
+    expect(await data.get(RUNS, 'RUN1')).toMatchObject({
+      outcome: 'failed',
+      windows_failed: 1,
+      stopped_at_limit: true,
+      failed_windows: [{ window: 'w', error: 'boom' }],
+    });
+  });
+
+  it('leaves a killed run at running, rather than rewriting history', async () => {
+    // A SIGKILL never reaches finishRun. The stuck row IS the signal that a sweep died
+    // without cleanup — quietly repairing it would hide the failure someone is looking for.
+    await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN1' });
+    const later = await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN2' });
+    await later.finishRun('complete');
+
+    expect(await data.get(RUNS, 'RUN1')).toMatchObject({ outcome: 'running' });
+    expect(await data.count(RUNS)).toBe(2);
+  });
+
+  it('--fresh keeps the run history, which nothing else can reconstruct', async () => {
+    await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN1' });
+    await DiscoveryStore.open(data, 'kubernetes', { runId: 'RUN2', fresh: true });
+    expect(await data.count(RUNS, { query_slug: 'kubernetes' })).toBe(2);
   });
 });

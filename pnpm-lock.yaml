@@ -199,6 +199,9 @@ importers:
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.13.3)
+      ulid:
+        specifier: ^3.0.2
+        version: 3.0.2
       yaml:
         specifier: ^2.8.1
         version: 2.9.0
