@@ -121,6 +121,17 @@ export const handlers: Handlers = {
       // in a deploy log, and leave the exit code at 0 so a bootstrap step stays idempotent.
       log.warn({ index: uid }, plan.reason);
     }
+
+    // The discovery collections are provisioned here too, so a fresh deployment bootstraps
+    // both usages of the instance — the searchable read model and the write-side data store.
+    // ensure() compares settings before applying them, so this is safe to re-run.
+    const { createDataStore } = await import('./data-store');
+    const { DISCOVERY_COLLECTIONS } = await import('../discovery/store/collections');
+    await createDataStore({ ...process.env, MEILI_HOST: host }).ensure(DISCOVERY_COLLECTIONS);
+    log.info(
+      { collections: DISCOVERY_COLLECTIONS.map((c) => c.name) },
+      'discovery collections ready',
+    );
   },
 
   indexSeed: async ({ host, index: uid, batch, clear, force }) => {

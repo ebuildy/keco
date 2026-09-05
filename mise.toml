@@ -130,6 +130,18 @@ run = "pnpm prettier --write ."
 description = "Enumerate every GitHub repo matching a keyword into discovery/{query}/*.yaml. Resumes by default. `kecoctl discovery sweep --help` for the full contract. Args: --query kubernetes --fresh --limit 500"
 run = "pnpm -F @keco/workers kecoctl discovery sweep"
 
+[tasks."discovery:count"]
+description = "How much discovery data exists, per query: repos, runs, pending windows, last sweep. Args: --query kubernetes --json"
+run = "pnpm -F @keco/workers kecoctl discovery count"
+
+[tasks."discovery:list"]
+description = "List discovery runs (default) or discovered repos. Args: runs|repos --query kubernetes --limit 20 --sort duration_ms --json"
+run = "pnpm -F @keco/workers kecoctl discovery list"
+
+[tasks."discovery:reset"]
+description = "Delete a query's corpus and resume state, keeping its run history. NOT rebuildable offline. Args: --query kubernetes | --all --include-runs --yes"
+run = "pnpm -F @keco/workers kecoctl discovery reset"
+
 [tasks."repo:crawl"]
 description = "Fetch discovered and seeded repos into the cache. Args: --seed cncf,krew --limit 200 --repo owner/name"
 run = "pnpm -F @keco/workers kecoctl repo crawl"
@@ -209,5 +221,5 @@ description = "Stop Meilisearch"
 run = "docker compose -f infra/compose.yml down"
 
 [tasks."infra:reset"]
-description = "Stop Meilisearch and delete its volume (the index is disposable)"
-run = "docker compose -f infra/compose.yml down -v"
+description = "Stop Meilisearch and delete its volume. Destroys the read model (rebuildable offline) AND discovery's write model (NOT rebuildable — a re-sweep, not a replay). Prompts unless --yes"
+run = "./infra/reset.sh"
