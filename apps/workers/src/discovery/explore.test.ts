@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { DataStore } from '../lib/data-store';
 import { InMemoryDataStore } from '../lib/data-store.memory';
 import { DISCOVERY_COLLECTIONS, REPOS, RUNS, STATE } from './store/collections';
-import { countDiscovery } from './explore';
+import { countDiscovery, listRepos, listRuns, resolveSort } from './explore';
 
 const seed = async (data: DataStore) => {
   await data.ensure(DISCOVERY_COLLECTIONS);
@@ -80,5 +80,80 @@ describe('countDiscovery', () => {
 
   it('narrowing to an unswept query returns nothing, not a throw', async () => {
     expect(await countDiscovery(data, { query: 'never-swept' })).toEqual([]);
+  });
+});
+
+describe('resolveSort', () => {
+  it('defaults runs to newest first', () => {
+    expect(resolveSort(RUNS, null)).toEqual([['started_at', 'desc']]);
+  });
+
+  it('defaults repos to most stars first', () => {
+    expect(resolveSort(REPOS, null)).toEqual([['stars', 'desc']]);
+  });
+
+  it('accepts a declared sortable field', () => {
+    expect(resolveSort(RUNS, 'duration_ms')).toEqual([['duration_ms', 'desc']]);
+  });
+
+  it('accepts an explicit direction', () => {
+    expect(resolveSort(REPOS, 'stars:asc')).toEqual([['stars', 'asc']]);
+  });
+
+  it('rejects an undeclared field by name, listing what is available', () => {
+    // Silently ignoring it would show a table that looks sorted and is not.
+    expect(() => resolveSort(RUNS, 'nonsense')).toThrow(/nonsense/);
+    expect(() => resolveSort(RUNS, 'nonsense')).toThrow(/started_at/);
+  });
+
+  it('rejects a direction that is neither asc nor desc', () => {
+    expect(() => resolveSort(RUNS, 'started_at:sideways')).toThrow(/sideways/);
+  });
+});
+
+describe('listRuns', () => {
+  let data: DataStore;
+  beforeEach(async () => {
+    data = new InMemoryDataStore();
+    await seed(data);
+  });
+
+  it('returns the newest runs first, across all queries by default', async () => {
+    const { rows, total } = await listRuns(data, { query: null, limit: 10, sort: null });
+    expect(rows.map((r) => r.run_id)).toEqual(['R2', 'R3', 'R1']);
+    expect(total).toBe(3);
+  });
+
+  it('narrows to one query', async () => {
+    const { rows, total } = await listRuns(data, { query: 'istio', limit: 10, sort: null });
+    expect(rows.map((r) => r.run_id)).toEqual(['R3']);
+    expect(total).toBe(1);
+  });
+
+  it('caps at the limit but still reports the true total', async () => {
+    // "showing 2 of 3" is the whole point — a capped table that lies about the total is worse
+    // than no table.
+    const { rows, total } = await listRuns(data, { query: null, limit: 2, sort: null });
+    expect(rows).toHaveLength(2);
+    expect(total).toBe(3);
+  });
+});
+
+describe('listRepos', () => {
+  let data: DataStore;
+  beforeEach(async () => {
+    data = new InMemoryDataStore();
+    await seed(data);
+  });
+
+  it('returns the most-starred first', async () => {
+    const { rows } = await listRepos(data, { query: null, limit: 10, sort: null });
+    expect(rows.map((r) => r.full_name)).toEqual(['a/two', 'a/one', 'b/three']);
+  });
+
+  it('caps at the limit and reports the true total', async () => {
+    const { rows, total } = await listRepos(data, { query: 'kubernetes', limit: 1, sort: null });
+    expect(rows).toHaveLength(1);
+    expect(total).toBe(2);
   });
 });

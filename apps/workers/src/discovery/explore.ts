@@ -1,5 +1,5 @@
-import type { DataStore, Document } from '../lib/data-store';
-import { REPOS, RUNS, STATE, slugifyQuery } from './store/collections';
+import type { DataStore, Document, Sort } from '../lib/data-store';
+import { DISCOVERY_COLLECTIONS, REPOS, RUNS, STATE, slugifyQuery } from './store/collections';
 
 /**
  * `kecoctl discovery count | list | reset` — reading and clearing the discovery dataset.
@@ -76,3 +76,67 @@ async function lastRunOf(dataStore: DataStore, querySlug: string): Promise<LastR
   }
   return null;
 }
+
+/** The default ordering per collection: newest runs, biggest repos. */
+const DEFAULT_SORT: Record<string, Sort> = {
+  [RUNS]: [['started_at', 'desc']],
+  [REPOS]: [['stars', 'desc']],
+};
+
+/**
+ * Turns `--sort` into a `Sort`, refusing anything the collection did not declare sortable.
+ *
+ * Rejecting by name matters more than it looks: a backend given an undeclared sort field
+ * either errors deep in a client stack or quietly returns unsorted results, and the second
+ * failure shows the operator a table that looks sorted and is not.
+ */
+export function resolveSort(collection: string, sort: string | null): Sort {
+  if (sort === null) return DEFAULT_SORT[collection] ?? [];
+
+  const spec = DISCOVERY_COLLECTIONS.find((candidate) => candidate.name === collection);
+  const sortable = spec?.sortable ?? [];
+  const [field = '', direction = 'desc'] = sort.split(':');
+
+  if (!sortable.includes(field)) {
+    throw new Error(
+      `cannot sort ${collection} by "${field}" — sortable fields are: ${sortable.join(', ')}`,
+    );
+  }
+  if (direction !== 'asc' && direction !== 'desc') {
+    throw new Error(`sort direction must be asc or desc, got "${direction}"`);
+  }
+  return [[field, direction]];
+}
+
+export type ListOptions = { query: string | null; limit: number; sort: string | null };
+export type ListResult = { rows: Document[]; total: number };
+
+/**
+ * `total` is the count *before* the limit, so the caller can say "showing 20 of 31,204". A
+ * capped table that reports its own length as the total is worse than no table.
+ */
+async function listCollection(
+  dataStore: DataStore,
+  collection: string,
+  options: ListOptions,
+): Promise<ListResult> {
+  const where =
+    options.query === null ? undefined : { query_slug: slugifyQuery(options.query) };
+
+  const rows: Document[] = [];
+  for await (const row of dataStore.list(collection, {
+    ...(where === undefined ? {} : { where }),
+    sort: resolveSort(collection, options.sort),
+    limit: options.limit,
+  })) {
+    rows.push(row);
+  }
+
+  return { rows, total: await dataStore.count(collection, where) };
+}
+
+export const listRuns = (dataStore: DataStore, options: ListOptions): Promise<ListResult> =>
+  listCollection(dataStore, RUNS, options);
+
+export const listRepos = (dataStore: DataStore, options: ListOptions): Promise<ListResult> =>
+  listCollection(dataStore, REPOS, options);
