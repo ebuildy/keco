@@ -1,0 +1,14 @@
+{
+  "sha": "abc123",
+  "truncated": false,
+  "tree": [
+    { "path": "README.md", "type": "blob" },
+    { "path": "plugins", "type": "tree" },
+    { "path": "plugins/access-matrix.yaml", "type": "blob" },
+    { "path": "plugins/ctx.yaml", "type": "blob" },
+    { "path": "plugins/broken.yaml", "type": "blob" },
+    { "path": "plugins/not-github.yaml", "type": "blob" },
+    { "path": "plugins/nested/thing.yaml", "type": "blob" },
+    { "path": "deprecated/old.yaml", "type": "blob" }
+  ]
+}
