@@ -22,6 +22,24 @@ import type { Handlers } from './program';
  */
 const log = workerLogger('index');
 
+/**
+ * A provisioned store. The explore commands read collections a sweep may never have created —
+ * `discovery count` on a fresh machine is the obvious case — and every implementation refuses
+ * an unknown collection by design (§ "an unknown collection must throw from every operation").
+ * `DiscoveryStore.open()` ensures for the sweep path; these three have no sweep in front of
+ * them, so they must ensure for themselves.
+ *
+ * Missing this was invisible against Meilisearch, where a previous sweep had already created
+ * the indexes, and only surfaced under DISCOVERY_STORE=fs against an empty cache.
+ */
+async function exploreStore() {
+  const { createDataStore } = await import('./data-store');
+  const { DISCOVERY_COLLECTIONS } = await import('../discovery/store/collections');
+  const dataStore = createDataStore();
+  await dataStore.ensure(DISCOVERY_COLLECTIONS);
+  return dataStore;
+}
+
 export const handlers: Handlers = {
   discoverySweep: async (options) => {
     const { createDataStore } = await import('./data-store');
@@ -29,21 +47,19 @@ export const handlers: Handlers = {
   },
 
   discoveryCount: async ({ query, json }) => {
-    const { createDataStore } = await import('./data-store');
     const { countDiscovery } = await import('../discovery/explore');
     const { formatCount, ndjson } = await import('../discovery/explore-format');
 
-    const rows = await countDiscovery(createDataStore(), { query });
+    const rows = await countDiscovery(await exploreStore(), { query });
     // stdout, not the logger: this is a result, not a log line (§8 of the spec).
     process.stdout.write(`${json ? ndjson(rows) : formatCount(rows)}\n`);
   },
 
   discoveryList: async ({ target, query, limit, sort, json }) => {
-    const { createDataStore } = await import('./data-store');
     const { listRepos, listRuns } = await import('../discovery/explore');
     const { formatRepos, formatRuns, ndjson } = await import('../discovery/explore-format');
 
-    const dataStore = createDataStore();
+    const dataStore = await exploreStore();
     const options = { query, limit, sort };
     const result =
       target === 'runs' ? await listRuns(dataStore, options) : await listRepos(dataStore, options);
@@ -57,10 +73,9 @@ export const handlers: Handlers = {
   },
 
   discoveryReset: async ({ query, all, includeRuns, yes }) => {
-    const { createDataStore } = await import('./data-store');
     const { applyReset, planReset } = await import('../discovery/explore');
 
-    const dataStore = createDataStore();
+    const dataStore = await exploreStore();
     const plans = await planReset(dataStore, { query, all, includeRuns });
 
     if (plans.length === 0) {
