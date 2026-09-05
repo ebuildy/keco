@@ -31,8 +31,26 @@ import {
 export type IndexCreateOptions = MeiliTarget & { forceSettings: boolean };
 export type IndexSeedOptions = MeiliTarget & { batch: number; clear: boolean; force: boolean };
 
+export type DiscoveryCountOptions = { query: string | null; json: boolean };
+export type DiscoveryListOptions = {
+  target: 'runs' | 'repos';
+  query: string | null;
+  limit: number;
+  sort: string | null;
+  json: boolean;
+};
+export type DiscoveryResetOptions = {
+  query: string | null;
+  all: boolean;
+  includeRuns: boolean;
+  yes: boolean;
+};
+
 export type Handlers = {
   discoverySweep: (options: DiscoveryOptions) => Promise<void>;
+  discoveryCount: (options: DiscoveryCountOptions) => Promise<void>;
+  discoveryList: (options: DiscoveryListOptions) => Promise<void>;
+  discoveryReset: (options: DiscoveryResetOptions) => Promise<void>;
   repoCrawl: (options: CrawlOptions) => Promise<void>;
   repoAnalyze: (options: AnalyzeOptions) => Promise<void>;
   repoIcon: (options: IconOptions) => Promise<void>;
@@ -79,6 +97,82 @@ export function buildProgram(handlers: Handlers): Command {
     .action(async ({ query, limit, fresh }: { query: string; limit?: number; fresh: boolean }) => {
       await handlers.discoverySweep({ query, limit: orNull(limit), fresh });
     });
+
+  discovery
+    .command('count')
+    .description('how much discovery data exists, per query')
+    .addHelpText(
+      'after',
+      '\nEvery collection at once — a partial answer is not what anyone opens this for.\n' +
+        'PENDING WINDOWS is what says whether a sweep finished or is mid-resume.',
+    )
+    .option('-q, --query <keyword>', 'narrow to one query')
+    .option('--json', 'emit NDJSON to stdout instead of a table', false)
+    .action(async ({ query, json }: { query?: string; json: boolean }) => {
+      await handlers.discoveryCount({ query: orNull(query), json });
+    });
+
+  discovery
+    .command('list')
+    .description('list discovery runs (default) or discovered repos')
+    .addHelpText(
+      'after',
+      '\nDefaults to `runs`: the sweep history is what this exists to expose — new repos found,\n' +
+        'how long it took, how many GitHub Search calls it cost.\n' +
+        '--sort accepts any field the collection declares sortable; anything else is rejected by name.',
+    )
+    .argument('[target]', 'runs or repos', 'runs')
+    .option('-q, --query <keyword>', 'narrow to one query')
+    .option('-l, --limit <n>', 'rows to show', positiveInteger, 20)
+    .option('-s, --sort <field[:asc|desc]>', 'override the default ordering')
+    .option('--json', 'emit NDJSON to stdout instead of a table', false)
+    .action(
+      async (
+        target: string,
+        { query, limit, sort, json }: { query?: string; limit: number; sort?: string; json: boolean },
+      ) => {
+        if (target !== 'runs' && target !== 'repos') {
+          throw new Error(`list target must be runs or repos, got "${target}"`);
+        }
+        await handlers.discoveryList({
+          target,
+          query: orNull(query),
+          limit,
+          sort: orNull(sort),
+          json,
+        });
+      },
+    );
+
+  discovery
+    .command('reset')
+    .description("delete a query's corpus and resume state, keeping its run history")
+    .addHelpText(
+      'after',
+      '\nThis data is NOT rebuildable offline: the next sweep re-queries GitHub Search.\n' +
+        'The run history is kept by default — it is the one collection nothing can\n' +
+        'reconstruct, and a reset is when you most want to read it. --include-runs deletes it.\n' +
+        'There is no default target: pass --query or --all.',
+    )
+    .option('-q, --query <keyword>', 'the query to reset')
+    .option('--all', 'reset every query', false)
+    .option('--include-runs', 'delete the run history too', false)
+    .option('-y, --yes', 'skip the confirmation prompt', false)
+    .action(
+      async ({
+        query,
+        all,
+        includeRuns,
+        yes,
+      }: {
+        query?: string;
+        all: boolean;
+        includeRuns: boolean;
+        yes: boolean;
+      }) => {
+        await handlers.discoveryReset({ query: orNull(query), all, includeRuns, yes });
+      },
+    );
 
   // ── repo ───────────────────────────────────────────────────────────────────
   const repo = program.command('repo').description('fetch, classify and illustrate repos');

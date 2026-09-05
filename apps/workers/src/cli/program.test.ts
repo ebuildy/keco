@@ -12,6 +12,9 @@ import { buildProgram, type Handlers } from './program';
  */
 const handlerNames = [
   'discoverySweep',
+  'discoveryCount',
+  'discoveryList',
+  'discoveryReset',
   'repoCrawl',
   'repoAnalyze',
   'repoIcon',
@@ -78,6 +81,58 @@ describe('discovery sweep', () => {
 
   it('rejects a non-positive --limit before the sweep starts', async () => {
     await expect(parse('discovery', 'sweep', '--limit', '0')).rejects.toThrow(CommanderError);
+  });
+});
+
+describe('discovery count | list | reset', () => {
+  it('parses count with no flags', async () => {
+    await parse('discovery', 'count');
+    expect(optionsPassedTo('discoveryCount')).toEqual({ query: null, json: false });
+  });
+
+  it('parses count --query', async () => {
+    await parse('discovery', 'count', '--query', 'istio');
+    expect(optionsPassedTo('discoveryCount')).toMatchObject({ query: 'istio' });
+  });
+
+  it('defaults list to runs', async () => {
+    await parse('discovery', 'list');
+    expect(optionsPassedTo('discoveryList')).toEqual({
+      target: 'runs',
+      query: null,
+      limit: 20,
+      sort: null,
+      json: false,
+    });
+  });
+
+  it('accepts repos as the list target', async () => {
+    await parse('discovery', 'list', 'repos', '--limit', '5');
+    expect(optionsPassedTo('discoveryList')).toMatchObject({ target: 'repos', limit: 5 });
+  });
+
+  it('rejects a list target that is neither runs nor repos', async () => {
+    await expect(parse('discovery', 'list', 'nonsense')).rejects.toThrow();
+  });
+
+  it('parses reset flags, defaulting to keeping the run history', async () => {
+    await parse('discovery', 'reset', '--query', 'istio');
+    expect(optionsPassedTo('discoveryReset')).toEqual({
+      query: 'istio',
+      all: false,
+      includeRuns: false,
+      yes: false,
+    });
+  });
+
+  it('parses reset --all --include-runs --yes', async () => {
+    await parse('discovery', 'reset', '--all', '--include-runs', '--yes');
+    expect(optionsPassedTo('discoveryReset')).toEqual({
+      query: null,
+      all: true,
+      includeRuns: true,
+      yes: true,
+    });
   });
 });
 
