@@ -2444,7 +2444,9 @@ describe('StateDocumentSchema', () => {
   });
 
   it('backfills a counter added after the fact, so an in-flight sweep still resumes', () => {
-    const { dropped, ...older } = state;
+    // Rest-destructuring to omit trips no-unused-vars; deleting is the idiom this repo lints for.
+    const older: Record<string, unknown> = { ...state };
+    delete older.dropped;
     const parsed = StateDocumentSchema.safeParse(older);
     expect(parsed.success).toBe(true);
     expect(parsed.success && parsed.data.dropped).toBe(0);
