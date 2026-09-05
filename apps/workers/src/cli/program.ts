@@ -80,12 +80,12 @@ export function buildProgram(handlers: Handlers): Command {
 
   discovery
     .command('sweep')
-    .description('enumerate every repo matching a keyword into discovery/{query}/*.yaml')
+    .description('enumerate every repo matching a keyword into the discovery_repos collection')
     .addHelpText(
       'after',
-      '\nOne namespace per keyword, so several keywords can share a cache. Resumes from\n' +
-        "discovery/{query}/state.json by default; --fresh starts this keyword's sweep over and\n" +
-        'leaves the others alone.\n\n' +
+      '\nOne namespace per keyword, so several keywords can share the collections. Resumes from\n' +
+        "this keyword's discovery_state document by default; --fresh deletes its corpus and\n" +
+        'state and starts over, leaving the other keywords and the run history alone.\n\n' +
         '--limit stops at the first window boundary past N, so it overshoots. It is a dev-run\n' +
         'convenience, not a budget.\n\n' +
         'Exits 1 if any window failed: a truncated corpus that exits 0 would let a scheduled\n' +
