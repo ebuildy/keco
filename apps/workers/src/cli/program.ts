@@ -46,6 +46,8 @@ export type DiscoveryResetOptions = {
   yes: boolean;
 };
 
+export type RepoHistoryOptions = { limit: number; json: boolean };
+
 export type Handlers = {
   discoverySweep: (options: DiscoveryOptions) => Promise<void>;
   discoveryCount: (options: DiscoveryCountOptions) => Promise<void>;
@@ -54,6 +56,7 @@ export type Handlers = {
   repoCrawl: (options: CrawlOptions) => Promise<void>;
   repoAnalyze: (options: AnalyzeOptions) => Promise<void>;
   repoIcon: (options: IconOptions) => Promise<void>;
+  repoHistory: (options: RepoHistoryOptions) => Promise<void>;
   project: (options: ProjectOptions) => Promise<void>;
   indexCreate: (options: IndexCreateOptions) => Promise<void>;
   indexSeed: (options: IndexSeedOptions) => Promise<void>;
@@ -235,6 +238,24 @@ export function buildProgram(handlers: Handlers): Command {
     )
     .action(async ({ repo: one }: { repo: string }) => {
       await handlers.repoIcon({ repo: one });
+    });
+
+  repo
+    .command('history')
+    .description('the crawl run history — what each run fetched, skipped and spent')
+    .addHelpText(
+      'after',
+      '\nOne row per crawl run, newest first. A run stuck at `running` died without cleanup:\n' +
+        'nothing repairs it, deliberately, because a later run quietly fixing it would hide\n' +
+        'exactly the failure this row exists to surface.\n\n' +
+        'REQ counts every HTTP call; POINTS counts only the ones that spent GitHub REST quota.\n' +
+        'A re-crawl of an unchanged corpus should show REQ high and POINTS near zero — that is\n' +
+        'the ETag short-circuit working.',
+    )
+    .option('-l, --limit <n>', 'rows to show', positiveInteger, 20)
+    .option('--json', 'emit NDJSON to stdout instead of a table', false)
+    .action(async ({ limit, json }: { limit: number; json: boolean }) => {
+      await handlers.repoHistory({ limit, json });
     });
 
   // ── project ────────────────────────────────────────────────────────────────

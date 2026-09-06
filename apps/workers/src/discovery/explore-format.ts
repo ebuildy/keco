@@ -1,5 +1,7 @@
-import type { Document } from '../lib/data-store';
 import type { CountRow, ListResult } from './explore';
+import { formatDuration, ndjson, number, table, text } from '../lib/table';
+
+export { formatDuration, ndjson, table };
 
 /**
  * Rendering for the explore commands. Pure: data in, strings out, no DataStore and no I/O —
@@ -9,46 +11,6 @@ import type { CountRow, ListResult } from './explore';
  * uses. A query command's output is its result, not a log line, and `--json` has to pipe into
  * `jq` cleanly.
  */
-
-const number = (value: unknown): string =>
-  typeof value === 'number' ? value.toLocaleString('en-US') : String(value ?? '');
-
-const text = (value: unknown, fallback = '—'): string =>
-  typeof value === 'string' && value !== '' ? value : fallback;
-
-/** A column is right-aligned when every one of its cells is a number. */
-const isNumeric = (cells: readonly string[]): boolean =>
-  cells.every((cell) => /^[\d,]*$/.test(cell));
-
-export function table(rows: readonly Record<string, string>[]): string {
-  if (rows.length === 0) return '';
-  const columns = Object.keys(rows[0]!);
-  const widths = columns.map((column) =>
-    Math.max(column.length, ...rows.map((row) => (row[column] ?? '').length)),
-  );
-  const alignRight = columns.map(
-    (column) =>
-      isNumeric(rows.map((row) => row[column] ?? '')) &&
-      rows.some((row) => (row[column] ?? '') !== ''),
-  );
-
-  const render = (cells: readonly string[]): string =>
-    cells
-      .map((cell, i) => (alignRight[i] === true ? cell.padStart(widths[i]!) : cell.padEnd(widths[i]!)))
-      .join('  ')
-      .trimEnd();
-
-  return [render(columns), ...rows.map((row) => render(columns.map((c) => row[c] ?? '')))].join('\n');
-}
-
-export function formatDuration(ms: number | null): string {
-  if (ms === null) return '—';
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m`;
-}
 
 const shortTime = (iso: unknown): string =>
   typeof iso === 'string' && iso !== '' ? iso.slice(0, 16).replace('T', ' ') : '—';
@@ -123,7 +85,3 @@ export function formatRepos(result: ListResult, now = new Date()): string {
   );
   return body + showing(result);
 }
-
-/** One JSON object per line — streams into `jq` without buffering the corpus. */
-export const ndjson = (rows: readonly Document[]): string =>
-  rows.map((row) => JSON.stringify(row)).join('\n');

@@ -18,6 +18,7 @@ const handlerNames = [
   'repoCrawl',
   'repoAnalyze',
   'repoIcon',
+  'repoHistory',
   'project',
   'indexCreate',
   'indexSeed',
@@ -193,6 +194,18 @@ describe('repo icon', () => {
   it('passes a valid repo through', async () => {
     await parse('repo', 'icon', '--repo', 'ahmetb/kubectx');
     expect(optionsPassedTo('repoIcon')).toEqual({ repo: 'ahmetb/kubectx' });
+  });
+});
+
+describe('repo history', () => {
+  it('parses repo history', async () => {
+    await parse('repo', 'history', '--limit', '5', '--json');
+    expect(optionsPassedTo('repoHistory')).toEqual({ limit: 5, json: true });
+  });
+
+  it('defaults repo history to 20 rows of table output', async () => {
+    await parse('repo', 'history');
+    expect(optionsPassedTo('repoHistory')).toEqual({ limit: 20, json: false });
   });
 });
 

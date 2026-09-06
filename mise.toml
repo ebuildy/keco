@@ -150,6 +150,10 @@ run = "pnpm -F @keco/workers kecoctl repo crawl"
 description = "Fetch and derive one repo's icon, standalone. `kecoctl repo icon --help` for details. Args: --repo owner/name"
 run = "pnpm -F @keco/workers kecoctl repo icon"
 
+[tasks."repo:history"]
+description = "The crawl run history: fetched, skipped, failed, quota spent. Args: --limit 20 --json"
+run = "pnpm -F @keco/workers kecoctl repo history"
+
 [tasks."repo:analyze"]
 description = "Classify everything with a changed content_hash or an expired signal TTL. Args: --force-refresh scorecard"
 run = "pnpm -F @keco/workers kecoctl repo analyze"

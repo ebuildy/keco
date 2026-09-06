@@ -116,6 +116,17 @@ export const handlers: Handlers = {
   },
   repoAnalyze: async (options) => (await import('../analyzer')).runAnalyzer(options),
   repoIcon: async (options) => (await import('../crawler/seeds/github/icon-run')).runIcon(options),
+
+  repoHistory: async ({ limit, json }) => {
+    const { createDataStore } = await import('./data-store');
+    const { formatHistory, listCrawls } = await import('../crawler/store/explore');
+    const { ndjson } = await import('../lib/table');
+
+    const result = await listCrawls(createDataStore(), { limit });
+    // stdout, not the logger: this is a result, not a log line.
+    process.stdout.write(`${json ? ndjson(result.rows) : formatHistory(result)}\n`);
+  },
+
   project: async (options) => (await import('../projector')).runProjector(options),
   checkpointReset: async (options) => (await import('../replay')).runCheckpointReset(options),
 
