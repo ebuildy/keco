@@ -133,4 +133,35 @@ describe('crawl', () => {
     const counters = await crawl([], deps());
     expect(counters).toMatchObject({ repos_seen: 0, repos_fetched: 0 });
   });
+
+  it('reports each item result to onItemResult, so a caller can inspect a single --repo run', async () => {
+    const onItemResult = vi.fn();
+    const fetchRepo = vi.fn(async () => ({
+      type: 'skipped' as const,
+      reason: 'not-found',
+      requests: 1,
+      points: 1,
+    }));
+    await crawl([{ repo: 'o/gone', source: 'cli' }], deps({ fetchRepo, onItemResult }));
+    expect(onItemResult).toHaveBeenCalledTimes(1);
+    expect(onItemResult).toHaveBeenCalledWith('o/gone', {
+      type: 'skipped',
+      reason: 'not-found',
+      requests: 1,
+      points: 1,
+    });
+  });
+
+  it('does not call onItemResult when fetchRepo throws — onFailure already reports that', async () => {
+    const onItemResult = vi.fn();
+    const fetchRepo = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    await crawl([{ repo: 'o/gone', source: 'cli' }], deps({ fetchRepo, onItemResult }));
+    expect(onItemResult).not.toHaveBeenCalled();
+  });
+
+  it('never throws when onItemResult is omitted — it is optional', async () => {
+    await expect(crawl(items, deps())).resolves.toBeDefined();
+  });
 });

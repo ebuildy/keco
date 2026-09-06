@@ -58,6 +58,14 @@ export type CrawlDeps = {
   quotaExhausted: () => boolean;
   concurrency: number;
   onProgress: (snapshot: { items: number; done: number; known: number; requests: number }) => void;
+  /**
+   * Fired once per item, with whatever `fetchRepo` returned — fetched or skipped, never on a
+   * throw (that's `onFailure`'s event, and it carries an `Error`, not a `RepoFetchResult`).
+   * Optional: the batch path (seeds, `discovery_repos`) has no single result worth inspecting,
+   * only `runCrawler`'s `--repo` path uses this, to tell "no such repo" from "found and queued"
+   * rather than let an explicit, single-repo request end in a silent skip.
+   */
+  onItemResult?: (repo: string, result: RepoFetchResult) => void;
 };
 
 export async function crawl(items: readonly WorkItem[], deps: CrawlDeps): Promise<CrawlCounters> {
@@ -82,6 +90,7 @@ export async function crawl(items: readonly WorkItem[], deps: CrawlDeps): Promis
         counters.repos_seen += 1;
         try {
           const result = await deps.fetchRepo(item.repo, item.source);
+          deps.onItemResult?.(item.repo, result);
           counters.requests += result.requests;
           counters.points_spent += result.points;
 
@@ -193,6 +202,13 @@ export async function runCrawler(
       'crawler start',
     );
 
+    // Only populated for `--repo`: the batch path has 200 results, none of them singularly
+    // interesting, but an operator who named one repo by hand deserves to know whether it was
+    // ever found, not just a "1 skipped" buried in the summary counters below. A ref object,
+    // not a plain `let` — TS's control-flow narrowing does not track a `let` mutated only
+    // inside a callback, and narrows it back to its initial `null` at every later read.
+    const namedRepoResult: { current: RepoFetchResult | null } = { current: null };
+
     const counters = await crawl(items, {
       // The store's own object, so an interrupted run records real numbers (see CrawlDeps).
       counters: store.counters,
@@ -205,6 +221,7 @@ export async function runCrawler(
         await journal.append({ type: 'RepoFailed', repo: target, phase: 'crawl', error: error.message });
       },
       onProgress: (snapshot) => progress.update(snapshot),
+      onItemResult: repo === null ? undefined : (_target, result) => (namedRepoResult.current = result),
     });
 
     progress.done();
@@ -214,6 +231,20 @@ export async function runCrawler(
     // Exit 0. A crawl of 30k repos where 12 are gone is a successful crawl; per-repo failures
     // are in the journal and counted on the run document. Unlike a discovery sweep, a missing
     // repo does not truncate a corpus.
+
+    // The one exception: `--repo` names a specific repo, and "it doesn't exist" is the operator's
+    // mistake (a typo, a renamed/deleted repo), not a corpus-wide fact to shrug off. The run
+    // still recorded 'complete' above — nothing crashed, and RepoSkipped is already in the
+    // journal — but the exit code has to say the one thing that was asked for wasn't there, or a
+    // scripted `mise run repo:crawl -- --repo <typo>` reports success forever.
+    if (
+      repo !== null &&
+      namedRepoResult.current?.type === 'skipped' &&
+      namedRepoResult.current.reason === 'not-found'
+    ) {
+      log.error({ repo }, `repo not found: ${repo}`);
+      process.exitCode = 1;
+    }
   } catch (error) {
     progress.done();
     await store.finishRun('failed');
