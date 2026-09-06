@@ -29,13 +29,13 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
 
 ### Write side
 
-- ⬜ **crawler** — registry seeds (CNCF landscape, krew index, Artifact Hub, OperatorHub,
-  curated `awesome-*`) before keyword search; sharded GitHub Search by stars/created windows;
-  GraphQL for bulk metadata, REST for README/tree/releases; ETag on everything; skip rules with
-  a recorded reason. **Icons ship ahead of it**: `apps/workers/src/crawler/icon.ts` finds a
-  project's mark (committed logo → README image → owner avatar), stores the bytes verbatim and
-  derives 32/64/160 PNGs with sharp. The call site is written into the crawler's TODO, and
-  `mise run repo:icon -- --repo owner/name` runs the pipeline standalone today. See
+- ✅ **crawler** — registry seeds (CNCF landscape, krew index, Artifact Hub, OperatorHub via
+  Artifact Hub's OLM kind, curated `awesome-*`) before keyword search; REST with one conditional
+  request per repo (not GraphQL — see `docs/adr/0003-crawler-rest-not-graphql.md`); ETag on
+  everything; skip rules with a recorded reason; run history in `crawl_history`. Icons shipped
+  ahead of it: `apps/workers/src/crawler/icon.ts` finds a project's mark (committed logo →
+  README image → owner avatar), stores the bytes verbatim and derives 32/64/160 PNGs with sharp.
+  `mise run repo:icon -- --repo owner/name` runs the pipeline standalone. See
   `docs/superpowers/specs/2026-08-24-project-icons-design.md`.
 - ⬜ **analyzer pass 1** — local rules over cached payloads, each new rule shipping with a
   fixture that proves it.
@@ -78,6 +78,25 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
   weight without value, so it lands with the deployment that needs it.
 - ⬜ **Scheduling** — continuous crawler with a weekly full sweep; analyzer and projector loops.
 - ⬜ **Deploy** — Dockerfiles, deploy manifests, CI running `mise run ci`.
+
+### Known gaps and approximations (crawler)
+
+Recorded here so they stay findable rather than becoming tribal knowledge:
+
+- Fork divergence is approximated by the 200-star threshold. Determining real divergence needs a
+  compare API call per fork — a request spent to decide whether to spend requests, on the
+  cheapest category of repo in the corpus. Revisit if forks turn out to pollute the corpus.
+- `RepoFetched{changed:false}` is emitted for every unchanged repo on every sweep, which is
+  ~30k tiny journal entries a week on a full corpus. It is what AGENTS.md §3 declares and what
+  makes the analyzer's `!event.changed` filter meaningful. If journal size becomes a problem,
+  the one-line fix is to emit only on change — at the cost of losing the per-repo "checked at
+  time T, unchanged" record.
+- The crawler's live progress bar (`lib/progress.ts`, via `createProgress()`) still displays
+  discovery's own text — `"discovering"` and `"window N/M"` — even while a crawl is running,
+  because generalizing `ProgressSnapshot`'s field names (this plan, the `ProgressSnapshot`
+  rename) didn't extend to the hardcoded display strings. An operator watching a live
+  `kecoctl repo crawl` sees a misleading label. Fix is a small parameterization of `render()`'s
+  verb and unit words, deferred here rather than folded into this plan's scope.
 
 **Done when:** a cold `mise run pipeline` produces a corpus a Kubernetes engineer would trust,
 and a full rebuild from cache runs offline with zero GitHub calls.

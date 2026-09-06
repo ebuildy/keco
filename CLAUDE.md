@@ -22,6 +22,9 @@ Two smaller gaps, both tracked in ROADMAP.md rather than here: `/api/mcp` and `/
 declared and unimplemented, and the portal's search page is the ported baseline — no facet
 sidebar, no keyboard navigation, no styling system.
 
+The crawler (§4.2) is no longer one of these gaps: `kecoctl repo crawl` and `kecoctl repo
+history` are implemented and this document describes what is actually built.
+
 ## 1. What Keco is
 
 Keco is a search portal for the **Kubernetes ecosystem**. Everything it shows is derived from
@@ -260,16 +263,27 @@ Fetches everything discovery and the seed lists named, into `repos/**`:
 
 - Seed from registries first — higher signal than keyword search: CNCF landscape
   (`cncf/landscape`), krew index (`kubernetes-sigs/krew-index` → `plugins/*.yaml`), Artifact Hub
-  API, OperatorHub / `k8s-operatorhub/community-operators`, curated `awesome-*` lists.
-- GraphQL for bulk metadata (≤100 repos/query — far cheaper against the 5000 points/hour
-  budget); REST only for README, tree, releases.
+  API (Helm charts and, via its OLM package kind, OperatorHub), curated `awesome-*` lists.
+- REST for everything, one conditional request per repo — not GraphQL. The two cost controls
+  §4.2 originally asked for are incompatible (GraphQL supports no conditional requests), and a
+  304 short-circuit is three orders of magnitude cheaper in the weekly steady state. See
+  docs/adr/0003-crawler-rest-not-graphql.md.
 - `ETag` / `If-None-Match` on everything: a 304 costs no quota and short-circuits to
   `RepoFetched{changed:false}`.
+- A 304 on `/repos` short-circuits the whole repo: no push since the last crawl means README,
+  tree and releases cannot have changed. A `_fetch.json` older than 30 days re-fetches anyway,
+  so the assumption self-heals if it is ever wrong.
 - Honour `x-ratelimit-remaining`, exponential backoff on 403/429, respect `retry-after`. A
   crawl that gets the token throttled is a failed crawl.
-- Skip: forks (unless > 200 stars and diverged), archived + stale > 24 months (unless > 1000
-  stars), repos whose only Kubernetes link is a CI manifest. Emit `RepoSkipped` with a reason —
-  never drop silently.
+- Skip, decided from `repo.json` alone so the decision costs no extra requests: forks (unless
+  > 200 stars — "and diverged" needs a compare call per fork and is approximated by the star
+  threshold), archived + stale > 24 months (unless > 1000 stars). Emit `RepoSkipped` with a
+  reason — never drop silently.
+- `ci-manifest-only` is the **analyzer's** job, not the crawler's: §14 says to keep those repos
+  in cache and filter them at projection time, `k8s_relevance` is analyzer-assigned, and
+  deciding it needs the README and tree the skip check runs before.
+- Seeds cache every upstream response in `external/{provider}/` with a TTL, so a parser fix
+  costs no network. The `awesome-*` lists are declared explicitly in `crawler/seeds/awesome.ts`.
 
 ### 4.3 analyzer — rules first, external signals, AI as fallback
 
@@ -374,7 +388,7 @@ writer" rule govern the first and not the second:
 | Usage | Collections | Owner | Rebuildable offline |
 |---|---|---|---|
 | Searchable read model | `tools`, `repos_state`, `traces` | projector | yes, from cache, zero network |
-| Key-value data store | `discovery_repos`, `discovery_runs`, `discovery_state` | discovery, via `DataStore` | **no** — only by re-sweeping GitHub |
+| Key-value data store | `discovery_repos`, `discovery_runs`, `discovery_state`, `crawl_history` | discovery, crawler, via `DataStore` | **no** — only by re-sweeping / re-crawling |
 
 The `discovery_*` collections are **write-model data that happens to share the instance**. The
 read side never queries them, and the projector remains the only writer of searchable read
@@ -389,6 +403,7 @@ why `mise run infra:reset` stopped being free as a result (§8).
 | `discovery_repos` | discovery (write model) | yes | enumerated candidates, pre-crawl |
 | `discovery_runs` | discovery (write model) | `[]` | one document per sweep process |
 | `discovery_state` | discovery (write model) | `[]` | resume position, one per query |
+| `crawl_history` | crawler (write model) | `[]` | one document per crawl run: counts, cost, outcome |
 
 `searchableAttributes: []` makes an index a plain key-value store: no inverted index, minimal
 RAM, still filterable and retrievable. Use it for everything that isn't the search corpus.
@@ -592,6 +607,7 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run discovery:reset -- --query kubernetes` | Delete a query's corpus and resume state, keeping its run history. Prompts; **not** rebuildable offline |
 | `mise run repo:crawl -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
 | `mise run repo:icon -- --repo owner/name` | Fetch and derive one repo's icon, standalone — the pipeline the crawler will call inline |
+| `mise run repo:history -- --limit 20` | The crawl run history: fetched, skipped, failed, GitHub quota spent |
 | `mise run repo:analyze` | Classify everything with a changed `content_hash` or an expired signal TTL |
 | `mise run repo:analyze -- --force-refresh scorecard` | Ignore TTL for one provider |
 | `mise run project` | Project analyses into Meilisearch |
@@ -610,7 +626,7 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run index:create` | `kecoctl index create` — bootstrap an index with the real `tools` settings. **Safe on production**: it applies settings only to an index that is missing or empty, and refuses to reindex a populated one without `--force-settings` (§5) |
 | `mise run index:seed` | `kecoctl index seed` — validate `infra/mock/corpus.json` and upsert it. Fabricated data: it refuses a non-local host without `--force` (§14) |
 | `mise run mock` / `mock:corpus` | The local search sandbox (`index:create` + `index:seed --clear`) · re-emit the corpus JSON from `apps/web/src/mocks/corpus`, the only seam the two sides share (§7) |
-| `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service). `infra:reset` now destroys discovery's write model too, so it prompts with what it is about to lose — pass `--yes` in CI |
+| `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service). `infra:reset` now destroys discovery's and the crawler's write model too — `discovery_repos`, `discovery_runs`, `discovery_state` and `crawl_history` — so it prompts with what it is about to lose — pass `--yes` in CI |
 
 `package.json`'s own `scripts` exist only so `pnpm <script>` works from muscle memory; each one
 delegates straight to the matching mise task rather than re-implementing it, so there is exactly
@@ -622,8 +638,11 @@ model is `mise run infra:reset`; it is rebuilt by `mise run rebuild`, offline.
 **Those two sentences no longer partition the system.** Discovery's write model lives in
 Meilisearch (§5), so `infra:reset` destroys it as well — and unlike the read model it is *not*
 rebuildable offline: it comes back only by re-sweeping GitHub Search, which is hours of paced
-requests. That is why the task prompts. Wiping one query instead is `mise run discovery:reset`.
-`.cache/discovery/` from before the migration is orphaned; delete it with `rm -rf`.
+requests. That is why the task prompts. `crawl_history` sits alongside it and is destroyed the
+same way: it is not rebuildable offline either, though losing it costs history rather than a
+corpus — the next crawl starts with an empty run log, nothing more. Wiping one query instead is
+`mise run discovery:reset`. `.cache/discovery/` from before the migration is orphaned; delete it
+with `rm -rf`.
 
 Always run `mise run ci` before declaring work done.
 
