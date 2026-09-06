@@ -127,6 +127,24 @@ export default ts.config(
     ),
   },
 
+  // §7: "@keco/signals may only be imported by the analyzer, and every adapter in it must go
+  // through @keco/cache." discovery, the crawler and src/lib are the workers with no legitimate
+  // reason to reach a signal provider — the crawler's own external.ts (crawler/external.ts)
+  // exists specifically so it does not have to. Deliberately excludes analyzer/**, the one
+  // worker this package is for. cli/** already bans it separately, below.
+  {
+    files: [
+      'apps/workers/src/discovery/**/*.ts',
+      'apps/workers/src/crawler/**/*.ts',
+      'apps/workers/src/lib/**/*.ts',
+    ],
+    rules: boundary(
+      '@keco/signals is analyzer-only (§7). A seed or worker that wants cached third-party ' +
+        'data goes through crawler/external.ts or its own DataStore, not this package.',
+      [['@keco/signals']],
+    ),
+  },
+
   // The CLI layer composes runners; it does not do work. It sits outside every glob above, so
   // without this rule it is the one place in apps/workers with no boundary at all.
   //
