@@ -45,6 +45,12 @@ describe('reposFromMarkdown', () => {
   it('handles empty input', () => {
     expect(reposFromMarkdown('')).toEqual([]);
   });
+
+  it('excludes a badge link regardless of which URL is the image and which is the link target', () => {
+    const reversed =
+      '[![Awesome](https://github.com/sindresorhus/awesome)](https://img.shields.io/badge/awesome-yes-brightgreen)';
+    expect(reposFromMarkdown(reversed)).toEqual([]);
+  });
 });
 
 describe('AWESOME_LISTS', () => {

@@ -39,16 +39,30 @@ export const AWESOME_PROVIDER = 'awesome';
 
 /**
  * Markdown links `[text](url)` and bare autolinks `<url>`. Deliberately not a full markdown
- * parse: this only needs URLs, and `repoFromUrl` rejects everything that is not a repo —
- * including the badge images and `sponsors/` links every awesome list carries.
+ * parse: this only needs URLs. Two stages keep the noise out: `BADGE_LINK_PATTERN` strips
+ * decorative image-links wholesale before this pattern ever runs, and `repoFromUrl` rejects
+ * everything else that is not a repo, including `sponsors/` links every awesome list carries.
  */
 const LINK_PATTERN = /\[[^\]]*\]\(\s*<?(https?:\/\/[^)\s>]+)>?[^)]*\)|<(https?:\/\/[^>\s]+)>/gi;
 
+/**
+ * A badge — `[![alt](image-url)](link-url)`, an image wrapped in a link back to its target —
+ * is a decoration, never a content link. Stripped wholesale before `LINK_PATTERN` runs, so
+ * neither its image URL nor its wrapping link URL is ever offered to `repoFromUrl`. This used
+ * to be an accident of which URL sat in the innermost bracket (`LINK_PATTERN` only ever saw the
+ * image URL, because its own bracket-matching stops at the first `]`) — which broke the moment
+ * the image and link URLs were written the other way round. Matching the STRUCTURE (an image as
+ * the link's whole label) rather than relying on bracket-nesting order is what makes this
+ * robust to either ordering.
+ */
+const BADGE_LINK_PATTERN = /\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g;
+
 export function reposFromMarkdown(markdown: string): string[] {
+  const withoutBadgeLinks = markdown.replace(BADGE_LINK_PATTERN, '');
   const repos: string[] = [];
   const seen = new Set<string>();
 
-  for (const match of markdown.matchAll(LINK_PATTERN)) {
+  for (const match of withoutBadgeLinks.matchAll(LINK_PATTERN)) {
     const repo = repoFromUrl(match[1] ?? match[2] ?? null);
     // A list names the same repo under two headings often enough to matter.
     if (repo === null || seen.has(repo)) continue;
