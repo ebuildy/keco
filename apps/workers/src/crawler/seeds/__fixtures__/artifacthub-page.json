@@ -1,0 +1,29 @@
+{
+  "packages": [
+    {
+      "package_id": "1",
+      "name": "argo-cd",
+      "repository": { "name": "argo", "url": "https://github.com/argoproj/argo-helm" }
+    },
+    {
+      "package_id": "2",
+      "name": "cert-manager",
+      "repository": { "name": "jetstack", "url": "https://github.com/cert-manager/cert-manager" }
+    },
+    {
+      "package_id": "3",
+      "name": "hosted-elsewhere",
+      "repository": { "name": "gl", "url": "https://gitlab.com/example/chart" }
+    },
+    {
+      "package_id": "4",
+      "name": "no-repository-url",
+      "repository": { "name": "none" }
+    },
+    {
+      "package_id": "5",
+      "name": "duplicate-of-argo",
+      "repository": { "name": "argo", "url": "https://github.com/argoproj/argo-helm" }
+    }
+  ]
+}
