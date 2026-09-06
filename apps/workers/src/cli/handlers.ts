@@ -151,16 +151,16 @@ export const handlers: Handlers = {
       log.warn({ index: uid }, plan.reason);
     }
 
-    // The discovery collections are provisioned here too, so a fresh deployment bootstraps
-    // both usages of the instance — the searchable read model and the write-side data store.
-    // ensure() compares settings before applying them, so this is safe to re-run.
+    // The write-side collections are provisioned here too, so a fresh deployment bootstraps
+    // both usages of the instance — the searchable read model above, and the write-side data
+    // stores here (§5). ensure() compares settings before applying them, so this is safe to
+    // re-run.
     const { createDataStore } = await import('./data-store');
     const { DISCOVERY_COLLECTIONS } = await import('../discovery/store/collections');
-    await createDataStore({ ...process.env, MEILI_HOST: host }).ensure(DISCOVERY_COLLECTIONS);
-    log.info(
-      { collections: DISCOVERY_COLLECTIONS.map((c) => c.name) },
-      'discovery collections ready',
-    );
+    const { CRAWL_COLLECTIONS } = await import('../crawler/store/collections');
+    const writeSide = [...DISCOVERY_COLLECTIONS, ...CRAWL_COLLECTIONS];
+    await createDataStore({ ...process.env, MEILI_HOST: host }).ensure(writeSide);
+    log.info({ collections: writeSide.map((c) => c.name) }, 'write-side collections ready');
   },
 
   indexSeed: async ({ host, index: uid, batch, clear, force }) => {
