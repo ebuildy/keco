@@ -87,6 +87,25 @@ describe('crawl', () => {
     expect(counters.rate_limited).toBeGreaterThan(0);
   });
 
+  it('stops the run once even when several concurrent tasks race to see the exhausted quota', async () => {
+    // concurrency: 1 above can never exercise the "several tasks all see the quota as
+    // exhausted before `stopped` propagates" scenario — this test uses concurrency 8 with an
+    // already-exhausted quota so the whole initial burst reaches the check.
+    const many: WorkItem[] = Array.from({ length: 8 }, (_, i) => ({ repo: `x/${i}`, source: 'cncf' }));
+    const fetchRepo = vi.fn(async () => ({
+      type: 'fetched' as const, content_hash: 'h', changed: true, icon_updated: false, requests: 1, points: 1,
+    }));
+    const counters = await crawl(many, deps({
+      fetchRepo,
+      concurrency: 8,
+      // Exhausted from the very first check, so every task in the initial burst of 8 sees it —
+      // this is the adversarial case for the `stopped` flag's propagation.
+      quotaExhausted: () => true,
+    }));
+    expect(counters.rate_limited).toBe(1);
+    expect(fetchRepo).not.toHaveBeenCalled();
+  });
+
   it('runs items concurrently up to the configured limit', async () => {
     let inFlight = 0;
     let peak = 0;

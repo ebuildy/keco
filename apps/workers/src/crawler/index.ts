@@ -67,48 +67,58 @@ export async function crawl(items: readonly WorkItem[], deps: CrawlDeps): Promis
 
   for (const item of items) {
     void queue.add(async () => {
-      // Checked inside the task, not around the loop: by the time the eighth task starts, the
-      // first seven have already reported their headers back to the governor.
-      if (stopped) return;
-      if (deps.quotaExhausted()) {
-        // Finish the run rather than sleeping up to an hour inside a `mise run`. The next run
-        // resumes for free — every repo already fetched now answers 304.
-        stopped = true;
-        counters.rate_limited += 1;
-        return;
-      }
-
-      counters.repos_seen += 1;
       try {
-        const result = await deps.fetchRepo(item.repo, item.source);
-        counters.requests += result.requests;
-        counters.points_spent += result.points;
-
-        if (result.type === 'skipped') {
-          counters.repos_skipped += 1;
-        } else if (result.changed) {
-          counters.repos_fetched += 1;
-          if (result.icon_updated) counters.icons_updated += 1;
-        } else {
-          counters.repos_unchanged += 1;
+        // Checked inside the task, not around the loop: by the time the eighth task starts, the
+        // first seven have already reported their headers back to the governor.
+        if (stopped) return;
+        if (deps.quotaExhausted()) {
+          // Finish the run rather than sleeping up to an hour inside a `mise run`. The next run
+          // resumes for free — every repo already fetched now answers 304.
+          stopped = true;
+          counters.rate_limited += 1;
+          return;
         }
-      } catch (error) {
-        // A single bad repo must never abort a run (§13): catch per item, emit RepoFailed,
-        // continue. The run's job is to make progress, not to be pure.
-        //
-        // Deliberately not `perItem()` from lib/runtime: this catch also has to bump a counter
-        // on the shared record, and routing that through a helper whose whole signature is
-        // (item, work, onError) would hide the one line that matters.
-        counters.repos_failed += 1;
-        await deps.onFailure(item.repo, error instanceof Error ? error : new Error(String(error)));
-      }
 
-      deps.onProgress({
-        items: counters.repos_fetched,
-        done: counters.repos_seen,
-        known: items.length,
-        requests: counters.requests,
-      });
+        counters.repos_seen += 1;
+        try {
+          const result = await deps.fetchRepo(item.repo, item.source);
+          counters.requests += result.requests;
+          counters.points_spent += result.points;
+
+          if (result.type === 'skipped') {
+            counters.repos_skipped += 1;
+          } else if (result.changed) {
+            counters.repos_fetched += 1;
+            if (result.icon_updated) counters.icons_updated += 1;
+          } else {
+            counters.repos_unchanged += 1;
+          }
+        } catch (error) {
+          // A single bad repo must never abort a run (§13): catch per item, emit RepoFailed,
+          // continue. The run's job is to make progress, not to be pure.
+          //
+          // Deliberately not `perItem()` from lib/runtime: this catch also has to bump a counter
+          // on the shared record, and routing that through a helper whose whole signature is
+          // (item, work, onError) would hide the one line that matters.
+          counters.repos_failed += 1;
+          await deps.onFailure(item.repo, error instanceof Error ? error : new Error(String(error)));
+        }
+
+        deps.onProgress({
+          items: counters.repos_fetched,
+          done: counters.repos_seen,
+          known: items.length,
+          requests: counters.requests,
+        });
+      } catch {
+        // `onFailure` and `onProgress` are the only calls in this task not already guarded
+        // above, and both are best-effort observability, not the work itself. A queued task is
+        // fired with `void` and no `.catch()`, so anything escaping it becomes an unhandled
+        // rejection that crashes the whole process — which would turn one repo's reporting
+        // failure into the crawl's, defeating the isolation the inner try/catch exists to give.
+        // Nothing more to do here: the repo is already counted as failed (or fetched) above;
+        // this guard exists only to stop a SECOND failure from taking down the run.
+      }
     });
   }
 
