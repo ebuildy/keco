@@ -167,6 +167,20 @@ export default ts.config(
     ),
   },
 
+  // The CLI layer composes runners; it does not do work. The day it imports @keco/search
+  // directly is the day it has started doing work — and it sits outside every glob above, so
+  // without this rule it is the one place in apps/workers with no boundary at all.
+  //
+  // src/cli/handlers.ts is the deliberate exception: the two `index` commands are operator
+  // tooling with no worker behind them, so it holds the admin client the way engine/cli.ts did.
+  {
+    files: ['apps/workers/src/cli/program.ts', 'apps/workers/src/cli.ts'],
+    rules: boundary(
+      'apps/workers/src/cli wiring may import worker runners and commander — never a worker\'s own dependencies (§7).',
+      [['@keco/search', '@keco/github', '@keco/signals', '@keco/analyze']],
+    ),
+  },
+
   // Signal providers are only reachable through the analyzer, and only via the cache.
   {
     files: ['packages/signals/**/*.ts'],

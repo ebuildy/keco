@@ -555,9 +555,9 @@ pnpm workspaces (no Turborepo), TypeScript, ESM, `strict: true`, Node 24, pnpm 1
 `apps/api` serves both with `@fastify/static` (portal at `/`, backoffice at `/admin`) alongside
 its JSON routes. One Node process in production, next to Meilisearch and the worker container.
 
-**`apps/workers` is one CLI, `kecoctl`.** Eight commands grouped by noun — `discovery sweep`,
-`repo crawl|analyze|icon`, `project`, `index create|seed`, `checkpoint reset` — over a
-three-layer split: `src/cli/program.ts` builds the command tree and takes its handlers as a
+**`apps/workers` is one CLI, `kecoctl`.** Commands grouped by noun — `discovery
+sweep|count|list|reset`, `repo crawl|analyze|icon|history`, `project`, `index create|seed`,
+`checkpoint reset` — over a three-layer split: `src/cli/program.ts` builds the command tree and takes its handlers as a
 parameter, `src/cli/handlers.ts` supplies them as lazy imports, and each worker module exports
 `run*(options)` and executes nothing on import. That last property is the point: argument
 parsing used to be six hand-rolled `parseArgs` blocks that no test could reach, and one of them
