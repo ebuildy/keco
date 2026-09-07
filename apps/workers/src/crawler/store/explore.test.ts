@@ -16,14 +16,12 @@ const row = (over: Record<string, unknown> = {}) => ({
   finished_at: '2026-09-05T10:05:00.000Z',
   duration_ms: 300_000,
   outcome: 'complete',
-  seeds: ['cncf'],
   limit: 200,
   repo: null,
   shard_count: 1,
   shard_index: 0,
   repos_seen: 10, repos_fetched: 8, repos_unchanged: 1, repos_skipped: 1,
   repos_failed: 0, icons_updated: 6, requests: 40, points_spent: 33, rate_limited: 0,
-  seed_errors: [],
   ...over,
 });
 
@@ -62,13 +60,6 @@ describe('formatHistory', () => {
     });
     expect(output).toContain('running');
     expect(output).toContain('—');
-  });
-
-  it('flags seed errors, which is the whole reason they are recorded', async () => {
-    const output = formatHistory({
-      rows: [row({ seed_errors: [{ name: 'artifacthub', error: 'HTTP 503' }] })],
-    });
-    expect(output).toContain('artifacthub');
   });
 
   it('renders an empty history as a sentence, not an empty table', () => {

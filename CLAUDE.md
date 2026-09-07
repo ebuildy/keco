@@ -176,7 +176,7 @@ its checkpoint → do work → write cache → append events → advance checkpo
 | Worker | Consumes | Produces | Network | Cadence |
 |---|---|---|---|---|
 | **discovery** | keyword queries, search windows | `discovery_repos`, `discovery_runs`, `discovery_state` (via `DataStore`) | GitHub Search (paced) | periodic sweep, resumable |
-| **crawler** | seed lists, the `discovery_repos` collection | `repos/**`, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
+| **crawler** | the `discovery_repos` collection | `repos/**`, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
 | **analyzer** | `RepoFetched` where `changed`, or an expired signal TTL | `analysis/**`, `RepoAnalyzed` | signal providers + LLM, **all cached** | continuous |
 | **projector** | `RepoAnalyzed` | Meilisearch `tools`, `repos_state` | none | continuous, batched |
 
@@ -259,11 +259,16 @@ are still in flight — which would silently truncate the corpus with nothing to
 
 ### 4.2 crawler
 
-Fetches everything discovery and the seed lists named, into `repos/**`:
+Fetches everything discovery named, into `repos/**`. GitHub Search (via `discovery sweep`) is
+the only trust source for *which* repos are in the corpus — `discovery_repos` is the crawler's
+sole worklist, plus the explicit `--repo <owner/name|org>` bypass (§4). Registry lists (CNCF
+landscape, krew index, Artifact Hub, OperatorHub, curated `awesome-*`) used to feed this worklist
+directly as a second discovery path; removed per `docs/adr/0004-remove-crawler-seeds.md` because
+every one of those entries is itself a GitHub repo GitHub Search already finds — the registry
+data is real, but it's evidence about a repo already in the corpus (feeding `maturity` and
+`governance`, §6), not a reason to discover one outside of GitHub Search. Re-adding it as an
+analyzer signal (§4.3) is future work, not scoped yet.
 
-- Seed from registries first — higher signal than keyword search: CNCF landscape
-  (`cncf/landscape`), krew index (`kubernetes-sigs/krew-index` → `plugins/*.yaml`), Artifact Hub
-  API (Helm charts and, via its OLM package kind, OperatorHub), curated `awesome-*` lists.
 - REST for everything, one conditional request per repo — not GraphQL. The two cost controls
   §4.2 originally asked for are incompatible (GraphQL supports no conditional requests), and a
   304 short-circuit is three orders of magnitude cheaper in the weekly steady state. See
@@ -282,8 +287,6 @@ Fetches everything discovery and the seed lists named, into `repos/**`:
 - `ci-manifest-only` is the **analyzer's** job, not the crawler's: §14 says to keep those repos
   in cache and filter them at projection time, `k8s_relevance` is analyzer-assigned, and
   deciding it needs the README and tree the skip check runs before.
-- Seeds cache every upstream response in `external/{provider}/` with a TTL, so a parser fix
-  costs no network. The `awesome-*` lists are declared explicitly in `crawler/seeds/awesome.ts`.
 
 ### 4.3 analyzer — rules first, external signals, AI as fallback
 
@@ -605,7 +608,7 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run discovery:count -- --query kubernetes` | Repos, runs, pending windows and last sweep, per query |
 | `mise run discovery:list -- runs --limit 20` | The sweep history: new repos, duration, GitHub Search calls. `list repos` for the corpus |
 | `mise run discovery:reset -- --query kubernetes` | Delete a query's corpus and resume state, keeping its run history. Prompts; **not** rebuildable offline |
-| `mise run repo:crawl -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
+| `mise run repo:crawl -- --limit 200` | Fetch discovered repos into the cache |
 | `mise run repo:icon -- --repo owner/name` | Fetch and derive one repo's icon, standalone — the pipeline the crawler will call inline |
 | `mise run repo:history -- --limit 20` | The crawl run history: fetched, skipped, failed, GitHub quota spent |
 | `mise run repo:analyze` | Classify everything with a changed `content_hash` or an expired signal TTL |

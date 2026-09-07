@@ -63,18 +63,6 @@ export const repoOrOrg = (value: string): string => {
   return value;
 };
 
-/** `--seed cncf,krew`. Empty entries are dropped; an all-empty value is an error, not `[]`. */
-export const commaList = (value: string): string[] => {
-  const entries = value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (entries.length === 0) {
-    throw new InvalidArgumentError('must list at least one comma-separated value');
-  }
-  return entries;
-};
-
 /**
  * `--host` and `--index` are added to each leaf command rather than declared once on the root,
  * because commander binds a root option before the subcommand name — `kecoctl --index tools

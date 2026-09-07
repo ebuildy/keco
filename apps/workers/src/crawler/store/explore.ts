@@ -52,14 +52,6 @@ export function formatHistory({ rows }: ListCrawlsResult): string {
       // invisible in exactly the record that exists to confirm it works.
       REQ: number(row.requests),
       POINTS: number(row.points_spent),
-      SEED_ERRORS: seedErrors(row.seed_errors),
     })),
   );
-}
-
-function seedErrors(value: unknown): string {
-  if (!Array.isArray(value) || value.length === 0) return '—';
-  return (value as { name?: unknown }[])
-    .map((entry) => String(entry?.name ?? '?'))
-    .join(',');
 }

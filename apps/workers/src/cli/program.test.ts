@@ -138,18 +138,12 @@ describe('discovery count | list | reset', () => {
 });
 
 describe('repo crawl', () => {
-  it('defaults the seeds and the limit', async () => {
+  it('defaults the limit', async () => {
     await parse('repo', 'crawl');
     expect(optionsPassedTo('repoCrawl')).toEqual({
-      seeds: ['cncf', 'krew'],
       limit: 200,
       repo: null,
     });
-  });
-
-  it('splits --seed and drops a trailing comma', async () => {
-    await parse('repo', 'crawl', '--seed', 'cncf,krew,');
-    expect(optionsPassedTo('repoCrawl')?.seeds).toEqual(['cncf', 'krew']);
   });
 
   it('rejects a malformed --repo', async () => {

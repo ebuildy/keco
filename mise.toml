@@ -143,7 +143,7 @@ description = "Delete a query's corpus and resume state, keeping its run history
 run = "pnpm -F @keco/workers kecoctl discovery reset"
 
 [tasks."repo:crawl"]
-description = "Fetch discovered and seeded repos into the cache. Args: --seed cncf,krew --limit 200 --repo owner/name"
+description = "Fetch discovered repos into the cache. Args: --limit 200 --repo owner/name|org"
 run = "pnpm -F @keco/workers kecoctl repo crawl"
 
 [tasks."repo:icon"]
@@ -171,9 +171,9 @@ description = "Full offline rebuild of the read model from cache (no GitHub call
 run = "pnpm -F @keco/workers kecoctl project --rebuild"
 
 [tasks.pipeline]
-description = "Small end-to-end run: crawl 200 seeded repos, analyze, project"
+description = "Small end-to-end run: crawl 200 discovered repos, analyze, project"
 run = [
-  "pnpm -F @keco/workers kecoctl repo crawl --seed cncf,krew --limit 200",
+  "pnpm -F @keco/workers kecoctl repo crawl --limit 200",
   "pnpm -F @keco/workers kecoctl repo analyze",
   "pnpm -F @keco/workers kecoctl project",
 ]

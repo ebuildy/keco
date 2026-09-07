@@ -1,8 +1,23 @@
 # Crawler — design
 
 Date: 2026-09-05
-Status: proposed
+Status: proposed, partially superseded 2026-09-07 (see amendment)
 Supersedes the `TODO(crawler)` block in `apps/workers/src/crawler/index.ts`.
+
+> **Amendment, 2026-09-07 — registry seeds removed.** §2 item 1, §3's `seeds/{index,cncf,krew,
+> artifacthub,operatorhub,awesome}.ts` and `external.ts`, §4's "seeds in --seed order" stage, §7
+> in full, the `--seed` CLI surface in §9, and the `seed_errors[]` field in §6 describe a
+> mechanism that no longer exists: `discovery_repos` (GitHub Search) is now the crawler's only
+> worklist source, plus the `--repo owner/name|org` bypass. Every entry a registry seed used to
+> contribute is itself a GitHub repo GitHub Search already finds, so the registry data is
+> evidence about a repo already in the corpus (feeding `maturity`/`governance`), not a second way
+> to discover one. See `docs/adr/0004-remove-crawler-seeds.md` for the reasoning and
+> `docs/adr/0002` / AGENTS.md §4.1 for why `discovery_repos` is the crawler's sole input.
+> Everything else below — skip rules (§5.2), `crawl_history` minus its seed fields (§6), the
+> per-repo fetch pipeline (§5), icons (§7.5, since moved out of the removed §7), concurrency and
+> shutdown (§8) — is unchanged and still describes what's built. The rest of this document is
+> left as it was written, as the historical record of the original design; sections superseded by
+> the amendment are marked inline below rather than rewritten.
 
 ## 1. Context
 
@@ -27,7 +42,8 @@ side before the analyzer.
 
 Everything AGENTS.md §4.2 asks of the crawler:
 
-1. Registry seeds — CNCF landscape, krew index, Artifact Hub, OperatorHub, curated `awesome-*`
+1. ~~Registry seeds — CNCF landscape, krew index, Artifact Hub, OperatorHub, curated
+   `awesome-*`~~ — removed 2026-09-07, see the amendment above.
 2. Skip rules, emitted as `RepoSkipped` with a reason, never dropped silently
 3. Per-repo fetch — metadata, README, tree, releases, manifests
 4. Verbatim writes + `contentHash()` + `_fetch.json` + `RepoFetched`
@@ -47,14 +63,11 @@ with no network, no cache and no Meilisearch — the shape `runDiscovery` alread
 ```
 apps/workers/src/crawler/
   index.ts              runCrawler — the loop, shutdown, progress, run record
-  worklist.ts           every source → one deduped, sharded, capped stream
-  external.ts           cached third-party GET (TTL envelope in external/)
+  worklist.ts           discovery_repos + the --repo bypass → one sharded, capped stream
   store/
     collections.ts      PURE  crawl_history spec + mappers
     store.ts            CrawlHistoryStore over the DataStore port
   seeds/
-    index.ts            registry: name → adapter
-    cncf.ts  krew.ts  artifacthub.ts  operatorhub.ts  awesome.ts
     github/
       fetch.ts          the per-repo pipeline (the one impure module)
       readme.ts         PURE  README response → { markdown, meta }
@@ -64,10 +77,12 @@ apps/workers/src/crawler/
       icon.test.ts  icon-candidate.test.ts      (moved, unchanged)
 ```
 
-`seeds/github/` is deliberate and asymmetric: the other five adapters answer *which* repos to
-crawl, `github/` answers *what is in one*. The registry in `seeds/index.ts` therefore exposes
-only the five ref-yielding adapters; `seeds/github/` is imported directly by the loop. That
-asymmetry is stated in `seeds/index.ts`'s module doc so the next reader is not surprised.
+As originally built, `seeds/` also held `index.ts` (a registry: name → adapter) and five
+ref-yielding adapters (`cncf.ts`, `krew.ts`, `artifacthub.ts`, `operatorhub.ts`, `awesome.ts`),
+plus a shared `external.ts` cache helper only they used — all removed 2026-09-07 (see amendment).
+`seeds/github/` was deliberate and asymmetric even then: the other five adapters answered *which*
+repos to crawl, `github/` answers *what is in one*, which is why it's the only survivor — nothing
+about "what is in a repo I already decided to crawl" depended on how that repo was found.
 
 `runCrawler` takes `{ dataStore }` as a dependency exactly as `runDiscovery` does — it needs
 `discovery_repos` to read and `crawl_history` to write. `eslint.config.mjs` already bans
@@ -76,25 +91,33 @@ asymmetry is stated in `seeds/index.ts`'s module doc so the next reader is not s
 
 ## 4. The work list (`worklist.ts`)
 
+As built 2026-09-05, then amended 2026-09-07 to drop the seed stage (ADR 0004):
+
 ```
 --repo owner/name  ─────────────────────────────────► [that one repo]
+--repo org (no slash)  ──► discovery_repos where owner = org ─► [every repo under it]
 
 otherwise:
-  seeds in --seed order  ─┐
-                          ├─► dedupe ─► ownsShard() ─► --limit ─► stream
-  discovery_repos ────────┘            (SHARD_COUNT/INDEX)
-   (DataStore.list, sort stars desc)
+  discovery_repos ────────► dedupe ─► ownsShard() ─► --limit ─► stream
+   (DataStore.list, sort stars desc)   (SHARD_COUNT/INDEX)
 ```
 
-- Seeds run first: AGENTS.md §4.2 calls them higher signal than keyword search, and a `--limit`
-  run should spend its budget on them.
+~~seeds in --seed order ─┐~~
+~~                       ├─► dedupe ─► ownsShard() ─► --limit ─► stream~~ — removed; see below.
+~~discovery_repos ───────┘~~
+
+- ~~Seeds run first: AGENTS.md §4.2 calls them higher signal than keyword search, and a
+  `--limit` run should spend its budget on them.~~ No longer applicable — `discovery_repos` is
+  the only source.
 - `discovery_repos` is read `sort: [['stars','desc']], limit: N` — the collection declares
   `stars` sortable. A capped run then gets the most valuable repos rather than an arbitrary page.
-- Dedupe is on `owner/repo`, lowercased. A repo reachable from three seeds is crawled once; the
-  first source to yield it wins and is recorded as `_fetch.json.source`.
+- ~~Dedupe is on `owner/repo`, lowercased. A repo reachable from three seeds is crawled once; the
+  first source to yield it wins and is recorded as `_fetch.json.source`.~~ Dedupe is still on
+  `owner/repo`, lowercased — it now only matters for the discovery corpus itself, since it's the
+  only source.
 - The crawler keeps **no checkpoint**. `CONSUMERS` is `['analyzer','projector']` and the §4 table
-  lists the crawler's inputs as seeds and the collection, not the journal. Its idempotence comes
-  from ETags, not from an offset.
+  lists the crawler's input as the collection, not the journal. Its idempotence comes from ETags,
+  not from an offset.
 
 `worklist.ts` imports `REPOS` from `discovery/store/collections` — the collection name is a
 shared fact, and duplicating the string is how the two drift.
@@ -202,21 +225,23 @@ One document per run, following `discovery_runs`' contract exactly.
 crawl_history/{run_id}          run_id: ULID  (matches DOCUMENT_ID_PATTERN)
   outcome        running | complete | failed | interrupted
   started_at  finished_at  duration_ms
-  seeds[]  limit  repo  shard_count  shard_index
+  limit  repo  shard_count  shard_index
   repos_seen  repos_fetched  repos_unchanged  repos_skipped  repos_failed
   icons_updated  requests  points_spent  rate_limited
-  seed_errors[]  [{ name, error }]
 ```
+
+As built 2026-09-05 this also carried `seeds[]` and `seed_errors[]  [{ name, error }]` — dropped
+2026-09-07 with the seed mechanism itself (ADR 0004); a run's configuration is now fully
+described by `limit`, `repo` and the shard fields.
 
 `requests` counts every HTTP call the run made. `points_spent` counts only those that consumed
 GitHub REST quota — 304s and `raw.githubusercontent.com` fetches are excluded, because both are
 free and a number that conflated them would make the 304 short-circuit (§5.1) invisible in
 exactly the record an operator reads to confirm it is working.
 
-`seed_errors[]` is the minimum needed to keep a silently-empty seed visible: an Artifact Hub
-outage that yields zero refs is otherwise indistinguishable from an Artifact Hub with nothing new.
-It is deliberately *not* the full per-seed breakdown (refs contributed, cache hit, timing) that
-was considered and declined — this records failures, not volumes.
+~~`seed_errors[]` is the minimum needed to keep a silently-empty seed visible: an Artifact Hub
+outage that yields zero refs is otherwise indistinguishable from an Artifact Hub with nothing
+new.~~ No longer applicable — removed with the seed mechanism (ADR 0004).
 
 Spec: `primaryKey: 'run_id'`, `searchable: []` (a plain key-value store per AGENTS.md §5),
 `filterable: ['outcome']`, `sortable: ['started_at','duration_ms','repos_fetched','requests']`.
@@ -239,62 +264,65 @@ of searchable read models (ADR 0002).
 It is **not** per-repo. AGENTS.md §5 assigns per-repo pipeline status to `repos_state`, owned by
 the projector, and per-repo skip/failure facts are already durable in the journal.
 
-## 7. Seeds
+## 7. Seeds — removed 2026-09-07, see ADR 0004
 
-Every adapter yields `{ repo: 'owner/name', source: string }` and caches its upstream response
+Everything in this section (§7 through §7.4, the original §7.5 renumbered below) described five
+`SeedAdapter`s — `cncf`, `krew`, `artifacthub`, `operatorhub`, `awesome` — that fed repos into
+the worklist directly, and the `external.ts` TTL-cache helper only they used. All of it was
+deleted, not merely disabled: `crawler/seeds/{index,cncf,krew,artifacthub,operatorhub,
+awesome}.ts`, `crawler/external.ts`, their tests and fixtures, the `--seed` CLI flag, and the
+`seeds`/`seed_errors` fields on `crawl_history` (§6).
+
+Kept as historical record — the reasoning below (data quality, OperatorHub's routing through
+Artifact Hub, `awesome-*` list selection) is exactly why the amendment at the top of this
+document says the *data* still matters, as a future analyzer signal rather than a discovery path:
+
+<details>
+<summary>Original §7 text (superseded)</summary>
+
+Every adapter yielded `{ repo: 'owner/name', source: string }` and cached its upstream response
 through `external.ts` into `external/{provider}/*.json` with a TTL envelope — so a parser fix
-costs no network and a re-crawl re-parses rather than re-downloads.
+cost no network and a re-crawl re-parsed rather than re-downloaded.
 
 | Adapter | Upstream | TTL | Notes |
 |---|---|---|---|
-| `cncf` | `cncf/landscape` `landscape.yml` via raw | 1 d | see §7.1 |
+| `cncf` | `cncf/landscape` `landscape.yml` via raw | 1 d | see below |
 | `krew` | `kubernetes-sigs/krew-index` tree + `plugins/*.yaml` via raw | 1 d | one tree call (1 point), plugin YAML from raw (free) |
 | `artifacthub` | `artifacthub.io/api/v1/packages/search`, paginated | 1 d | `repository.url` → `owner/repo` |
-| `operatorhub` | Artifact Hub, OLM operator kind | 1 d | see §7.2 |
-| `awesome` | declared list of `awesome-*` READMEs via raw | 1 d | see §7.3 |
+| `operatorhub` | Artifact Hub, OLM operator kind | 1 d | see below |
+| `awesome` | declared list of `awesome-*` READMEs via raw | 1 d | see below |
 
-A seed that fails yields nothing and appends to the run document's `seed_errors[]` (§6); it never
-aborts the crawl. AGENTS.md §4.2's "degrade, never fail" applies to seeds as much as to signals.
+A seed that failed yielded nothing and appended to the run document's `seed_errors[]` (§6); it
+never aborted the crawl. AGENTS.md §4.2's "degrade, never fail" applied to seeds as much as to
+signals.
 
-### 7.1 The CNCF seed earns its keep twice
+**The CNCF seed earned its keep twice.** `landscape.yml` carries each project's maturity
+(`graduated` / `incubating` / `sandbox`) and its foundation membership — exactly the lookup
+`classifyDerived` needs for `maturity` and `governance`, which the analyzer TODO passed as `null`
+— the reason AGENTS.md §6 says governance "will report `unknown` for most real foundation
+projects until the CNCF landscape crawler ships a cached seed". This is still true and still
+unimplemented; it is the leading candidate for the future analyzer signal the amendment above
+points to.
 
-`landscape.yml` carries each project's maturity (`graduated` / `incubating` / `sandbox`) and its
-foundation membership. That is exactly the lookup `classifyDerived` needs for `maturity` and
-`governance`, which the analyzer TODO currently passes as `null` — the reason AGENTS.md §6 says
-governance "will report `unknown` for most real foundation projects until the CNCF landscape
-crawler ships a cached seed".
+**OperatorHub deviation.** Scraping `k8s-operatorhub/community-operators` means walking
+`operators/*/` and reading a `*.clusterserviceversion.yaml` per operator — hundreds of fetches
+for data Artifact Hub already indexes under its OLM operator kind. The `operatorhub` adapter
+therefore queried Artifact Hub with a different kind filter: same source of truth, one HTTP
+shape, far fewer requests.
 
-No new key space: the analyzer reads the same `external/cncf-landscape/*.json` envelope this seed
-writes. Implementing the analyzer side is not in this scope; making the data available is.
+**Which `awesome-*` lists.** AGENTS.md §4.2 said "curated `awesome-*` lists" and named none. The
+adapter declared an explicit constant with a rationale per entry, starting with
+`ramitsurana/awesome-kubernetes` and `tomhuang12/awesome-k8s-resources`. Markdown link extraction
+was pure and fixture-tested; only `github.com/{owner}/{repo}` links were yielded, and links into
+a repo's subpaths collapsed to the repo.
 
-### 7.2 OperatorHub deviation
+**`external.ts` duplicated `@keco/signals`' `Provider`.** `Provider` in `packages/signals` does
+exactly this TTL-envelope caching, but AGENTS.md §7 bars everything except the analyzer from
+importing `@keco/signals` — so `crawler/external.ts` was ~45 duplicated lines, accepted at the
+time as a smaller cost than widening that boundary. Deleting it alongside the seeds resolved the
+duplication a different way than anticipated.
 
-Scraping `k8s-operatorhub/community-operators` means walking `operators/*/` and reading a
-`*.clusterserviceversion.yaml` per operator — hundreds of fetches for data Artifact Hub already
-indexes under its OLM operator kind. The `operatorhub` adapter therefore queries Artifact Hub
-with a different kind filter: same source of truth, one HTTP shape, far fewer requests. Recorded
-here rather than left as a silent difference from AGENTS.md §4.2.
-
-### 7.3 Which `awesome-*` lists
-
-AGENTS.md §4.2 says "curated `awesome-*` lists" and names none. This adapter declares an explicit
-constant with a rationale per entry — the pattern `TREE_DIRECTORIES` in `icon-candidate.ts`
-already uses — starting with `ramitsurana/awesome-kubernetes` and
-`tomhuang12/awesome-k8s-resources`. Adding one is a one-line PR with a rationale, not an ad-hoc
-string.
-
-Markdown link extraction is pure and fixture-tested; only `github.com/{owner}/{repo}` links are
-yielded, and links into a repo's subpaths collapse to the repo.
-
-### 7.4 `external.ts` duplicates `@keco/signals`' `Provider`
-
-`Provider` in `packages/signals` does exactly this TTL-envelope caching. AGENTS.md §7 bars
-everything except the analyzer from importing `@keco/signals`, so `crawler/external.ts` is ~45
-duplicated lines.
-
-**Decision: duplicate.** Widening a boundary that exists to keep uncached third-party calls out
-of the pipeline is a worse trade than 45 lines. The alternative — an ADR moving `Provider` into a
-shared package — stays available if a third caller appears.
+</details>
 
 ### 7.5 Images
 
@@ -328,7 +356,9 @@ corpus for a cosmetic field.
 
 ## 9. CLI surface
 
-Existing, unchanged: `kecoctl repo crawl [--seed cncf,krew] [--limit 200] [--repo owner/name]`.
+As built 2026-09-05: `kecoctl repo crawl [--seed cncf,krew] [--limit 200] [--repo owner/name]`.
+As of 2026-09-07 (ADR 0004 removed `--seed`; a later change added org support to `--repo`):
+`kecoctl repo crawl [--limit 200] [--repo owner/name|org]`.
 
 New:
 
@@ -397,22 +427,22 @@ Per AGENTS.md §13 and §15.1. Gate is `mise run ci`.
 | `skip.ts` | unit — each rule, each boundary (200/1000 stars, 24 months), keep-path |
 | `manifests.ts` | unit — root manifests, nested `Chart.yaml` fallback, the 6-file bound |
 | `readme.ts` | unit — root README, nested README, base64 decode, `image_base_url` shape, 404 |
-| `seeds/*.ts` | unit against **committed fixtures** of each upstream payload |
+| ~~`seeds/*.ts`~~ | ~~unit against **committed fixtures** of each upstream payload~~ — removed with the seeds (ADR 0004) |
 | `store/collections.ts` | unit — spec shape, mappers, counter derivation |
 | `store/store.ts` | against the in-memory `DataStore`, incl. every `finishRun` path |
 | `seeds/github/fetch.ts` | fake `GitHubClient` + in-memory `Cache` — 304 short-circuit, 404, write order, 30-day guard |
-| `worklist.ts` | dedupe, shard filter, limit, seed-before-discovery ordering |
+| `worklist.ts` | dedupe, shard filter, limit, `--repo` bypass (single repo and org) |
 | `icon*.test.ts` | moved unchanged; they prove the move broke nothing |
 
-Committed seed fixtures are the seed equivalent of §13's "a new classification rule requires a
-fixture proving it". No e2e — that is `apps/web` only.
+No e2e — that is `apps/web` only.
 
 ## 12. Files touched
 
 **New** — `crawler/worklist.ts`, `external.ts`, `store/{collections,store}.ts`,
 `seeds/{index,cncf,krew,artifacthub,operatorhub,awesome}.ts`,
 `seeds/github/{fetch,readme,manifests,skip}.ts`, their tests, seed fixtures, and
-`docs/adr/0003-crawler-rest-not-graphql.md`.
+`docs/adr/0003-crawler-rest-not-graphql.md`. (2026-09-07: `external.ts` and every `seeds/*.ts`
+above except `seeds/github/**` deleted again — ADR 0004.)
 
 **Moved** — `crawler/icon.ts`, `icon-candidate.ts`, `icon-run.ts`, `icon.test.ts`,
 `icon-candidate.test.ts` → `crawler/seeds/github/`.
@@ -430,8 +460,9 @@ if a glob needs widening, `AGENTS.md` §0/§4.2/§5/§8, `ROADMAP.md`.
    listing, including a real icon, and appends one `RepoFetched`.
 3. Running it a second time emits `RepoFetched{changed:false}` and issues one request.
 4. `kecoctl repo history` shows both runs with honest counters.
-5. `kecoctl repo crawl --seed cncf,krew --limit 50` completes and `mise run repo:analyze`
-   finds candidates.
+5. ~~`kecoctl repo crawl --seed cncf,krew --limit 50` completes and `mise run repo:analyze`
+   finds candidates.~~ Superseded 2026-09-07: `kecoctl repo crawl --limit 50` completes against
+   an existing `discovery_repos` corpus and `mise run repo:analyze` finds candidates.
 6. Nothing on the write side reads a read model; `crawl_history` is written only through the
    `DataStore` port.
 7. AGENTS.md and ROADMAP.md updated; ADR 0003 committed.

@@ -7,7 +7,6 @@ import type { DiscoveryOptions } from '../discovery';
 import type { ProjectOptions } from '../projector';
 import type { CheckpointResetOptions } from '../replay';
 import {
-  commaList,
   positiveInteger,
   repoName,
   repoOrOrg,
@@ -183,23 +182,20 @@ export function buildProgram(handlers: Handlers): Command {
 
   repo
     .command('crawl')
-    .description('fetch discovered and seeded repos into the cache')
+    .description('fetch discovered repos into the cache')
     .addHelpText(
       'after',
-      '\nRegistry seeds first (higher signal than keyword search), then the discovery lists.\n' +
-        'ETag-conditional on everything: a 304 costs no quota.\n\n' +
+      '\nFetches the discovery_repos corpus (GitHub Search, via `discovery sweep`) — the only\n' +
+        'trust source right now. ETag-conditional on everything: a 304 costs no quota.\n\n' +
         '--repo takes either owner/name (one repo) or a bare org — every repo already\n' +
         'discovered under that org (a `discovery sweep` populates it; this reads it, never\n' +
-        'GitHub Search). Either form is explicit: no shard filter, no --limit, no --seed.',
+        'GitHub Search). Either form is explicit: no shard filter, no --limit.',
     )
-    .option('-s, --seed <list>', 'comma-separated registry seeds', commaList, ['cncf', 'krew'])
     .option('-l, --limit <n>', 'stop after this many repos', positiveInteger, 200)
     .option('-r, --repo <owner/name|org>', 'crawl one repo, or every repo discovered under an org', repoOrOrg)
-    .action(
-      async ({ seed, limit, repo: one }: { seed: string[]; limit: number; repo?: string }) => {
-        await handlers.repoCrawl({ seeds: seed, limit, repo: orNull(one) });
-      },
-    );
+    .action(async ({ limit, repo: one }: { limit: number; repo?: string }) => {
+      await handlers.repoCrawl({ limit, repo: orNull(one) });
+    });
 
   repo
     .command('analyze')

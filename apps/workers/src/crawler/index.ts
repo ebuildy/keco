@@ -8,32 +8,35 @@ import { workerLogger } from '../lib/logger';
 import { createProgress } from '../lib/progress';
 import { createRuntime } from '../lib/runtime';
 import { installShutdown } from '../lib/shutdown';
-import { resolveSeeds } from './seeds';
 import { fetchRepo, type RepoFetchResult } from './seeds/github/fetch';
 import { CrawlHistoryStore } from './store/store';
 import { buildWorklist, isOrgRef, type WorkItem } from './worklist';
 
 /**
- * crawler — seeds + `discovery_repos` → `repos/**` + `RepoFetched` (AGENTS.md §4.2).
+ * crawler — `discovery_repos` → `repos/**` + `RepoFetched` (AGENTS.md §4.2).
  *
  * Thin by construction, the way `runDiscovery` is: the per-repo pipeline is
- * `seeds/github/fetch.ts`, the sources are `seeds/*`, the merge is `worklist.ts`, the run record
+ * `seeds/github/fetch.ts`, the corpus read and `--repo` bypass are `worklist.ts`, the run record
  * is `store/store.ts`, the signal handling is `lib/shutdown.ts`. Anything carrying a decision
  * belongs in one of those, where a test can reach it without a network.
  *
+ * GitHub Search (via `discovery`) is the only trust source for *which* repos to crawl. Registry
+ * lists (CNCF landscape, krew, Artifact Hub, `awesome-*`) fed this worklist directly until
+ * docs/adr/0004-remove-crawler-seeds.md — that data still matters, but as an analyzer enrichment
+ * signal, not a second discovery path.
+ *
  * It keeps no checkpoint. `CONSUMERS` is `['analyzer','projector']`, and §4's table lists the
- * crawler's inputs as seeds and a collection, not the journal. Its idempotence comes from ETags:
- * a re-run of an unchanged corpus is almost entirely 304s, which cost no quota at all.
+ * crawler's input as a collection, not the journal. Its idempotence comes from ETags: a re-run
+ * of an unchanged corpus is almost entirely 304s, which cost no quota at all.
  */
 const log = workerLogger('crawler');
 
 export type CrawlOptions = {
-  seeds: string[];
   limit: number;
   /**
    * `owner/name` crawls one repo; a bare org (`worklist.ts`'s `isOrgRef`) crawls every repo
    * already discovered under it, from `discovery_repos` — not a fresh GitHub Search. `null`
-   * means the full seeds-then-discovery-corpus run.
+   * means the full discovery-corpus run.
    */
   repo: string | null;
 };
@@ -142,7 +145,7 @@ export async function crawl(items: readonly WorkItem[], deps: CrawlDeps): Promis
 // ── the wiring ──────────────────────────────────────────────────────────────
 
 export async function runCrawler(
-  { seeds, limit, repo }: CrawlOptions,
+  { limit, repo }: CrawlOptions,
   { dataStore }: CrawlerDeps,
 ): Promise<void> {
   if (config.GITHUB_TOKEN === '') {
@@ -157,7 +160,6 @@ export async function runCrawler(
   const store = await CrawlHistoryStore.open(dataStore, {
     runId: ulid(startedAt.getTime()),
     startedAt,
-    seeds,
     limit,
     repo,
     shardCount: config.SHARD_COUNT,
@@ -187,7 +189,6 @@ export async function runCrawler(
     const items = await buildWorklist(
       {
         repo,
-        seeds: resolveSeeds(repo === null ? seeds : []),
         limit,
         shardCount: config.SHARD_COUNT,
         shardIndex: config.SHARD_INDEX,
@@ -197,12 +198,11 @@ export async function runCrawler(
         cache,
         fetch: globalThis.fetch,
         githubToken: config.GITHUB_TOKEN,
-        onSeedError: (name, error) => store.recordSeedError(name, error),
       },
     );
 
     log.info(
-      { seeds, limit, repo, items: items.length, shard: `${config.SHARD_INDEX}/${config.SHARD_COUNT}` },
+      { limit, repo, items: items.length, shard: `${config.SHARD_INDEX}/${config.SHARD_COUNT}` },
       'crawler start',
     );
 

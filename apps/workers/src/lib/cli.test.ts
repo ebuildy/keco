@@ -1,6 +1,6 @@
 import { CommanderError, InvalidArgumentError } from 'commander';
 import { describe, expect, it } from 'vitest';
-import { commaList, positiveInteger, repoName, repoOrOrg, run, unitInterval } from './cli';
+import { positiveInteger, repoName, repoOrOrg, run, unitInterval } from './cli';
 
 /**
  * These four validators replace hand-rolled checks that lived in four different entrypoints and
@@ -55,24 +55,6 @@ describe('repoOrOrg', () => {
 
   it.each(['a/b/c', 'owner /name', 'owner/', '/name', 'org name', ''])('rejects %j', (value) => {
     expect(() => repoOrOrg(value)).toThrow(InvalidArgumentError);
-  });
-});
-
-describe('commaList', () => {
-  it('splits on commas', () => {
-    expect(commaList('cncf,krew')).toEqual(['cncf', 'krew']);
-  });
-
-  it('drops empty entries from a trailing or doubled comma', () => {
-    expect(commaList('cncf,,krew,')).toEqual(['cncf', 'krew']);
-  });
-
-  it('trims surrounding whitespace', () => {
-    expect(commaList('cncf, krew')).toEqual(['cncf', 'krew']);
-  });
-
-  it('rejects a value with no entries at all', () => {
-    expect(() => commaList(',,')).toThrow(InvalidArgumentError);
   });
 });
 

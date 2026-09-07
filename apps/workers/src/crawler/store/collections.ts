@@ -30,15 +30,6 @@ export const CRAWL_COLLECTIONS: readonly CollectionSpec[] = [
 
 export type CrawlOutcome = 'running' | 'complete' | 'failed' | 'interrupted';
 
-export type SeedError = { name: string; error: string };
-
-/**
- * One catastrophic run can fail every seed it touches. The counters stay exact; this list is
- * capped so a run document cannot grow unbounded — the same rule discovery applies to its
- * failed windows.
- */
-export const MAX_RECORDED_SEED_ERRORS = 20;
-
 /**
  * `requests` counts the calls the fetch pipeline accounts for: GitHub REST calls plus raw
  * manifest fetches. Icon fetches are NOT included — `updateIcon` does not report a request
@@ -76,7 +67,6 @@ export const emptyCounters = (): CrawlCounters => ({
 export type CrawlRunInput = {
   runId: string;
   startedAt: Date;
-  seeds: readonly string[];
   limit: number | null;
   repo: string | null;
   shardCount: number;
@@ -84,7 +74,6 @@ export type CrawlRunInput = {
   outcome: CrawlOutcome;
   endedAt?: Date;
   counters?: CrawlCounters;
-  seedErrors?: readonly SeedError[];
 };
 
 export function toCrawlRunDocument(input: CrawlRunInput): Document {
@@ -97,12 +86,10 @@ export function toCrawlRunDocument(input: CrawlRunInput): Document {
     duration_ms: endedAt === null ? null : endedAt.getTime() - input.startedAt.getTime(),
     outcome: input.outcome,
     // The run's configuration, so a short run explains itself without anyone guessing.
-    seeds: [...input.seeds],
     limit: input.limit,
     repo: input.repo,
     shard_count: input.shardCount,
     shard_index: input.shardIndex,
     ...counters,
-    seed_errors: (input.seedErrors ?? []).slice(0, MAX_RECORDED_SEED_ERRORS),
   };
 }

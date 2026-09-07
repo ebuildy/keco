@@ -6,7 +6,6 @@ import {
   toCrawlRunDocument,
   type CrawlCounters,
   type CrawlOutcome,
-  type SeedError,
 } from './collections';
 
 /**
@@ -25,7 +24,6 @@ export type OpenOptions = {
   /** Injected so tests are deterministic. */
   runId: string;
   startedAt: Date;
-  seeds: readonly string[];
   limit: number | null;
   repo: string | null;
   shardCount: number;
@@ -38,8 +36,6 @@ export class CrawlHistoryStore {
    * event loop, so the p-queue workers cannot interleave a read-modify-write.
    */
   readonly counters: CrawlCounters = emptyCounters();
-
-  private readonly seedErrors: SeedError[] = [];
 
   /**
    * The first ending wins. The shutdown handler and the loop's own `finally` can both fire —
@@ -62,10 +58,6 @@ export class CrawlHistoryStore {
     return store;
   }
 
-  recordSeedError(name: string, error: string): void {
-    this.seedErrors.push({ name, error });
-  }
-
   async finishRun(outcome: Exclude<CrawlOutcome, 'running'>, now = new Date()): Promise<void> {
     if (this.finished) return;
     this.finished = true;
@@ -81,7 +73,6 @@ export class CrawlHistoryStore {
           outcome,
           ...(outcome === 'running' ? {} : { endedAt: endedAt ?? new Date() }),
           counters: { ...this.counters },
-          seedErrors: [...this.seedErrors],
         }),
       ],
       // The run record is the thing an operator reads after a crash. Losing it to a buffered

@@ -29,14 +29,17 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
 
 ### Write side
 
-- ✅ **crawler** — registry seeds (CNCF landscape, krew index, Artifact Hub, OperatorHub via
-  Artifact Hub's OLM kind, curated `awesome-*`) before keyword search; REST with one conditional
-  request per repo (not GraphQL — see `docs/adr/0003-crawler-rest-not-graphql.md`); ETag on
-  everything; skip rules with a recorded reason; run history in `crawl_history`. Icons shipped
-  ahead of it: `apps/workers/src/crawler/icon.ts` finds a project's mark (committed logo →
-  README image → owner avatar), stores the bytes verbatim and derives 32/64/160 PNGs with sharp.
-  `mise run repo:icon -- --repo owner/name` runs the pipeline standalone. See
-  `docs/superpowers/specs/2026-08-24-project-icons-design.md`.
+- ✅ **crawler** — fetches the `discovery_repos` corpus (GitHub Search, via `discovery sweep`),
+  the only trust source right now; REST with one conditional request per repo (not GraphQL — see
+  `docs/adr/0003-crawler-rest-not-graphql.md`); ETag on everything; skip rules with a recorded
+  reason; run history in `crawl_history`. `--repo` crawls one named repo, or every repo already
+  discovered under a bare org. Icons shipped ahead of it: `apps/workers/src/crawler/icon.ts`
+  finds a project's mark (committed logo → README image → owner avatar), stores the bytes
+  verbatim and derives 32/64/160 PNGs with sharp. `mise run repo:icon -- --repo owner/name` runs
+  the pipeline standalone. See `docs/superpowers/specs/2026-08-24-project-icons-design.md`.
+  Registry seeds (CNCF landscape, krew index, Artifact Hub, OperatorHub, curated `awesome-*`)
+  fed this worklist directly until `docs/adr/0004-remove-crawler-seeds.md` — see "Known gaps and
+  approximations" below for where that data goes instead.
 - ⬜ **analyzer pass 1** — local rules over cached payloads, each new rule shipping with a
   fixture that proves it.
 - ⬜ **analyzer pass 2** — Scorecard, deps.dev, OSV, Homebrew, krew, Artifact Hub behind the TTL
@@ -97,6 +100,14 @@ Recorded here so they stay findable rather than becoming tribal knowledge:
   rename) didn't extend to the hardcoded display strings. An operator watching a live
   `kecoctl repo crawl` sees a misleading label. Fix is a small parameterization of `render()`'s
   verb and unit words, deferred here rather than folded into this plan's scope.
+- **Registry seeds were removed** (`docs/adr/0004-remove-crawler-seeds.md`): CNCF's landscape,
+  krew's index, Artifact Hub/OperatorHub and curated `awesome-*` lists used to feed repos into
+  the crawler's worklist directly, as a second discovery path alongside GitHub Search. GitHub
+  Search (via `discovery sweep`) is now the only trust source for *which* repos are in the
+  corpus. That registry data is still valuable — it's exactly what `maturity` and `governance`
+  (§6 of AGENTS.md) need — but it belongs in the analyzer as an enrichment signal keyed off a
+  repo GitHub already found, not as a way to add repos GitHub Search didn't surface. Re-adding it
+  there is future work, not scoped yet.
 
 **Done when:** a cold `mise run pipeline` produces a corpus a Kubernetes engineer would trust,
 and a full rebuild from cache runs offline with zero GitHub calls.

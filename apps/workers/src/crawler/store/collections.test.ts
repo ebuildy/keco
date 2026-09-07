@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DOCUMENT_ID_PATTERN } from '../../lib/data-store';
-import {
-  CRAWL_COLLECTIONS,
-  CRAWL_HISTORY,
-  MAX_RECORDED_SEED_ERRORS,
-  emptyCounters,
-  toCrawlRunDocument,
-} from './collections';
+import { CRAWL_COLLECTIONS, CRAWL_HISTORY, emptyCounters, toCrawlRunDocument } from './collections';
 
 const input = {
   runId: '01K4ABCDEFGHJKMNPQRSTVWXYZ',
   startedAt: new Date('2026-09-05T10:00:00.000Z'),
-  seeds: ['cncf', 'krew'],
   limit: 200,
   repo: null,
   shardCount: 1,
@@ -74,19 +67,6 @@ describe('toCrawlRunDocument', () => {
 
   it('records the run configuration so a short run explains itself', () => {
     const doc = toCrawlRunDocument({ ...input, repo: 'argoproj/argo-cd', shardCount: 4, shardIndex: 2 });
-    expect(doc).toMatchObject({ seeds: ['cncf', 'krew'], limit: 200, repo: 'argoproj/argo-cd', shard_count: 4, shard_index: 2 });
-  });
-
-  it('caps seed_errors so one catastrophic run cannot grow the document unbounded', () => {
-    const many = Array.from({ length: MAX_RECORDED_SEED_ERRORS + 10 }, (_, i) => ({
-      name: `seed-${i}`,
-      error: 'HTTP 503',
-    }));
-    const doc = toCrawlRunDocument({ ...input, seedErrors: many });
-    expect((doc.seed_errors as unknown[]).length).toBe(MAX_RECORDED_SEED_ERRORS);
-  });
-
-  it('defaults seed_errors to an empty array', () => {
-    expect(toCrawlRunDocument(input).seed_errors).toEqual([]);
+    expect(doc).toMatchObject({ limit: 200, repo: 'argoproj/argo-cd', shard_count: 4, shard_index: 2 });
   });
 });

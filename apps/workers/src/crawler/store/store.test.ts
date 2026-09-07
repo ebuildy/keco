@@ -10,7 +10,6 @@ async function open(overrides: Partial<Parameters<typeof CrawlHistoryStore.open>
   const store = await CrawlHistoryStore.open(dataStore, {
     runId: RUN_ID,
     startedAt: new Date('2026-09-05T10:00:00.000Z'),
-    seeds: ['cncf'],
     limit: null,
     repo: null,
     shardCount: 1,
@@ -65,15 +64,6 @@ describe('CrawlHistoryStore', () => {
       repos_fetched: 3,
       requests: 9,
       points_spent: 7,
-    });
-  });
-
-  it('collects seed errors', async () => {
-    const { dataStore, store } = await open();
-    store.recordSeedError('artifacthub', 'HTTP 503');
-    await store.finishRun('complete', new Date('2026-09-05T10:05:00.000Z'));
-    expect(await dataStore.get(CRAWL_HISTORY, RUN_ID)).toMatchObject({
-      seed_errors: [{ name: 'artifacthub', error: 'HTTP 503' }],
     });
   });
 
