@@ -152,13 +152,19 @@ describe('repo crawl', () => {
     expect(optionsPassedTo('repoCrawl')?.seeds).toEqual(['cncf', 'krew']);
   });
 
-  it('validates --repo as owner/name', async () => {
-    await expect(parse('repo', 'crawl', '--repo', 'argo-cd')).rejects.toThrow(CommanderError);
+  it('rejects a malformed --repo', async () => {
+    await expect(parse('repo', 'crawl', '--repo', 'owner/name/extra')).rejects.toThrow(CommanderError);
+    await expect(parse('repo', 'crawl', '--repo', 'owner /name')).rejects.toThrow(CommanderError);
   });
 
-  it('passes a valid --repo through', async () => {
+  it('passes a valid owner/name --repo through', async () => {
     await parse('repo', 'crawl', '--repo', 'argoproj/argo-cd');
     expect(optionsPassedTo('repoCrawl')).toMatchObject({ repo: 'argoproj/argo-cd' });
+  });
+
+  it('passes a bare org --repo through too, unlike repo analyze/icon', async () => {
+    await parse('repo', 'crawl', '--repo', 'argoproj');
+    expect(optionsPassedTo('repoCrawl')).toMatchObject({ repo: 'argoproj' });
   });
 });
 

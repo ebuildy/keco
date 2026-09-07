@@ -1,6 +1,6 @@
 import { CommanderError, InvalidArgumentError } from 'commander';
 import { describe, expect, it } from 'vitest';
-import { commaList, positiveInteger, repoName, run, unitInterval } from './cli';
+import { commaList, positiveInteger, repoName, repoOrOrg, run, unitInterval } from './cli';
 
 /**
  * These four validators replace hand-rolled checks that lived in four different entrypoints and
@@ -40,6 +40,21 @@ describe('repoName', () => {
 
   it.each(['argo-cd', 'a/b/c', 'owner /name', 'owner/', '/name', ''])('rejects %j', (value) => {
     expect(() => repoName(value)).toThrow(InvalidArgumentError);
+  });
+});
+
+describe('repoOrOrg', () => {
+  it('accepts owner/name, exactly like repoName', () => {
+    expect(repoOrOrg('argoproj/argo-cd')).toBe('argoproj/argo-cd');
+  });
+
+  it('also accepts a bare org, unlike repoName', () => {
+    expect(repoOrOrg('argoproj')).toBe('argoproj');
+    expect(() => repoName('argoproj')).toThrow(InvalidArgumentError);
+  });
+
+  it.each(['a/b/c', 'owner /name', 'owner/', '/name', 'org name', ''])('rejects %j', (value) => {
+    expect(() => repoOrOrg(value)).toThrow(InvalidArgumentError);
   });
 });
 

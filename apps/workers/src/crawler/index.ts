@@ -11,7 +11,7 @@ import { installShutdown } from '../lib/shutdown';
 import { resolveSeeds } from './seeds';
 import { fetchRepo, type RepoFetchResult } from './seeds/github/fetch';
 import { CrawlHistoryStore } from './store/store';
-import { buildWorklist, type WorkItem } from './worklist';
+import { buildWorklist, isOrgRef, type WorkItem } from './worklist';
 
 /**
  * crawler — seeds + `discovery_repos` → `repos/**` + `RepoFetched` (AGENTS.md §4.2).
@@ -30,7 +30,11 @@ const log = workerLogger('crawler');
 export type CrawlOptions = {
   seeds: string[];
   limit: number;
-  /** Crawl a single repo instead of the seed lists. `null` means the full run. */
+  /**
+   * `owner/name` crawls one repo; a bare org (`worklist.ts`'s `isOrgRef`) crawls every repo
+   * already discovered under it, from `discovery_repos` — not a fresh GitHub Search. `null`
+   * means the full seeds-then-discovery-corpus run.
+   */
   repo: string | null;
 };
 
@@ -202,11 +206,21 @@ export async function runCrawler(
       'crawler start',
     );
 
-    // Only populated for `--repo`: the batch path has 200 results, none of them singularly
-    // interesting, but an operator who named one repo by hand deserves to know whether it was
-    // ever found, not just a "1 skipped" buried in the summary counters below. A ref object,
-    // not a plain `let` — TS's control-flow narrowing does not track a `let` mutated only
-    // inside a callback, and narrows it back to its initial `null` at every later read.
+    // `--repo` names either one repo or an org; only the first has exactly one result worth
+    // inspecting afterward. An org with nothing discovered under it is checked here, before
+    // spending a single request — `items` is already empty, so there is nothing to crawl.
+    if (repo !== null && isOrgRef(repo) && items.length === 0) {
+      log.error({ repo }, `no repos discovered under org "${repo}" — run a discovery sweep first, or check the org name`);
+      process.exitCode = 1;
+    }
+
+    // Only populated for a single-repo `--repo`: the batch path (and org mode) has many results,
+    // none of them singularly interesting, but an operator who named one exact repo by hand
+    // deserves to know whether it was ever found, not just a "1 skipped" buried in the summary
+    // counters below. A ref object, not a plain `let` — TS's control-flow narrowing does not
+    // track a `let` mutated only inside a callback, and narrows it back to its initial `null` at
+    // every later read.
+    const singleRepo = repo !== null && !isOrgRef(repo);
     const namedRepoResult: { current: RepoFetchResult | null } = { current: null };
 
     const counters = await crawl(items, {
@@ -221,7 +235,7 @@ export async function runCrawler(
         await journal.append({ type: 'RepoFailed', repo: target, phase: 'crawl', error: error.message });
       },
       onProgress: (snapshot) => progress.update(snapshot),
-      onItemResult: repo === null ? undefined : (_target, result) => (namedRepoResult.current = result),
+      onItemResult: singleRepo ? (_target, result) => (namedRepoResult.current = result) : undefined,
     });
 
     progress.done();
@@ -238,7 +252,7 @@ export async function runCrawler(
     // journal — but the exit code has to say the one thing that was asked for wasn't there, or a
     // scripted `mise run repo:crawl -- --repo <typo>` reports success forever.
     if (
-      repo !== null &&
+      singleRepo &&
       namedRepoResult.current?.type === 'skipped' &&
       namedRepoResult.current.reason === 'not-found'
     ) {

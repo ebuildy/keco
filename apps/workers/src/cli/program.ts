@@ -10,6 +10,7 @@ import {
   commaList,
   positiveInteger,
   repoName,
+  repoOrOrg,
   unitInterval,
   withMeiliTarget,
   type MeiliTarget,
@@ -186,11 +187,14 @@ export function buildProgram(handlers: Handlers): Command {
     .addHelpText(
       'after',
       '\nRegistry seeds first (higher signal than keyword search), then the discovery lists.\n' +
-        'ETag-conditional on everything: a 304 costs no quota.',
+        'ETag-conditional on everything: a 304 costs no quota.\n\n' +
+        '--repo takes either owner/name (one repo) or a bare org — every repo already\n' +
+        'discovered under that org (a `discovery sweep` populates it; this reads it, never\n' +
+        'GitHub Search). Either form is explicit: no shard filter, no --limit, no --seed.',
     )
     .option('-s, --seed <list>', 'comma-separated registry seeds', commaList, ['cncf', 'krew'])
     .option('-l, --limit <n>', 'stop after this many repos', positiveInteger, 200)
-    .option('-r, --repo <owner/name>', 'crawl a single repo', repoName)
+    .option('-r, --repo <owner/name|org>', 'crawl one repo, or every repo discovered under an org', repoOrOrg)
     .action(
       async ({ seed, limit, repo: one }: { seed: string[]; limit: number; repo?: string }) => {
         await handlers.repoCrawl({ seeds: seed, limit, repo: orNull(one) });

@@ -30,7 +30,9 @@ export const DISCOVERY_COLLECTIONS: readonly CollectionSpec[] = [
     name: REPOS,
     primaryKey: 'id',
     searchable: ['name', 'full_name', 'description', 'topics'],
-    filterable: ['query_slug', 'archived', 'fork', 'language'],
+    // `owner` is filterable so `kecoctl repo crawl --repo <org>` (crawler/worklist.ts) can look
+    // up every repo already discovered under an org without a full collection scan.
+    filterable: ['query_slug', 'archived', 'fork', 'language', 'owner'],
     sortable: ['stars', 'pushed_at'],
   },
   {
