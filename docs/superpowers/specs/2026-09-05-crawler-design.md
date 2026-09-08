@@ -1,9 +1,15 @@
 # Crawler — design
 
 Date: 2026-09-05
-Status: proposed, partially superseded 2026-09-07 (see amendment)
+Status: proposed, partially superseded 2026-09-07 and 2026-09-08 (see amendments)
 Supersedes the `TODO(crawler)` block in `apps/workers/src/crawler/index.ts`.
 
+> **Amendment, 2026-09-08 — `seeds/` renamed to `sources/`.** Once the 2026-09-07 amendment left
+> `seeds/github/` as the only thing under `crawler/seeds/`, the name no longer fit — nothing
+> there answers "which repos to crawl" anymore, only "what is in one." Every `seeds/github/…`
+> path below is now `crawler/sources/github/…`; left unchanged in the text, as elsewhere in this
+> document, rather than mechanically rewritten.
+>
 > **Amendment, 2026-09-07 — registry seeds removed.** §2 item 1, §3's `seeds/{index,cncf,krew,
 > artifacthub,operatorhub,awesome}.ts` and `external.ts`, §4's "seeds in --seed order" stage, §7
 > in full, the `--seed` CLI surface in §9, and the `seed_errors[]` field in §6 describe a

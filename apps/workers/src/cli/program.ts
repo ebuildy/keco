@@ -2,7 +2,7 @@ import { Command, Option } from 'commander';
 import { CONSUMERS } from '@keco/core';
 import type { AnalyzeOptions } from '../analyzer';
 import type { CrawlOptions } from '../crawler';
-import type { IconOptions } from '../crawler/seeds/github/icon-run';
+import type { IconOptions } from '../crawler/sources/github/icon-run';
 import type { DiscoveryOptions } from '../discovery';
 import type { ProjectOptions } from '../projector';
 import type { CheckpointResetOptions } from '../replay';

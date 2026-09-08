@@ -8,7 +8,7 @@ import { decideSkip } from './skip';
 
 /**
  * One repo, fetched into `repos/**` (AGENTS.md §3, §4.2). The only impure module in
- * `seeds/github/`: every decision it makes lives in `skip.ts`, `readme.ts` or `manifests.ts`.
+ * `sources/github/`: every decision it makes lives in `skip.ts`, `readme.ts` or `manifests.ts`.
  *
  * It owns the WRITE ORDERING, because that invariant is only testable if it lives in one
  * place:
@@ -31,7 +31,7 @@ export type FetchMeta = {
   };
   fetched_at: string;
   content_hash: string;
-  /** Which seed or collection first named this repo. */
+  /** Which source first named this repo — `discovery` or the `cli` bypass. */
   source: string;
   /** Tree paths the manifests came from — the key is the basename, so provenance lives here. */
   manifests: string[];

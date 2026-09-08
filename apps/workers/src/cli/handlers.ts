@@ -115,7 +115,7 @@ export const handlers: Handlers = {
     return (await import('../crawler')).runCrawler(options, { dataStore: createDataStore() });
   },
   repoAnalyze: async (options) => (await import('../analyzer')).runAnalyzer(options),
-  repoIcon: async (options) => (await import('../crawler/seeds/github/icon-run')).runIcon(options),
+  repoIcon: async (options) => (await import('../crawler/sources/github/icon-run')).runIcon(options),
 
   repoHistory: async ({ limit, json }) => {
     const { createDataStore } = await import('./data-store');

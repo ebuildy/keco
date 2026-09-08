@@ -8,7 +8,7 @@ import { workerLogger } from '../lib/logger';
 import { createProgress } from '../lib/progress';
 import { createRuntime } from '../lib/runtime';
 import { installShutdown } from '../lib/shutdown';
-import { fetchRepo, type RepoFetchResult } from './seeds/github/fetch';
+import { fetchRepo, type RepoFetchResult } from './sources/github/fetch';
 import { CrawlHistoryStore } from './store/store';
 import { buildWorklist, isOrgRef, type WorkItem } from './worklist';
 
@@ -16,9 +16,9 @@ import { buildWorklist, isOrgRef, type WorkItem } from './worklist';
  * crawler — `discovery_repos` → `repos/**` + `RepoFetched` (AGENTS.md §4.2).
  *
  * Thin by construction, the way `runDiscovery` is: the per-repo pipeline is
- * `seeds/github/fetch.ts`, the corpus read and `--repo` bypass are `worklist.ts`, the run record
- * is `store/store.ts`, the signal handling is `lib/shutdown.ts`. Anything carrying a decision
- * belongs in one of those, where a test can reach it without a network.
+ * `sources/github/fetch.ts`, the corpus read and `--repo` bypass are `worklist.ts`, the run
+ * record is `store/store.ts`, the signal handling is `lib/shutdown.ts`. Anything carrying a
+ * decision belongs in one of those, where a test can reach it without a network.
  *
  * GitHub Search (via `discovery`) is the only trust source for *which* repos to crawl. Registry
  * lists (CNCF landscape, krew, Artifact Hub, `awesome-*`) fed this worklist directly until
@@ -68,8 +68,8 @@ export type CrawlDeps = {
   /**
    * Fired once per item, with whatever `fetchRepo` returned — fetched or skipped, never on a
    * throw (that's `onFailure`'s event, and it carries an `Error`, not a `RepoFetchResult`).
-   * Optional: the batch path (seeds, `discovery_repos`) has no single result worth inspecting,
-   * only `runCrawler`'s `--repo` path uses this, to tell "no such repo" from "found and queued"
+   * Optional: the batch path (`discovery_repos`) has no single result worth inspecting, only
+   * `runCrawler`'s `--repo` path uses this, to tell "no such repo" from "found and queued"
    * rather than let an explicit, single-repo request end in a silent skip.
    */
   onItemResult?: (repo: string, result: RepoFetchResult) => void;

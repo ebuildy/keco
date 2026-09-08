@@ -33,7 +33,9 @@ via `discovery sweep`) becomes the crawler's only worklist source, alongside the
 `--repo <owner/name|org>` explicit bypass.
 
 `crawler/seeds/github/` — the per-repo fetch pipeline (README, tree, releases, icon) — is
-unaffected. It was never a `SeedAdapter`; it answers "what is in one repo I already decided to
+unaffected (renamed to `crawler/sources/github/` on 2026-09-08, once it was the only thing left
+under `seeds/` and the name no longer fit). It was never a `SeedAdapter`; it answers "what is in
+one repo I already decided to
 crawl," not "which repos exist."
 
 ## Consequences

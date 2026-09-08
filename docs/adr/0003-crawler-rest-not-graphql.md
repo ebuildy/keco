@@ -34,7 +34,8 @@ quota accounting.
 
 A 304 on `/repos` short-circuits the whole repo — README, tree and releases are not fetched — on
 the assumption that GitHub computes the repo ETag over the whole response body, `pushed_at`
-included. `REFRESH_AFTER_DAYS = 30` in `seeds/github/fetch.ts` guards that assumption: a stale
+included. `REFRESH_AFTER_DAYS = 30` in `sources/github/fetch.ts` (`seeds/github/fetch.ts` until
+the 2026-09-08 rename) guards that assumption: a stale
 entry self-heals within a month rather than going permanently stale.
 
 Revisit if a cold start of the full corpus becomes a routine operation rather than a one-off, or

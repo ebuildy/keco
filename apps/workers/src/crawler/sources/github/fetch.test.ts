@@ -1,4 +1,4 @@
-// apps/workers/src/crawler/seeds/github/fetch.test.ts
+// apps/workers/src/crawler/sources/github/fetch.test.ts
 import { describe, expect, it, vi } from 'vitest';
 import { Cache, repoKeys, type Storage } from '@keco/cache';
 import type { NewEvent } from '@keco/core';
