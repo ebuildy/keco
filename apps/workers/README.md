@@ -81,14 +81,14 @@ mise run discovery:sweep -- --query kubernetes            # resumes from _state.
 mise run discovery:sweep -- --query kubernetes --fresh    # start this keyword's sweep over
 mise run discovery:sweep -- --query kubernetes --limit 500
 
-mise run repo:crawl   -- --seed cncf,krew --limit 200
+mise run repo:crawl   -- --limit 200
 mise run repo:analyze
 mise run repo:analyze -- --force-refresh scorecard        # the only TTL bypass, and it is manual
 mise run project
 mise run rebuild                                          # project --rebuild: full offline replay + alias swap
 
 mise run checkpoint:reset -- --consumer analyzer           # reset a checkpoint
-mise run pipeline                                          # crawl 200 seeded repos → analyze → project
+mise run pipeline                                          # crawl 200 discovered repos → analyze → project
 
 mise run kecoctl   -- --help                        # every command, grouped by noun
 mise run index:create                               # create `tools` with the real settings

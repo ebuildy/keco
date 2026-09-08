@@ -159,9 +159,9 @@ export async function runDiscovery(
       // Outside the `completed` guard on purpose: on a resume that skips a run of already-done
       // windows the bar would otherwise sit frozen while real work (queue drain) happens.
       progress.update({
-        repos: store.size,
-        windowsDone: completed.size,
-        windowsKnown: completed.size + queue.length,
+        items: store.size,
+        done: completed.size,
+        known: completed.size + queue.length,
         requests: store.state.pages_fetched,
       });
 

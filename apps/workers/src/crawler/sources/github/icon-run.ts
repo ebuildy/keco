@@ -1,7 +1,7 @@
 import { repoKeys } from '@keco/cache/keys';
-import { config } from '../lib/config';
-import { workerLogger } from '../lib/logger';
-import { createRuntime } from '../lib/runtime';
+import { config } from '../../../lib/config';
+import { workerLogger } from '../../../lib/logger';
+import { createRuntime } from '../../../lib/runtime';
 import { updateIcon } from './icon';
 
 /**

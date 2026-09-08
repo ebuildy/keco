@@ -6,10 +6,18 @@
  * CI log with carriage returns.
  */
 
+/**
+ * Deliberately generic. Discovery counts windows and the crawler counts repos, so a field named
+ * `windowsDone` would be a lie in one of them — in a module whose whole output an operator
+ * reads. `items` is the thing being collected, `done`/`known` the progress through the work.
+ */
 export type ProgressSnapshot = {
-  repos: number;
-  windowsDone: number;
-  windowsKnown: number;
+  /** What is being collected — repos found. */
+  items: number;
+  /** Units of work finished. */
+  done: number;
+  /** Units of work known about. Grows as discovery subdivides windows. */
+  known: number;
   requests: number;
 };
 
@@ -51,21 +59,21 @@ export function createProgress(options: ProgressOptions = {}): Progress {
   let lastRenderedSnapshot: ProgressSnapshot | undefined;
 
   const eta = (snapshot: ProgressSnapshot): string => {
-    if (snapshot.windowsDone === 0) return '—';
+    if (snapshot.done === 0) return '—';
     const elapsed = now() - startedAt;
-    // windowsKnown grows as windows subdivide (§ windows algebra), so remaining can be
+    // known grows as windows subdivide (§ windows algebra), so remaining can be
     // transiently smaller than done's share implies — clamp instead of going negative.
-    const remaining = Math.max(0, snapshot.windowsKnown - snapshot.windowsDone);
-    return formatDuration((elapsed / snapshot.windowsDone) * remaining);
+    const remaining = Math.max(0, snapshot.known - snapshot.done);
+    return formatDuration((elapsed / snapshot.done) * remaining);
   };
 
   const render = (snapshot: ProgressSnapshot): void => {
     if (!tty) {
       options.log?.info(
         {
-          repos: snapshot.repos,
-          windows_done: snapshot.windowsDone,
-          windows_known: snapshot.windowsKnown,
+          repos: snapshot.items,
+          windows_done: snapshot.done,
+          windows_known: snapshot.known,
           requests: snapshot.requests,
           eta: eta(snapshot),
         },
@@ -75,13 +83,12 @@ export function createProgress(options: ProgressOptions = {}): Progress {
       return;
     }
 
-    const ratio =
-      snapshot.windowsKnown === 0 ? 0 : Math.min(1, snapshot.windowsDone / snapshot.windowsKnown);
+    const ratio = snapshot.known === 0 ? 0 : Math.min(1, snapshot.done / snapshot.known);
     const filled = Math.round(ratio * BAR_WIDTH);
     const bar = '#'.repeat(filled) + '·'.repeat(BAR_WIDTH - filled);
     stream.write(
-      `\rdiscovering  [${bar}]  ${count(snapshot.repos)} repos · window ` +
-        `${snapshot.windowsDone}/${snapshot.windowsKnown} · ${count(snapshot.requests)} req · ` +
+      `\rdiscovering  [${bar}]  ${count(snapshot.items)} repos · window ` +
+        `${snapshot.done}/${snapshot.known} · ${count(snapshot.requests)} req · ` +
         `eta ${eta(snapshot)}   `,
     );
     drawn = true;

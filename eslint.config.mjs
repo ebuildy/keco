@@ -127,6 +127,23 @@ export default ts.config(
     ),
   },
 
+  // §7: "@keco/signals may only be imported by the analyzer, and every adapter in it must go
+  // through @keco/cache." discovery, the crawler and src/lib are the workers with no legitimate
+  // reason to reach a signal provider. Deliberately excludes analyzer/**, the one worker this
+  // package is for. cli/** already bans it separately, below.
+  {
+    files: [
+      'apps/workers/src/discovery/**/*.ts',
+      'apps/workers/src/crawler/**/*.ts',
+      'apps/workers/src/lib/**/*.ts',
+    ],
+    rules: boundary(
+      '@keco/signals is analyzer-only (§7). A worker that wants cached third-party data goes ' +
+        'through @keco/cache directly or its own DataStore, not this package.',
+      [['@keco/signals']],
+    ),
+  },
+
   // The CLI layer composes runners; it does not do work. It sits outside every glob above, so
   // without this rule it is the one place in apps/workers with no boundary at all.
   //
@@ -146,6 +163,20 @@ export default ts.config(
     rules: boundary(
       "apps/workers/src/cli wiring may import worker runners and commander — never a worker's own dependencies (§7).",
       [['@keco/search', 'meilisearch', '@keco/github', '@keco/signals', '@keco/analyze']],
+    ),
+  },
+
+  // The CLI layer composes runners; it does not do work. The day it imports @keco/search
+  // directly is the day it has started doing work — and it sits outside every glob above, so
+  // without this rule it is the one place in apps/workers with no boundary at all.
+  //
+  // src/cli/handlers.ts is the deliberate exception: the two `index` commands are operator
+  // tooling with no worker behind them, so it holds the admin client the way engine/cli.ts did.
+  {
+    files: ['apps/workers/src/cli/program.ts', 'apps/workers/src/cli.ts'],
+    rules: boundary(
+      'apps/workers/src/cli wiring may import worker runners and commander — never a worker\'s own dependencies (§7).',
+      [['@keco/search', '@keco/github', '@keco/signals', '@keco/analyze']],
     ),
   },
 

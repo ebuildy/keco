@@ -2,14 +2,14 @@ import { Command, Option } from 'commander';
 import { CONSUMERS } from '@keco/core';
 import type { AnalyzeOptions } from '../analyzer';
 import type { CrawlOptions } from '../crawler';
-import type { IconOptions } from '../crawler/icon-run';
+import type { IconOptions } from '../crawler/sources/github/icon-run';
 import type { DiscoveryOptions } from '../discovery';
 import type { ProjectOptions } from '../projector';
 import type { CheckpointResetOptions } from '../replay';
 import {
-  commaList,
   positiveInteger,
   repoName,
+  repoOrOrg,
   unitInterval,
   withMeiliTarget,
   type MeiliTarget,
@@ -46,6 +46,8 @@ export type DiscoveryResetOptions = {
   yes: boolean;
 };
 
+export type RepoHistoryOptions = { limit: number; json: boolean };
+
 export type Handlers = {
   discoverySweep: (options: DiscoveryOptions) => Promise<void>;
   discoveryCount: (options: DiscoveryCountOptions) => Promise<void>;
@@ -54,6 +56,7 @@ export type Handlers = {
   repoCrawl: (options: CrawlOptions) => Promise<void>;
   repoAnalyze: (options: AnalyzeOptions) => Promise<void>;
   repoIcon: (options: IconOptions) => Promise<void>;
+  repoHistory: (options: RepoHistoryOptions) => Promise<void>;
   project: (options: ProjectOptions) => Promise<void>;
   indexCreate: (options: IndexCreateOptions) => Promise<void>;
   indexSeed: (options: IndexSeedOptions) => Promise<void>;
@@ -179,20 +182,20 @@ export function buildProgram(handlers: Handlers): Command {
 
   repo
     .command('crawl')
-    .description('fetch discovered and seeded repos into the cache')
+    .description('fetch discovered repos into the cache')
     .addHelpText(
       'after',
-      '\nRegistry seeds first (higher signal than keyword search), then the discovery lists.\n' +
-        'ETag-conditional on everything: a 304 costs no quota.',
+      '\nFetches the discovery_repos corpus (GitHub Search, via `discovery sweep`) — the only\n' +
+        'trust source right now. ETag-conditional on everything: a 304 costs no quota.\n\n' +
+        '--repo takes either owner/name (one repo) or a bare org — every repo already\n' +
+        'discovered under that org (a `discovery sweep` populates it; this reads it, never\n' +
+        'GitHub Search). Either form is explicit: no shard filter, no --limit.',
     )
-    .option('-s, --seed <list>', 'comma-separated registry seeds', commaList, ['cncf', 'krew'])
     .option('-l, --limit <n>', 'stop after this many repos', positiveInteger, 200)
-    .option('-r, --repo <owner/name>', 'crawl a single repo', repoName)
-    .action(
-      async ({ seed, limit, repo: one }: { seed: string[]; limit: number; repo?: string }) => {
-        await handlers.repoCrawl({ seeds: seed, limit, repo: orNull(one) });
-      },
-    );
+    .option('-r, --repo <owner/name|org>', 'crawl one repo, or every repo discovered under an org', repoOrOrg)
+    .action(async ({ limit, repo: one }: { limit: number; repo?: string }) => {
+      await handlers.repoCrawl({ limit, repo: orNull(one) });
+    });
 
   repo
     .command('analyze')
@@ -235,6 +238,24 @@ export function buildProgram(handlers: Handlers): Command {
     )
     .action(async ({ repo: one }: { repo: string }) => {
       await handlers.repoIcon({ repo: one });
+    });
+
+  repo
+    .command('history')
+    .description('the crawl run history — what each run fetched, skipped and spent')
+    .addHelpText(
+      'after',
+      '\nOne row per crawl run, newest first. A run stuck at `running` died without cleanup:\n' +
+        'nothing repairs it, deliberately, because a later run quietly fixing it would hide\n' +
+        'exactly the failure this row exists to surface.\n\n' +
+        'REQ counts every HTTP call; POINTS counts only the ones that spent GitHub REST quota.\n' +
+        'A re-crawl of an unchanged corpus should show REQ high and POINTS near zero — that is\n' +
+        'the ETag short-circuit working.',
+    )
+    .option('-l, --limit <n>', 'rows to show', positiveInteger, 20)
+    .option('--json', 'emit NDJSON to stdout instead of a table', false)
+    .action(async ({ limit, json }: { limit: number; json: boolean }) => {
+      await handlers.repoHistory({ limit, json });
     });
 
   // ── project ────────────────────────────────────────────────────────────────

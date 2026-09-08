@@ -22,7 +22,7 @@ describe('createProgress on a TTY', () => {
     const progress = createProgress({ stream, now: () => clock });
 
     clock = 60_000;
-    progress.update({ repos: 42904, windowsDone: 187, windowsKnown: 301, requests: 2140 });
+    progress.update({ items: 42904, done: 187, known: 301, requests: 2140 });
 
     const line = written.join('');
     expect(line).toContain('\r');
@@ -37,21 +37,21 @@ describe('createProgress on a TTY', () => {
     let clock = 0;
     const progress = createProgress({ stream, now: () => clock, redrawMs: 100 });
 
-    progress.update({ repos: 1, windowsDone: 1, windowsKnown: 10, requests: 1 });
+    progress.update({ items: 1, done: 1, known: 10, requests: 1 });
     const afterFirst = written.length;
     clock = 50;
-    progress.update({ repos: 2, windowsDone: 2, windowsKnown: 10, requests: 2 });
+    progress.update({ items: 2, done: 2, known: 10, requests: 2 });
     expect(written.length).toBe(afterFirst);
 
     clock = 150;
-    progress.update({ repos: 3, windowsDone: 3, windowsKnown: 10, requests: 3 });
+    progress.update({ items: 3, done: 3, known: 10, requests: 3 });
     expect(written.length).toBeGreaterThan(afterFirst);
   });
 
   it('clears the line when done so the shell prompt is not left mid-bar', () => {
     const { written, stream } = sink(true);
     const progress = createProgress({ stream, now: () => 0 });
-    progress.update({ repos: 1, windowsDone: 1, windowsKnown: 1, requests: 1 });
+    progress.update({ items: 1, done: 1, known: 1, requests: 1 });
     progress.done();
     expect(written.at(-1)).toContain('\n');
   });
@@ -64,15 +64,15 @@ describe('createProgress without a TTY', () => {
     let clock = 0;
     const progress = createProgress({ stream, log, now: () => clock, intervalMs: 15_000 });
 
-    progress.update({ repos: 10, windowsDone: 1, windowsKnown: 10, requests: 5 });
+    progress.update({ items: 10, done: 1, known: 10, requests: 5 });
     expect(log.info).toHaveBeenCalledTimes(1);
 
     clock = 5_000; // inside the interval
-    progress.update({ repos: 20, windowsDone: 2, windowsKnown: 10, requests: 9 });
+    progress.update({ items: 20, done: 2, known: 10, requests: 9 });
     expect(log.info).toHaveBeenCalledTimes(1);
 
     clock = 20_000; // past it
-    progress.update({ repos: 30, windowsDone: 3, windowsKnown: 10, requests: 14 });
+    progress.update({ items: 30, done: 3, known: 10, requests: 14 });
     expect(log.info).toHaveBeenCalledTimes(2);
 
     expect(written).toEqual([]);

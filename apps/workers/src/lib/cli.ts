@@ -47,16 +47,20 @@ export const repoName = (value: string): string => {
   return value;
 };
 
-/** `--seed cncf,krew`. Empty entries are dropped; an all-empty value is an error, not `[]`. */
-export const commaList = (value: string): string[] => {
-  const entries = value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (entries.length === 0) {
-    throw new InvalidArgumentError('must list at least one comma-separated value');
+/**
+ * `owner/name` or a bare `owner` — the crawl command's `--repo`, and only that command's. A
+ * repo ref crawls exactly one repo; a bare org (`worklist.ts`'s `isOrgRef`) means "every repo
+ * already discovered under this org." Deliberately not `repoName`: `repo analyze` and `repo
+ * icon` operate on exactly one repo, so they keep the strict check — this validator exists only
+ * where "an org" is a legitimate answer, and a stray typo like `repoOrOrg('argocd')` for what
+ * was meant to be `argoproj/argo-cd` fails loudly later (an unknown org matches zero discovered
+ * repos) rather than being caught here, which is the one real cost of loosening it.
+ */
+export const repoOrOrg = (value: string): string => {
+  if (!/^[^/\s]+(\/[^/\s]+)?$/.test(value)) {
+    throw new InvalidArgumentError('must be owner/name or an org, e.g. argoproj/argo-cd or argoproj');
   }
-  return entries;
+  return value;
 };
 
 /**
