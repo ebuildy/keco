@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscoveryState } from './store';
+import type { DiscoveryState } from './store/collections';
 import { beginSweep } from './sweep';
 import { STAR_BANDS } from './windows';
 

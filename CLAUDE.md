@@ -22,6 +22,9 @@ Two smaller gaps, both tracked in ROADMAP.md rather than here: `/api/mcp` and `/
 declared and unimplemented, and the portal's search page is the ported baseline — no facet
 sidebar, no keyboard navigation, no styling system.
 
+The crawler (§4.2) is no longer one of these gaps: `kecoctl repo crawl` and `kecoctl repo
+history` are implemented and this document describes what is actually built.
+
 ## 1. What Keco is
 
 Keco is a search portal for the **Kubernetes ecosystem**. Everything it shows is derived from
@@ -110,11 +113,14 @@ everything goes through `Storage`, so the swap must be a one-file change with no
 touched. A relative `CACHE_DIR` resolves against the workspace root, not the process's cwd, so
 every worker and `apps/api` share one cache.
 
+**Discovery no longer writes here.** Its corpus, resume state and run history moved behind the
+`DataStore` port (§4.1) — a different port for a different job: `Storage` is keyed blobs,
+`DataStore` is documents you filter, sort and count. Everything else on the write side
+(`repos/**`, `analysis/**`, the journal, checkpoints) is still `Storage`. See
+`docs/adr/0002-discovery-datastore.md`.
+
 ```
 cache/
-├── discovery/                       # enumeration artifacts, keyed by query + window
-│   ├── {query}/state.json           # resume position: last completed window
-│   └── {query}/{window}.yaml        # the repos that window yielded
 ├── repos/{owner}/{repo}/
 │   ├── repo.json           # GitHub repo API response, verbatim
 │   ├── readme.md           # raw markdown, verbatim
@@ -169,10 +175,19 @@ its checkpoint → do work → write cache → append events → advance checkpo
 
 | Worker | Consumes | Produces | Network | Cadence |
 |---|---|---|---|---|
-| **discovery** | keyword queries, search windows | `discovery/{query}/**` | GitHub Search (paced) | periodic sweep, resumable |
-| **crawler** | seed lists, `discovery/{query}/repos-full-list.yaml` | `repos/**`, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
+| **discovery** | keyword queries, search windows | `discovery_repos`, `discovery_runs`, `discovery_state` (via `DataStore`) | GitHub Search (paced) | periodic sweep, resumable |
+| **crawler** | the `discovery_repos` collection | `repos/**`, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
 | **analyzer** | `RepoFetched` where `changed`, or an expired signal TTL | `analysis/**`, `RepoAnalyzed` | signal providers + LLM, **all cached** | continuous |
 | **projector** | `RepoAnalyzed` | Meilisearch `tools`, `repos_state` | none | continuous, batched |
+
+**Workers depend on the `DataStore` port, never on a backend.** `apps/workers/src/lib/data-store.ts`
+declares it; exactly one file — `apps/workers/src/cli/data-store.ts`, the CLI composition root —
+knows what implements it, and lint enforces that (§7). A worker cannot name a backend, so it
+cannot couple to one. Three implementations satisfy one conformance suite: in-memory (tests),
+filesystem (`DISCOVERY_STORE=fs`, offline sweeps), and Meilisearch (default).
+
+Meilisearch here is a *key-value and filter store*, not a read model — the same instance, a
+different usage (§5). The projector remains the only writer of **searchable** read models.
 
 Concurrency is `p-queue` (≈8) with `p-retry` per task, in-process. There is no Redis, no BullMQ
 and no broker: the filesystem is the job state, and a crashed run resumes from its checkpoint.
@@ -205,17 +220,36 @@ Enumerates candidate repos; it does not fetch them. GitHub Search returns **at m
 per query**, so the unit of work is a *window*: a query narrowed by a `stars:` band and a
 `created:` range small enough to stay under the cap. `windows.ts` is the calendar algebra that
 builds and splits windows, `plan.ts` decides split-vs-paginate for a probed window, `sweep.ts`
-holds the resume-vs-new-sweep transition, `store.ts` writes the YAML artifacts and the resume
-state.
+holds the resume-vs-new-sweep transition, and `store/` owns persistence — `collections.ts` the
+three collection specs and every mapper, `schemas.ts` the zod validation for what comes back,
+`store.ts` the in-memory maps, first-wins rule, flush cadence and crash-safety ordering.
 
-**Discovery appends no journal events.** It publishes files, and the crawler reads
-`discovery/{query}/repos-full-list.yaml` directly. This is a deliberate exception to §2's
-event-flow contract: a weekly sweep would otherwise write ~100k tiny journal entries, and the
-artifact is directly inspectable. The delta is already computed in `_hashes.json`, so emitting
-`RepoDiscovered` later is a small additive change if the crawler ever needs a resumable offset.
+**Discovery appends no journal events.** It publishes documents, and the crawler reads the
+`discovery_repos` collection directly. This is a deliberate exception to §2's event-flow
+contract: a weekly sweep would otherwise write ~100k tiny journal entries. The delta is already
+computed from `payload_hash`, so emitting `RepoDiscovered` later is a small additive change if
+the crawler ever needs a resumable offset.
 
-- **Resume by default.** A sweep continues from `discovery/{query}/state.json`; `--fresh` is the
-  explicit opt-out. `--limit` stops at the first window boundary past N, so it overshoots — it is
+**Every sweep records a run.** `open()` writes a `discovery_runs` document immediately with
+`outcome: 'running'`; `finishRun()` stamps the ending on every path out — complete, failed, and
+the shutdown handler's `interrupted`. A `SIGKILL` therefore leaves a run at `running` forever,
+deliberately: that stuck row is how an operator spots a sweep that died without cleanup, and a
+later run quietly repairing it would hide exactly the failure someone is looking for.
+
+Run-scoped counters (`pages_fetched`, `repos_new`, `windows_completed`) are derived by
+snapshotting the sweep-scoped ones at `open()` and subtracting. `state.pages_fetched`
+accumulates across every resume; reporting a two-run total as one run's cost is worse than
+reporting neither. `kecoctl discovery list runs` is how you read it.
+
+**The corpus write is not awaited; the state write is.** `put(REPOS, …)` then
+`put(STATE, …, { durable: true })`, in that order. `durable` means "this write and every earlier
+write through this handle", so state can never become durable while claiming windows whose repos
+are still in flight — which would silently truncate the corpus with nothing to signal it.
+
+- **Resume by default.** A sweep continues from its `discovery_state` document; `--fresh` is the
+  explicit opt-out, and it now *deletes* the query's corpus and state rather than merely
+  ignoring them — which is what retired the orphaned-detail-file limitation the old store
+  documented. It never touches `discovery_runs`. `--limit` stops at the first window boundary past N, so it overshoots — it is
   a dev-run convenience, not a budget.
 - **Change-gated writes.** A window whose result set is byte-identical is not rewritten, so a
   re-sweep produces no journal churn.
@@ -225,20 +259,34 @@ artifact is directly inspectable. The delta is already computed in `_hashes.json
 
 ### 4.2 crawler
 
-Fetches everything discovery and the seed lists named, into `repos/**`:
+Fetches everything discovery named, into `repos/**`. GitHub Search (via `discovery sweep`) is
+the only trust source for *which* repos are in the corpus — `discovery_repos` is the crawler's
+sole worklist, plus the explicit `--repo <owner/name|org>` bypass (§4). Registry lists (CNCF
+landscape, krew index, Artifact Hub, OperatorHub, curated `awesome-*`) used to feed this worklist
+directly as a second discovery path; removed per `docs/adr/0004-remove-crawler-seeds.md` because
+every one of those entries is itself a GitHub repo GitHub Search already finds — the registry
+data is real, but it's evidence about a repo already in the corpus (feeding `maturity` and
+`governance`, §6), not a reason to discover one outside of GitHub Search. Re-adding it as an
+analyzer signal (§4.3) is future work, not scoped yet.
 
-- Seed from registries first — higher signal than keyword search: CNCF landscape
-  (`cncf/landscape`), krew index (`kubernetes-sigs/krew-index` → `plugins/*.yaml`), Artifact Hub
-  API, OperatorHub / `k8s-operatorhub/community-operators`, curated `awesome-*` lists.
-- GraphQL for bulk metadata (≤100 repos/query — far cheaper against the 5000 points/hour
-  budget); REST only for README, tree, releases.
+- REST for everything, one conditional request per repo — not GraphQL. The two cost controls
+  §4.2 originally asked for are incompatible (GraphQL supports no conditional requests), and a
+  304 short-circuit is three orders of magnitude cheaper in the weekly steady state. See
+  docs/adr/0003-crawler-rest-not-graphql.md.
 - `ETag` / `If-None-Match` on everything: a 304 costs no quota and short-circuits to
   `RepoFetched{changed:false}`.
+- A 304 on `/repos` short-circuits the whole repo: no push since the last crawl means README,
+  tree and releases cannot have changed. A `_fetch.json` older than 30 days re-fetches anyway,
+  so the assumption self-heals if it is ever wrong.
 - Honour `x-ratelimit-remaining`, exponential backoff on 403/429, respect `retry-after`. A
   crawl that gets the token throttled is a failed crawl.
-- Skip: forks (unless > 200 stars and diverged), archived + stale > 24 months (unless > 1000
-  stars), repos whose only Kubernetes link is a CI manifest. Emit `RepoSkipped` with a reason —
-  never drop silently.
+- Skip, decided from `repo.json` alone so the decision costs no extra requests: forks (unless
+  > 200 stars — "and diverged" needs a compare call per fork and is approximated by the star
+  threshold), archived + stale > 24 months (unless > 1000 stars). Emit `RepoSkipped` with a
+  reason — never drop silently.
+- `ci-manifest-only` is the **analyzer's** job, not the crawler's: §14 says to keep those repos
+  in cache and filter them at projection time, `k8s_relevance` is analyzer-assigned, and
+  deciding it needs the README and tree the skip check runs before.
 
 ### 4.3 analyzer — rules first, external signals, AI as fallback
 
@@ -337,11 +385,28 @@ alias, never swap onto a half-built index.
 
 ## 5. Read models (Meilisearch)
 
+**One Meilisearch instance, two usages.** The distinction matters because §2.1 and §4's "only
+writer" rule govern the first and not the second:
+
+| Usage | Collections | Owner | Rebuildable offline |
+|---|---|---|---|
+| Searchable read model | `tools`, `repos_state`, `traces` | projector | yes, from cache, zero network |
+| Key-value data store | `discovery_repos`, `discovery_runs`, `discovery_state`, `crawl_history` | discovery, crawler, via `DataStore` | **no** — only by re-sweeping / re-crawling |
+
+The `discovery_*` collections are **write-model data that happens to share the instance**. The
+read side never queries them, and the projector remains the only writer of searchable read
+models. `docs/adr/0002-discovery-datastore.md` records why this is not a CQRS violation — and
+why `mise run infra:reset` stopped being free as a result (§8).
+
 | Index | Consumer | Searchable | Contents |
 |---|---|---|---|
 | `tools` (alias → `tools_<ts>`) | portal, REST, MCP, chat | yes | the public corpus, < 8 KB/doc |
 | `repos_state` | backoffice only | `[]` | per-repo pipeline status: fetched_at, analyzed_at, content_hash, last error, skip reason |
 | `traces` | backoffice only (v2) | `[]` | chat query + retrieved ids |
+| `discovery_repos` | discovery (write model) | yes | enumerated candidates, pre-crawl |
+| `discovery_runs` | discovery (write model) | `[]` | one document per sweep process |
+| `discovery_state` | discovery (write model) | `[]` | resume position, one per query |
+| `crawl_history` | crawler (write model) | `[]` | one document per crawl run: counts, cost, outcome |
 
 `searchableAttributes: []` makes an index a plain key-value store: no inverted index, minimal
 RAM, still filterable and retrievable. Use it for everything that isn't the search corpus.
@@ -472,6 +537,9 @@ keco/
 │   │   └── src/routes/            # v1 · mcp · chat · readme · admin · commands
 │   └── workers/
 │       └── src/{cli,discovery,crawler,analyzer,projector,replay,read-model,lib}/
+│           ├── lib/data-store*.ts        # the port + memory/fs implementations
+│           ├── cli/data-store.ts         # the ONLY file that knows the backend
+│           └── discovery/{store/,explore*.ts}
 ├── packages/
 │   ├── core/                      # zod schemas, taxonomy, scoring, event types
 │   ├── cache/                     # Storage port + fs adapter, journal, checkpoints, keys
@@ -490,9 +558,9 @@ pnpm workspaces (no Turborepo), TypeScript, ESM, `strict: true`, Node 24, pnpm 1
 `apps/api` serves both with `@fastify/static` (portal at `/`, backoffice at `/admin`) alongside
 its JSON routes. One Node process in production, next to Meilisearch and the worker container.
 
-**`apps/workers` is one CLI, `kecoctl`.** Eight commands grouped by noun — `discovery sweep`,
-`repo crawl|analyze|icon`, `project`, `index create|seed`, `checkpoint reset` — over a
-three-layer split: `src/cli/program.ts` builds the command tree and takes its handlers as a
+**`apps/workers` is one CLI, `kecoctl`.** Commands grouped by noun — `discovery
+sweep|count|list|reset`, `repo crawl|analyze|icon|history`, `project`, `index create|seed`,
+`checkpoint reset` — over a three-layer split: `src/cli/program.ts` builds the command tree and takes its handlers as a
 parameter, `src/cli/handlers.ts` supplies them as lazy imports, and each worker module exports
 `run*(options)` and executes nothing on import. That last property is the point: argument
 parsing used to be six hand-rolled `parseArgs` blocks that no test could reach, and one of them
@@ -504,7 +572,12 @@ CQRS contract; if you need to relax one, re-read §2 first):
 - `packages/query` may import `@keco/search` (read) — never `@keco/cache`, `@keco/github`,
   `@keco/signals` or `@keco/analyze`.
 - `apps/workers` may import `@keco/cache`, `@keco/github`, `@keco/signals`, `@keco/analyze`;
-  only the projector may import `@keco/search` with a write key.
+  only the projector may import `@keco/search` with a write key. Every other worker that needs
+  storage takes a **`DataStore`** (§4), and only `apps/workers/src/cli/data-store.ts` implements
+  it. The ban covers the raw `meilisearch` client as well as `@keco/search` — it became a direct
+  devDependency in the migration, so banning only the wrapper would leave the port bypassable.
+  `apps/workers/src/lib/**` is inside the ban too, so the port itself cannot grow a backend
+  import.
 - `@keco/signals` may only be imported by the analyzer, and every adapter in it must go through
   `@keco/cache` — a signal provider called without the cache in front of it is a bug.
 - `apps/api` may import `@keco/query`, `@keco/core`, `@keco/cache` (read, by key) and
@@ -531,9 +604,13 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run web:mock` | Portal alone on `:5173` against the in-browser mock backend — fabricated data, **dev and test only**, provably absent from production builds (§14) |
 | `mise run build` | Build the portal, prerender its top tool pages, typecheck the API |
 | `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from the read model (§9) — `build` already runs this after `vite build`; run it alone to re-prerender without a fresh bundle |
-| `mise run discovery:sweep -- --query kubernetes --fresh` | Enumerate repos into `discovery/*.yaml` (resumes by default) |
-| `mise run repo:crawl -- --seed cncf,krew --limit 200` | Fetch discovered + seeded repos into the cache |
+| `mise run discovery:sweep -- --query kubernetes --fresh` | Enumerate repos into the `discovery_*` collections (resumes by default; `--fresh` deletes the corpus and state, never the run history) |
+| `mise run discovery:count -- --query kubernetes` | Repos, runs, pending windows and last sweep, per query |
+| `mise run discovery:list -- runs --limit 20` | The sweep history: new repos, duration, GitHub Search calls. `list repos` for the corpus |
+| `mise run discovery:reset -- --query kubernetes` | Delete a query's corpus and resume state, keeping its run history. Prompts; **not** rebuildable offline |
+| `mise run repo:crawl -- --limit 200` | Fetch discovered repos into the cache |
 | `mise run repo:icon -- --repo owner/name` | Fetch and derive one repo's icon, standalone — the pipeline the crawler will call inline |
+| `mise run repo:history -- --limit 20` | The crawl run history: fetched, skipped, failed, GitHub quota spent |
 | `mise run repo:analyze` | Classify everything with a changed `content_hash` or an expired signal TTL |
 | `mise run repo:analyze -- --force-refresh scorecard` | Ignore TTL for one provider |
 | `mise run project` | Project analyses into Meilisearch |
@@ -552,14 +629,23 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run index:create` | `kecoctl index create` — bootstrap an index with the real `tools` settings. **Safe on production**: it applies settings only to an index that is missing or empty, and refuses to reindex a populated one without `--force-settings` (§5) |
 | `mise run index:seed` | `kecoctl index seed` — validate `infra/mock/corpus.json` and upsert it. Fabricated data: it refuses a non-local host without `--force` (§14) |
 | `mise run mock` / `mock:corpus` | The local search sandbox (`index:create` + `index:seed --clear`) · re-emit the corpus JSON from `apps/web/src/mocks/corpus`, the only seam the two sides share (§7) |
-| `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service) |
+| `mise run infra:up` / `infra:down` / `infra:reset` | Meilisearch (the only local service). `infra:reset` now destroys discovery's and the crawler's write model too — `discovery_repos`, `discovery_runs`, `discovery_state` and `crawl_history` — so it prompts with what it is about to lose — pass `--yes` in CI |
 
 `package.json`'s own `scripts` exist only so `pnpm <script>` works from muscle memory; each one
 delegates straight to the matching mise task rather than re-implementing it, so there is exactly
 one definition of what `dev` or `build` means.
 
-Wiping the write model is `rm -rf .cache`; it is rebuilt by a crawl. Wiping the read model is
-`mise run infra:reset`; it is rebuilt by `mise run rebuild`, offline.
+Wiping the cached write model is `rm -rf .cache`; it is rebuilt by a crawl. Wiping the read
+model is `mise run infra:reset`; it is rebuilt by `mise run rebuild`, offline.
+
+**Those two sentences no longer partition the system.** Discovery's write model lives in
+Meilisearch (§5), so `infra:reset` destroys it as well — and unlike the read model it is *not*
+rebuildable offline: it comes back only by re-sweeping GitHub Search, which is hours of paced
+requests. That is why the task prompts. `crawl_history` sits alongside it and is destroyed the
+same way: it is not rebuildable offline either, though losing it costs history rather than a
+corpus — the next crawl starts with an empty run log, nothing more. Wiping one query instead is
+`mise run discovery:reset`. `.cache/discovery/` from before the migration is orphaned; delete it
+with `rm -rf`.
 
 Always run `mise run ci` before declaring work done.
 
@@ -815,6 +901,15 @@ decision with a retention policy, not as a side effect of search.
 - **A third-party call without the cache in front of it** turns a replay into a 30k-request
   storm and gets your IP throttled by Scorecard or Artifact Hub. Every provider goes through
   `external/`.
+- **A `DataStore` implementation that serialises after an `await`** persists a half-mutated
+  array. `runDiscovery` aliases `state.pending_windows` as its live work queue and keeps
+  mutating it during a flush, so every implementation must deep-copy synchronously before its
+  first await. The conformance suite pins it; the old filesystem store only got away with it
+  because `JSON.stringify` happens to be synchronous.
+- **A test double more faithful than production is worse than one that is less.** The in-memory
+  store round-trips through JSON precisely because the real backends do: `structuredClone`
+  preserved `Date` and `NaN`, so `doc.fetched_at.toISOString()` passed in tests and would have
+  thrown in production.
 - **Signal freshness drifts from repo freshness**: a repo unchanged for a year still needs its
   Scorecard refreshed weekly. Analysis is triggered by `content_hash` change *or* by the oldest
   signal's TTL expiring — not by `content_hash` alone.

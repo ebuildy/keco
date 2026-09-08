@@ -12,9 +12,13 @@ import { buildProgram, type Handlers } from './program';
  */
 const handlerNames = [
   'discoverySweep',
+  'discoveryCount',
+  'discoveryList',
+  'discoveryReset',
   'repoCrawl',
   'repoAnalyze',
   'repoIcon',
+  'repoHistory',
   'project',
   'indexCreate',
   'indexSeed',
@@ -81,28 +85,80 @@ describe('discovery sweep', () => {
   });
 });
 
+describe('discovery count | list | reset', () => {
+  it('parses count with no flags', async () => {
+    await parse('discovery', 'count');
+    expect(optionsPassedTo('discoveryCount')).toEqual({ query: null, json: false });
+  });
+
+  it('parses count --query', async () => {
+    await parse('discovery', 'count', '--query', 'istio');
+    expect(optionsPassedTo('discoveryCount')).toMatchObject({ query: 'istio' });
+  });
+
+  it('defaults list to runs', async () => {
+    await parse('discovery', 'list');
+    expect(optionsPassedTo('discoveryList')).toEqual({
+      target: 'runs',
+      query: null,
+      limit: 20,
+      sort: null,
+      json: false,
+    });
+  });
+
+  it('accepts repos as the list target', async () => {
+    await parse('discovery', 'list', 'repos', '--limit', '5');
+    expect(optionsPassedTo('discoveryList')).toMatchObject({ target: 'repos', limit: 5 });
+  });
+
+  it('rejects a list target that is neither runs nor repos', async () => {
+    await expect(parse('discovery', 'list', 'nonsense')).rejects.toThrow();
+  });
+
+  it('parses reset flags, defaulting to keeping the run history', async () => {
+    await parse('discovery', 'reset', '--query', 'istio');
+    expect(optionsPassedTo('discoveryReset')).toEqual({
+      query: 'istio',
+      all: false,
+      includeRuns: false,
+      yes: false,
+    });
+  });
+
+  it('parses reset --all --include-runs --yes', async () => {
+    await parse('discovery', 'reset', '--all', '--include-runs', '--yes');
+    expect(optionsPassedTo('discoveryReset')).toEqual({
+      query: null,
+      all: true,
+      includeRuns: true,
+      yes: true,
+    });
+  });
+});
+
 describe('repo crawl', () => {
-  it('defaults the seeds and the limit', async () => {
+  it('defaults the limit', async () => {
     await parse('repo', 'crawl');
     expect(optionsPassedTo('repoCrawl')).toEqual({
-      seeds: ['cncf', 'krew'],
       limit: 200,
       repo: null,
     });
   });
 
-  it('splits --seed and drops a trailing comma', async () => {
-    await parse('repo', 'crawl', '--seed', 'cncf,krew,');
-    expect(optionsPassedTo('repoCrawl')?.seeds).toEqual(['cncf', 'krew']);
+  it('rejects a malformed --repo', async () => {
+    await expect(parse('repo', 'crawl', '--repo', 'owner/name/extra')).rejects.toThrow(CommanderError);
+    await expect(parse('repo', 'crawl', '--repo', 'owner /name')).rejects.toThrow(CommanderError);
   });
 
-  it('validates --repo as owner/name', async () => {
-    await expect(parse('repo', 'crawl', '--repo', 'argo-cd')).rejects.toThrow(CommanderError);
-  });
-
-  it('passes a valid --repo through', async () => {
+  it('passes a valid owner/name --repo through', async () => {
     await parse('repo', 'crawl', '--repo', 'argoproj/argo-cd');
     expect(optionsPassedTo('repoCrawl')).toMatchObject({ repo: 'argoproj/argo-cd' });
+  });
+
+  it('passes a bare org --repo through too, unlike repo analyze/icon', async () => {
+    await parse('repo', 'crawl', '--repo', 'argoproj');
+    expect(optionsPassedTo('repoCrawl')).toMatchObject({ repo: 'argoproj' });
   });
 });
 
@@ -138,6 +194,18 @@ describe('repo icon', () => {
   it('passes a valid repo through', async () => {
     await parse('repo', 'icon', '--repo', 'ahmetb/kubectx');
     expect(optionsPassedTo('repoIcon')).toEqual({ repo: 'ahmetb/kubectx' });
+  });
+});
+
+describe('repo history', () => {
+  it('parses repo history', async () => {
+    await parse('repo', 'history', '--limit', '5', '--json');
+    expect(optionsPassedTo('repoHistory')).toEqual({ limit: 5, json: true });
+  });
+
+  it('defaults repo history to 20 rows of table output', async () => {
+    await parse('repo', 'history');
+    expect(optionsPassedTo('repoHistory')).toEqual({ limit: 20, json: false });
   });
 });
 

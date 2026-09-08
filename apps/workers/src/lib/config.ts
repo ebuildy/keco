@@ -9,6 +9,9 @@ const Env = z.object({
   /** Relative paths resolve against the workspace root, not the worker's cwd. */
   CACHE_DIR: z.string().default('.cache'),
 
+  /** Which DataStore implementation the CLI injects. Workers never read this. */
+  DISCOVERY_STORE: z.enum(['meili', 'fs', 'memory']).default('meili'),
+
   MEILI_HOST: z.string().default('http://localhost:7700'),
   MEILI_MASTER_KEY: z.string().optional(),
 

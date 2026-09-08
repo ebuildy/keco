@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * The `tsx` CLI is a supervisor: it spawns the real process as a child and tears it down about
  * 110ms after a group signal, far short of the ~500ms a 50k-repo discovery flush takes (~950ms
  * at 100k). Under it, no shutdown handler can win and Ctrl-C silently discards the entire
- * sweep — no state file, no repos-full-list.yaml, only orphaned detail files. As a *loader*
+ * sweep — the corpus batch buffered since the last flush, and the run record. As a *loader*
  * (`node --import tsx`) there is one process and the signal reaches the handler directly.
  *
  * When seven scripts became one, this stopped being discovery's private concern and became the

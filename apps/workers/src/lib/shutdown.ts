@@ -24,6 +24,9 @@ const EXIT_CODES: Record<Signal, number> = { SIGINT: 130, SIGTERM: 143 };
  * down" is not enough; the handler has to distinguish a process manager echoing the first
  * signal from a human pressing Ctrl-C again, and the only thing that separates them is time.
  *
+ * (The artifacts named above were the pre-`DataStore` filesystem ones; discovery now loses an
+ * unflushed corpus batch and its run record instead. The failure mode is identical.)
+ *
  * This window is necessary but **not sufficient on its own**, and the other half lives in
  * `apps/workers/package.json`: the worker is started as `node --import tsx`, not under the
  * `tsx` CLI. The tsx CLI is a supervisor that spawns the real process as a child and tears it

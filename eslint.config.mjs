@@ -102,16 +102,67 @@ export default ts.config(
     ),
   },
 
-  // Only the projector writes to Meilisearch.
+  // Only the projector writes searchable read models. Everything else on the write side that
+  // needs storage goes through the DataStore port (apps/workers/src/lib/data-store.ts), whose
+  // sole backend implementation lives in cli/data-store.ts — see
+  // docs/adr/0002-discovery-datastore.md.
+  //
+  // src/lib is in this list because the port itself is there: the day it imports @keco/search
+  // is the day every worker can see a search engine again, which is the one thing the port
+  // exists to prevent.
   {
     files: [
       'apps/workers/src/discovery/**/*.ts',
       'apps/workers/src/crawler/**/*.ts',
       'apps/workers/src/analyzer/**/*.ts',
+      'apps/workers/src/lib/**/*.ts',
     ],
     rules: boundary(
-      'Only the projector may import @keco/search. The write side never reads a read model (§2.1).',
-      [['@keco/search']],
+      'Only the projector may import @keco/search. Workers take a DataStore; only ' +
+        'apps/workers/src/cli/data-store.ts knows what implements it (§7).',
+      // `meilisearch` as well as `@keco/search`: the client is a direct devDependency of
+      // apps/workers since Task 5, so banning only the wrapper would leave a worker free to
+      // import the raw client and bypass the port entirely.
+      [['@keco/search', 'meilisearch']],
+    ),
+  },
+
+  // §7: "@keco/signals may only be imported by the analyzer, and every adapter in it must go
+  // through @keco/cache." discovery, the crawler and src/lib are the workers with no legitimate
+  // reason to reach a signal provider. Deliberately excludes analyzer/**, the one worker this
+  // package is for. cli/** already bans it separately, below.
+  {
+    files: [
+      'apps/workers/src/discovery/**/*.ts',
+      'apps/workers/src/crawler/**/*.ts',
+      'apps/workers/src/lib/**/*.ts',
+    ],
+    rules: boundary(
+      '@keco/signals is analyzer-only (§7). A worker that wants cached third-party data goes ' +
+        'through @keco/cache directly or its own DataStore, not this package.',
+      [['@keco/signals']],
+    ),
+  },
+
+  // The CLI layer composes runners; it does not do work. It sits outside every glob above, so
+  // without this rule it is the one place in apps/workers with no boundary at all.
+  //
+  // Three deliberate exceptions, all in `ignores`: handlers.ts holds the admin client for the
+  // `index` commands the way engine/cli.ts did; data-store.ts is the composition root's one
+  // backend implementation; data-store.integration.test.ts exercises that same backend
+  // directly against a real Meilisearch (gated behind MEILI_INTEGRATION, not part of `mise run
+  // ci`, but still linted). Listing the directory rather than naming files one at a time means
+  // a new cli/*.ts is bounded by default instead of silently unbounded.
+  {
+    files: ['apps/workers/src/cli/**/*.ts', 'apps/workers/src/cli.ts'],
+    ignores: [
+      'apps/workers/src/cli/handlers.ts',
+      'apps/workers/src/cli/data-store.ts',
+      'apps/workers/src/cli/data-store.integration.test.ts',
+    ],
+    rules: boundary(
+      "apps/workers/src/cli wiring may import worker runners and commander — never a worker's own dependencies (§7).",
+      [['@keco/search', 'meilisearch', '@keco/github', '@keco/signals', '@keco/analyze']],
     ),
   },
 

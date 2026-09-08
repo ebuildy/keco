@@ -1,3 +1,4 @@
+import { createInterface } from 'node:readline';
 import { workerLogger } from '../lib/logger';
 import type { Handlers } from './program';
 
@@ -21,11 +22,111 @@ import type { Handlers } from './program';
  */
 const log = workerLogger('index');
 
+/**
+ * A provisioned store. The explore commands read collections a sweep may never have created —
+ * `discovery count` on a fresh machine is the obvious case — and every implementation refuses
+ * an unknown collection by design (§ "an unknown collection must throw from every operation").
+ * `DiscoveryStore.open()` ensures for the sweep path; these three have no sweep in front of
+ * them, so they must ensure for themselves.
+ *
+ * Missing this was invisible against Meilisearch, where a previous sweep had already created
+ * the indexes, and only surfaced under DISCOVERY_STORE=fs against an empty cache.
+ */
+async function exploreStore() {
+  const { createDataStore } = await import('./data-store');
+  const { DISCOVERY_COLLECTIONS } = await import('../discovery/store/collections');
+  const dataStore = createDataStore();
+  await dataStore.ensure(DISCOVERY_COLLECTIONS);
+  return dataStore;
+}
+
 export const handlers: Handlers = {
-  discoverySweep: async (options) => (await import('../discovery')).runDiscovery(options),
-  repoCrawl: async (options) => (await import('../crawler')).runCrawler(options),
+  discoverySweep: async (options) => {
+    const { createDataStore } = await import('./data-store');
+    return (await import('../discovery')).runDiscovery(options, { dataStore: createDataStore() });
+  },
+
+  discoveryCount: async ({ query, json }) => {
+    const { countDiscovery } = await import('../discovery/explore');
+    const { formatCount, ndjson } = await import('../discovery/explore-format');
+
+    const rows = await countDiscovery(await exploreStore(), { query });
+    // stdout, not the logger: this is a result, not a log line (§8 of the spec).
+    process.stdout.write(`${json ? ndjson(rows) : formatCount(rows)}\n`);
+  },
+
+  discoveryList: async ({ target, query, limit, sort, json }) => {
+    const { listRepos, listRuns } = await import('../discovery/explore');
+    const { formatRepos, formatRuns, ndjson } = await import('../discovery/explore-format');
+
+    const dataStore = await exploreStore();
+    const options = { query, limit, sort };
+    const result =
+      target === 'runs' ? await listRuns(dataStore, options) : await listRepos(dataStore, options);
+
+    const rendered = json
+      ? ndjson(result.rows)
+      : target === 'runs'
+        ? formatRuns(result)
+        : formatRepos(result);
+    process.stdout.write(`${rendered}\n`);
+  },
+
+  discoveryReset: async ({ query, all, includeRuns, yes }) => {
+    const { applyReset, planReset } = await import('../discovery/explore');
+
+    const dataStore = await exploreStore();
+    const plans = await planReset(dataStore, { query, all, includeRuns });
+
+    if (plans.length === 0) {
+      log.info({ query, all }, 'nothing to reset');
+      return;
+    }
+
+    // The plan prints before the prompt, with real counts: an operator confirms against what
+    // is actually there, not against what they assumed was there.
+    for (const plan of plans) {
+      process.stdout.write(
+        `  ${plan.query_slug}\n` +
+          `    discovery_repos  ${plan.repos.toLocaleString('en-US').padStart(8)}  → delete\n` +
+          `    discovery_state  ${String(plan.state).padStart(8)}  → delete\n` +
+          `    discovery_runs   ${plan.runs.toLocaleString('en-US').padStart(8)}  → ` +
+          `${plan.delete_runs ? 'delete' : 'keep (--include-runs to delete)'}\n`,
+      );
+    }
+    process.stdout.write(
+      '\nthis is not rebuildable offline; the next sweep re-queries GitHub Search\n',
+    );
+
+    if (!yes && !(await confirm())) {
+      log.warn({ query, all }, 'reset cancelled');
+      return;
+    }
+
+    await applyReset(dataStore, plans);
+    log.info(
+      { queries: plans.map((plan) => plan.query_slug), include_runs: includeRuns },
+      'discovery reset',
+    );
+  },
+
+  repoCrawl: async (options) => {
+    const { createDataStore } = await import('./data-store');
+    return (await import('../crawler')).runCrawler(options, { dataStore: createDataStore() });
+  },
   repoAnalyze: async (options) => (await import('../analyzer')).runAnalyzer(options),
-  repoIcon: async (options) => (await import('../crawler/icon-run')).runIcon(options),
+  repoIcon: async (options) => (await import('../crawler/sources/github/icon-run')).runIcon(options),
+
+  repoHistory: async ({ limit, json }) => {
+    const { createDataStore } = await import('./data-store');
+    const { formatHistory, listCrawls } = await import('../crawler/store/explore');
+    const { ndjson } = await import('../lib/table');
+
+    const result = await listCrawls(createDataStore(), { limit });
+    // stdout, not the logger: this is a result, not a log line.
+    process.stdout.write(`${json ? ndjson(result.rows) : formatHistory(result)}\n`);
+  },
+
   project: async (options) => (await import('../projector')).runProjector(options),
   checkpointReset: async (options) => (await import('../replay')).runCheckpointReset(options),
 
@@ -49,6 +150,17 @@ export const handlers: Handlers = {
       // in a deploy log, and leave the exit code at 0 so a bootstrap step stays idempotent.
       log.warn({ index: uid }, plan.reason);
     }
+
+    // The write-side collections are provisioned here too, so a fresh deployment bootstraps
+    // both usages of the instance — the searchable read model above, and the write-side data
+    // stores here (§5). ensure() compares settings before applying them, so this is safe to
+    // re-run.
+    const { createDataStore } = await import('./data-store');
+    const { DISCOVERY_COLLECTIONS } = await import('../discovery/store/collections');
+    const { CRAWL_COLLECTIONS } = await import('../crawler/store/collections');
+    const writeSide = [...DISCOVERY_COLLECTIONS, ...CRAWL_COLLECTIONS];
+    await createDataStore({ ...process.env, MEILI_HOST: host }).ensure(writeSide);
+    log.info({ collections: writeSide.map((c) => c.name) }, 'write-side collections ready');
   },
 
   indexSeed: async ({ host, index: uid, batch, clear, force }) => {
@@ -99,3 +211,29 @@ export const handlers: Handlers = {
     );
   },
 };
+
+/**
+ * Defaults to no on anything that is not an explicit `y`, including EOF — a reset piped from
+ * a script with no `--yes` must decline rather than proceed on an empty stdin.
+ *
+ * `node:readline/promises`' `question()` looks like the obvious fit here, but its promise
+ * never settles when the input stream ends before an answer arrives (piped-from-`/dev/null`,
+ * a script with no `--yes`) — the process only exits because Node force-terminates on an
+ * unsettled top-level await, not because this function resolved. The callback-based
+ * `node:readline` interface has the same gap, so the fix is the same either way: race the
+ * answer against the interface's own `close` event, which fires on EOF, and treat that as "no".
+ */
+function confirm(): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      rl.close();
+      resolve(value);
+    };
+    rl.question('continue? [y/N] ', (answer) => finish(answer.trim().toLowerCase() === 'y'));
+    rl.once('close', () => finish(false));
+  });
+}
