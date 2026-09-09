@@ -94,11 +94,28 @@ export const brewProvider = (cache: Cache) =>
   );
 
 /** Artifact Hub — proof that a chart / plugin / operator is actually published. */
-export const ArtifactHubResponse = z.object({
-  packages: z
-    .array(z.object({ name: z.string(), repository: z.object({ name: z.string() }).partial() }))
-    .default([]),
+export const ArtifactHubPackage = z.object({
+  name: z.string(),
+  normalized_name: z.string().optional(),
+  official: z.boolean().optional(),
+  stars: z.number().optional(),
+  repository: z.object({ name: z.string(), url: z.string(), kind: z.number() }).partial(),
 });
+export type ArtifactHubPackage = z.infer<typeof ArtifactHubPackage>;
+
+export const ArtifactHubResponse = z.object({
+  packages: z.array(ArtifactHubPackage).default([]),
+});
+export type ArtifactHubResponse = z.infer<typeof ArtifactHubResponse>;
+
+/**
+ * Repository `kind` codes for the registries this project proves an install command from.
+ * Confirmed live: `GET /api/v1/repositories/search?kind=5` returns krew-index at kind 5;
+ * a Helm search (cert-manager, argo-cd, …) returns kind 0. Artifact Hub also indexes OLM
+ * operators, Falco rules, OPA policies, etc. — deliberately not mapped here (see the plan's
+ * scope note): getting an OLM install command right needs more than a search hit.
+ */
+export const ARTIFACTHUB_REPOSITORY_KIND = { helm: 0, krew: 5 } as const;
 
 export const artifactHubProvider = (cache: Cache) =>
   new Provider(

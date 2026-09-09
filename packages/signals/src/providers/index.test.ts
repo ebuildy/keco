@@ -1,6 +1,11 @@
 import { Cache, type Storage } from '@keco/cache';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { encodeOsvKey, osvProvider } from './index';
+import {
+  ARTIFACTHUB_REPOSITORY_KIND,
+  ArtifactHubResponse,
+  encodeOsvKey,
+  osvProvider,
+} from './index';
 
 function memoryStorage(): Storage {
   const files = new Map<string, Buffer>();
@@ -29,7 +34,9 @@ describe('osvProvider', () => {
     );
 
     const cache = new Cache(memoryStorage());
-    const result = await osvProvider(cache).fetch(encodeOsvKey('Go', 'sigs.k8s.io/controller-runtime'));
+    const result = await osvProvider(cache).fetch(
+      encodeOsvKey('Go', 'sigs.k8s.io/controller-runtime'),
+    );
 
     expect(result.value?.vulns).toHaveLength(1);
     expect(JSON.parse(calls[0]!.body as string)).toEqual({
@@ -46,5 +53,34 @@ describe('osvProvider', () => {
 
     expect(result).toEqual({ value: null, fetched_at: null, partial: true });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('ArtifactHubResponse', () => {
+  it('parses a real search response shape, including the fields a proof URL needs', () => {
+    const sample = {
+      packages: [
+        {
+          name: 'cert-manager',
+          normalized_name: 'cert-manager',
+          official: true,
+          stars: 990,
+          repository: {
+            name: 'cert-manager',
+            url: 'https://charts.jetstack.io',
+            kind: 0,
+          },
+        },
+      ],
+    };
+
+    const parsed = ArtifactHubResponse.parse(sample);
+    expect(parsed.packages[0]?.repository.kind).toBe(ARTIFACTHUB_REPOSITORY_KIND.helm);
+    expect(parsed.packages[0]?.normalized_name).toBe('cert-manager');
+  });
+
+  it('degrades a package with a missing repository field to optional rather than failing the whole batch', () => {
+    const parsed = ArtifactHubResponse.parse({ packages: [{ name: 'weird', repository: {} }] });
+    expect(parsed.packages[0]?.repository.kind).toBeUndefined();
   });
 });
