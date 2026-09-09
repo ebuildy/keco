@@ -26,6 +26,8 @@ export type ProviderDefinition<T> = {
   schema: z.ZodType<T>;
   /** Builds the request. Return null when this provider cannot answer for this key. */
   request: (key: string) => { url: string; init?: RequestInit } | null;
+  /** Defaults to `response.json()`. Override for a non-JSON body (CNCF Landscape's YAML). */
+  parseBody?: (response: Response) => Promise<unknown>;
 };
 
 export type FetchOptions = {
@@ -80,7 +82,8 @@ export class Provider<T> {
         signal: AbortSignal.timeout(this.definition.timeoutMs),
       });
       if (!response.ok) return { ...base, status: response.status, body: null };
-      const parsed = this.definition.schema.safeParse(await response.json());
+      const body = await (this.definition.parseBody ?? ((r: Response) => r.json()))(response);
+      const parsed = this.definition.schema.safeParse(body);
       // A provider that changed its shape is a partial signal, not a crash.
       return { ...base, status: response.status, body: parsed.success ? parsed.data : null };
     } catch {

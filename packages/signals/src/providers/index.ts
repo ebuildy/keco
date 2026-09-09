@@ -2,6 +2,7 @@ import type { Cache } from '@keco/cache';
 import { z } from 'zod';
 import { DAY, Provider } from '../provider';
 
+export * from './cncf-landscape';
 export * from './scorecard';
 
 /**
@@ -28,7 +29,9 @@ export const depsDevProvider = (cache: Cache) =>
       timeoutMs: 8_000,
       schema: DepsDevResponse,
       // key is `owner/repo`
-      request: (key) => ({ url: `https://api.deps.dev/v3/projects/github.com%2F${key.replace('/', '%2F')}` }),
+      request: (key) => ({
+        url: `https://api.deps.dev/v3/projects/github.com%2F${key.replace('/', '%2F')}`,
+      }),
     },
     cache,
   );
@@ -133,13 +136,7 @@ export const artifactHubProvider = (cache: Cache) =>
   );
 
 export type ProviderName =
-  | 'scorecard'
-  | 'depsdev'
-  | 'osv'
-  | 'brew'
-  | 'artifacthub'
-  | 'krew'
-  | 'operatorhub';
+  'scorecard' | 'depsdev' | 'osv' | 'brew' | 'artifacthub' | 'krew' | 'operatorhub';
 
 export const PROVIDER_NAMES: ProviderName[] = [
   'scorecard',

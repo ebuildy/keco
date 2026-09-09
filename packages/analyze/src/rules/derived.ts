@@ -1,4 +1,4 @@
-import { aliasesFor } from '@keco/core';
+import { aliasesFor, type LandscapeEntry } from '@keco/core';
 
 /**
  * Pass 1 — the four derived families (AGENTS.md §4.2, §6). Everything here is computed from
@@ -8,13 +8,6 @@ import { aliasesFor } from '@keco/core';
  * evidence is `unknown`, never a positive claim. `openness` in particular makes a public
  * statement about someone's project, so it is promoted only when the evidence is there.
  */
-export type LandscapeEntry = {
-  /** CNCF maturity level; null for a project listed without one. */
-  cncf_level: 'graduated' | 'incubating' | 'sandbox' | null;
-  /** How the landscape records the owning organisation. */
-  org_type: 'foundation' | 'vendor' | 'community' | null;
-};
-
 export type DerivedInput = {
   owner: string;
   owner_type: 'Organization' | 'User';
@@ -43,7 +36,14 @@ export type DerivedVerdict = {
 
 /** Every value this module can emit. Asserted against taxonomy.yaml by pinning.test.ts. */
 export const DECLARED_DERIVED = {
-  license_class: ['permissive', 'weak-copyleft', 'copyleft', 'source-available', 'public-domain', 'unknown'],
+  license_class: [
+    'permissive',
+    'weak-copyleft',
+    'copyleft',
+    'source-available',
+    'public-domain',
+    'unknown',
+  ],
   openness: ['fully-open', 'open-core', 'source-available', 'unknown'],
   maturity: [
     'cncf-graduated',
