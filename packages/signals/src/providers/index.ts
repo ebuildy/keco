@@ -38,6 +38,9 @@ export const OsvResponse = z.object({
   vulns: z.array(z.object({ id: z.string(), summary: z.string().optional() })).default([]),
 });
 
+/** `ecosystem::name` — OSV needs both to query precisely; see packages/analyze's package-identity.ts. */
+export const encodeOsvKey = (ecosystem: string, name: string): string => `${ecosystem}::${name}`;
+
 export const osvProvider = (cache: Cache) =>
   new Provider(
     {
@@ -45,15 +48,21 @@ export const osvProvider = (cache: Cache) =>
       ttlSeconds: 3 * DAY,
       timeoutMs: 8_000,
       schema: OsvResponse,
-      // key is a package name; the analyzer supplies it from the manifests it parsed.
-      request: (key) => ({
-        url: 'https://api.osv.dev/v1/query',
-        init: {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ package: { name: key } }),
-        },
-      }),
+      // key is `ecosystem::name` (see encodeOsvKey). The analyzer derives both from the one
+      // manifest it managed to parse — a bare repo name is not enough to query OSV precisely.
+      request: (key) => {
+        const [ecosystem, ...rest] = key.split('::');
+        const name = rest.join('::');
+        if (!ecosystem || !name) return null;
+        return {
+          url: 'https://api.osv.dev/v1/query',
+          init: {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ package: { name, ecosystem } }),
+          },
+        };
+      },
     },
     cache,
   );
