@@ -510,11 +510,19 @@ topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
 
 **Unknown is a real answer.** Every family whose classification can fail declares `unknown` and
 defaults to it. Absence of evidence never becomes a positive claim — the same rule §4.3 applies to
-a missing Scorecard. `unknown` values are hidden from the UI. `governance` in particular will
-report `unknown` for most real foundation projects (etcd-io, containerd, helm, prometheus,
-cilium) until the CNCF landscape crawler ships a cached seed — an org account alone proves
-nothing. `maturity` checks `archived` before the CNCF level, so an archived CNCF-graduated
-project reports `archived`; see `docs/taxonomy.md` for why.
+a missing Scorecard. `unknown` values are hidden from the UI. `governance` and `maturity` are
+seeded from the CNCF Landscape (`packages/signals/src/providers/cncf-landscape.ts`, a weekly
+bulk fetch of `cncf/landscape`'s `landscape.yml`): a repo hosted at any level reports
+`cncf-graduated`/`cncf-incubating`/`cncf-sandbox` and `foundation` from that seed — real
+foundation projects (etcd-io, containerd, helm, prometheus, cilium) no longer default to
+`unknown` just because an org account alone proves nothing. An Organization-owned repo the
+Landscape doesn't list still defaults to `unknown` governance (a User-owned repo reports
+`individual`, and a handful of hardcoded foundation orgs report `foundation`, regardless of
+Landscape membership); maturity's fallback for an unlisted repo is age-based bands
+(`established`/`young`/`dormant`), not `unknown` — a positive CNCF claim requires the seed, but
+the absence of one is not the common route to `unknown` for either family. `maturity` checks
+`archived` before the CNCF level, so an archived CNCF-graduated project reports `archived`; see
+`docs/taxonomy.md` for why.
 
 **The vocabulary is data, so the types are `string`.** `Kind` and `Domain` are not literal
 unions; validation is a zod refinement against the loaded file. The compile-time check is replaced
