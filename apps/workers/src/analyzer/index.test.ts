@@ -1,5 +1,5 @@
 import { Cache, Journal, repoKeys, type Storage } from '@keco/cache';
-import type { Event } from '@keco/core';
+import type { Analysis, Event } from '@keco/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runAnalyzer } from './index';
 
@@ -38,6 +38,37 @@ async function seedRepo(
   await cache.putJSON(keys.repo, repoJson(overrides));
   await cache.putText(keys.readme, '# kubectx');
   await cache.putJSON(keys.tree, { tree: [{ path: 'main.go', type: 'blob' }] });
+}
+
+/**
+ * A schema-valid `analysis/**` document — every field `AnalysisSchema` requires, so the
+ * `--min-confidence` sweep's `AnalysisSchema.safeParse` accepts it. Mirrors the fixture in
+ * `packages/core/src/schemas.test.ts`.
+ */
+function analysisDoc(overrides: Partial<Analysis> = {}): Analysis {
+  return {
+    repo: 'ahmetb/kubectx',
+    content_hash: 'hash-1',
+    summary: 'Switch faster between clusters and namespaces.',
+    kind: 'cli',
+    domains: ['dev-experience'],
+    runtime: 'workstation',
+    license_class: 'unknown',
+    openness: 'unknown',
+    maturity: 'unknown',
+    governance: 'unknown',
+    k8s_relevance: 0.9,
+    confidence: 0.5,
+    needs_review: false,
+    install_methods: [],
+    signals: { scorecard: null, osv: null, dependents: null },
+    method: 'rules',
+    model: null,
+    signals_used: [],
+    partial_signals: [],
+    analyzed_at: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
 }
 
 /** Every event ever appended, oldest first — for assertions independent of checkpoint state. */
@@ -252,5 +283,80 @@ describe('runAnalyzer (--repo bypass)', () => {
 
     expect(process.exitCode).toBe(1);
     process.exitCode = undefined;
+  });
+});
+
+describe('runAnalyzer (--min-confidence sweep)', () => {
+  it('re-analyzes only the existing analyses below the threshold', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404 })),
+    );
+    const cache = new Cache(memoryStorage());
+    const journal = new Journal(cache);
+    await seedRepo(cache, 'ahmetb/kubectx');
+    await seedRepo(cache, 'other/confident-repo');
+
+    await cache.putJSON(
+      'analysis/ahmetb/kubectx.json',
+      analysisDoc({ repo: 'ahmetb/kubectx', content_hash: 'hash-1', confidence: 0.3 }),
+    );
+    const seededConfident = analysisDoc({
+      repo: 'other/confident-repo',
+      content_hash: 'hash-2',
+      confidence: 0.95,
+    });
+    await cache.putJSON('analysis/other/confident-repo.json', seededConfident);
+
+    await runAnalyzer(
+      { forceRefresh: null, repo: null, minConfidence: 0.7 },
+      { cache, journal, llm: null },
+    );
+
+    const reanalyzed = await cache.getJSON<{ analyzed_at: string }>('analysis/ahmetb/kubectx.json');
+    expect(reanalyzed?.analyzed_at).toBeDefined();
+
+    // Untouched: byte-for-byte the document this test seeded — nothing analyzeRepo would add.
+    const untouched = await cache.getJSON<Analysis>('analysis/other/confident-repo.json');
+    expect(untouched).toEqual(seededConfident);
+  });
+
+  it('records a failure and keeps sweeping past a corrupted analysis file', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404 })),
+    );
+    const cache = new Cache(memoryStorage());
+    const journal = new Journal(cache);
+    await seedRepo(cache, 'zzz-valid/repo');
+
+    // `cache.list('analysis/')` returns keys in lexicographic order, so a corrupted entry that
+    // sorts before a valid one proves the sweep survives it rather than crashing before ever
+    // reaching the rest of the corpus (§13: a single bad repo must never abort a run).
+    await cache.putText('analysis/aaa-corrupt/repo.json', 'not valid json {');
+    await cache.putJSON(
+      'analysis/zzz-valid/repo.json',
+      analysisDoc({ repo: 'zzz-valid/repo', content_hash: 'hash-1', confidence: 0.2 }),
+    );
+
+    await runAnalyzer(
+      { forceRefresh: null, repo: null, minConfidence: 0.7 },
+      { cache, journal, llm: null },
+    );
+
+    const reanalyzed = await cache.getJSON<{ analyzed_at: string }>('analysis/zzz-valid/repo.json');
+    expect(reanalyzed?.analyzed_at).toBeDefined();
+
+    // The corrupted entry's own `repo` field is untrustworthy, so the failure is attributed to
+    // the repo named by the cache key path itself (`analysis/aaa-corrupt/repo.json` → the repo
+    // `aaa-corrupt/repo`), not to anything the corrupted content claims.
+    const failed = (await allEvents(journal)).find(
+      (event) => event.type === 'RepoFailed' && event.repo === 'aaa-corrupt/repo',
+    );
+    expect(failed).toMatchObject({
+      type: 'RepoFailed',
+      repo: 'aaa-corrupt/repo',
+      phase: 'analyze',
+    });
   });
 });

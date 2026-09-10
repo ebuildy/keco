@@ -1,5 +1,5 @@
 import { analysisKey, repoKeys, type Cache, type Journal } from '@keco/cache';
-import { type Analysis } from '@keco/core';
+import { AnalysisSchema, type Analysis } from '@keco/core';
 import { analyzeRepo, type AnalyzeInput, type LlmDeps } from '@keco/analyze';
 import { MANIFEST_FILES } from '../crawler/sources/github/manifests';
 import { config } from '../lib/config';
@@ -145,6 +145,42 @@ async function recordSuccess(deps: AnalyzerDeps, repo: string, analysis: Analysi
   });
 }
 
+/** Inverts `analysisKey` — the cache path itself names the repo, independent of whatever the
+ *  (possibly corrupted) content at that path says. `analysis/{owner}/{repo}.json` → `owner/repo`. */
+function repoFromAnalysisKey(key: string): string {
+  return key.slice('analysis/'.length, -'.json'.length);
+}
+
+/**
+ * Reads and validates one `analysis/**` document for the `--min-confidence` sweep (§13: a
+ * single bad repo must never abort a run). Unifies the two ways a cache entry can be
+ * unusable — not JSON at all (`cache.getJSON` throws), or JSON that doesn't match
+ * `AnalysisSchema` — into one failure path, since neither should crash the sweep or skip the
+ * rest of the corpus. The document's own `repo` field isn't trustworthy when it fails to parse,
+ * so the failure is attributed to the repo named by the cache key itself.
+ */
+async function readAnalysisForSweep(
+  cache: Cache,
+  key: string,
+): Promise<{ analysis: Analysis } | { error: Error; repo: string } | null> {
+  let raw: unknown;
+  try {
+    raw = await cache.getJSON<unknown>(key);
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error : new Error(String(error)),
+      repo: repoFromAnalysisKey(key),
+    };
+  }
+  if (raw === null) return null;
+
+  const parsed = AnalysisSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { error: new Error(parsed.error.message), repo: repoFromAnalysisKey(key) };
+  }
+  return { analysis: parsed.data };
+}
+
 export async function runAnalyzer(
   options: AnalyzeOptions,
   deps: AnalyzerDeps = defaultDeps(),
@@ -172,6 +208,37 @@ export async function runAnalyzer(
       await recordSuccess(deps, repo, analysis);
       log.info({ repo, kind: analysis.kind, confidence: analysis.confidence }, 'analyzed');
     }
+    return;
+  }
+
+  if (options.minConfidence !== null) {
+    // A manual, operator-triggered maintenance sweep over existing analyses — not part of the
+    // continuous journal loop below. Listing `analysis/` here is the one deliberate exception
+    // to "never list to find work" (§14): an operator asked for exactly this by name, so it is
+    // not a hot-path decision about what to do next.
+    const threshold = options.minConfidence;
+    const keys = await cache.list('analysis/');
+    let swept = 0;
+    for (const key of keys) {
+      const result = await readAnalysisForSweep(cache, key);
+      if (result === null) continue;
+      if ('error' in result) {
+        await recordFailure(deps, result.repo, result.error);
+        continue;
+      }
+
+      const existing = result.analysis;
+      if (existing.confidence >= threshold) continue;
+      swept += 1;
+
+      const analysis = await perItem(
+        existing.repo,
+        () => analyzeOne(existing.repo, existing.content_hash, deps, options),
+        (target, error) => recordFailure(deps, target, error),
+      );
+      if (analysis) await recordSuccess(deps, existing.repo, analysis);
+    }
+    log.info({ swept, minConfidence: threshold }, 're-analysis sweep complete');
     return;
   }
 
