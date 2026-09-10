@@ -149,7 +149,31 @@ export async function runAnalyzer(
   options: AnalyzeOptions,
   deps: AnalyzerDeps = defaultDeps(),
 ): Promise<void> {
-  const { journal } = deps;
+  const { cache, journal } = deps;
+
+  if (options.repo !== null) {
+    const repo = options.repo;
+    // A direct, single-repo request bypasses the journal entirely — the same bypass shape as
+    // the crawler's `--repo` (§4.2). The last content_hash the crawler recorded is what this
+    // analysis gets stamped with, and the checkpoint is never touched.
+    const fetchMeta = await cache.getJSON<{ content_hash: string }>(repoKeys(repo).fetch);
+    if (fetchMeta === null) {
+      log.error({ repo }, 'repo has never been crawled — run repo:crawl first');
+      process.exitCode = 1;
+      return;
+    }
+
+    const analysis = await perItem(
+      repo,
+      () => analyzeOne(repo, fetchMeta.content_hash, deps, options),
+      (target, error) => recordFailure(deps, target, error),
+    );
+    if (analysis) {
+      await recordSuccess(deps, repo, analysis);
+      log.info({ repo, kind: analysis.kind, confidence: analysis.confidence }, 'analyzed');
+    }
+    return;
+  }
 
   const checkpoint = await journal.checkpoint('analyzer');
   log.info(

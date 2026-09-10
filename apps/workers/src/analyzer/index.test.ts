@@ -202,3 +202,55 @@ describe('runAnalyzer (default, journal-driven path)', () => {
     expect(checkpoint.last_event_id).not.toBeNull(); // still advances — a broken repo must not block the corpus
   });
 });
+
+describe('runAnalyzer (--repo bypass)', () => {
+  it('analyzes exactly the named repo without touching the checkpoint', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404 })),
+    );
+    const cache = new Cache(memoryStorage());
+    const journal = new Journal(cache);
+    await seedRepo(cache, 'ahmetb/kubectx');
+    await cache.putJSON(repoKeys('ahmetb/kubectx').fetch, {
+      etags: { repo: null, readme: null, tree: null, releases: null },
+      fetched_at: '2026-08-01T00:00:00.000Z',
+      content_hash: 'hash-direct',
+      source: 'cli',
+      manifests: [],
+    });
+    // A second, unrelated repo with a pending journal event — must be left untouched.
+    await journal.append({
+      type: 'RepoFetched',
+      repo: 'other/repo',
+      content_hash: 'hash-x',
+      changed: true,
+    });
+
+    await runAnalyzer(
+      { forceRefresh: null, repo: 'ahmetb/kubectx', minConfidence: null },
+      { cache, journal, llm: null },
+    );
+
+    const analysis = await cache.getJSON<{ content_hash: string }>('analysis/ahmetb/kubectx.json');
+    expect(analysis?.content_hash).toBe('hash-direct');
+    expect(await cache.has('analysis/other/repo.json')).toBe(false);
+
+    const checkpoint = await journal.checkpoint('analyzer');
+    expect(checkpoint.last_event_id).toBeNull();
+  });
+
+  it('exits with an error when the named repo has never been crawled', async () => {
+    const cache = new Cache(memoryStorage());
+    const journal = new Journal(cache);
+    process.exitCode = undefined;
+
+    await runAnalyzer(
+      { forceRefresh: null, repo: 'never/crawled', minConfidence: null },
+      { cache, journal, llm: null },
+    );
+
+    expect(process.exitCode).toBe(1);
+    process.exitCode = undefined;
+  });
+});
