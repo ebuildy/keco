@@ -1,16 +1,21 @@
+import { analysisKey, repoKeys, type Cache, type Journal } from '@keco/cache';
+import { type Analysis } from '@keco/core';
+import { analyzeRepo, type AnalyzeInput, type LlmDeps } from '@keco/analyze';
+import { MANIFEST_FILES } from '../crawler/sources/github/manifests';
+import { config } from '../lib/config';
 import { workerLogger } from '../lib/logger';
-import { createRuntime } from '../lib/runtime';
+import { createRuntime, perItem } from '../lib/runtime';
 
 /**
  * analyzer — `RepoFetched` where `changed` → `analysis/**` + `RepoAnalyzed` (§4.2).
  *
- * Three passes over each repo, cheapest first: local rules settle most of it, external
- * providers add what GitHub metadata cannot tell you, and the LLM only sees what is left
- * ambiguous. Every external call goes through the TTL cache in `external/`, which is what
- * makes a replay after a rule, prompt or taxonomy change nearly free.
+ * Thin by construction, the way `crawler/index.ts` is over `sources/github/fetch.ts`: every
+ * classification decision lives in `@keco/analyze`'s `analyzeRepo`, this file only does the
+ * I/O — reading the four cached artifacts a repo needs, writing the result, appending the
+ * event, advancing the checkpoint.
  *
- * It reads the journal and its own checkpoint — never Meilisearch. An analyzer that
- * queries a read model to decide what to work on has broken the pattern (§2.1, §14).
+ * It reads the journal and its own checkpoint — never Meilisearch. An analyzer that queries a
+ * read model to decide what to work on has broken the pattern (§2.1, §14).
  */
 const log = workerLogger('analyzer');
 
@@ -21,58 +26,159 @@ export type AnalyzeOptions = {
   minConfidence: number | null;
 };
 
-export async function runAnalyzer({
-  forceRefresh,
-  repo,
-  minConfidence,
-}: AnalyzeOptions): Promise<void> {
-  const { journal } = createRuntime();
+export type AnalyzerDeps = {
+  cache: Cache;
+  journal: Journal;
+  /** `null` when no ANTHROPIC_API_KEY is configured — pass 3 degrades honestly instead of running. */
+  llm: LlmDeps | null;
+};
+
+function defaultDeps(): AnalyzerDeps {
+  const { cache, journal } = createRuntime();
+  const llm =
+    config.ANTHROPIC_API_KEY !== undefined && config.ANTHROPIC_API_KEY !== ''
+      ? { apiKey: config.ANTHROPIC_API_KEY, model: config.ANALYZER_MODEL }
+      : null;
+  return { cache, journal, llm };
+}
+
+type RepoJson = {
+  name: string;
+  description: string | null;
+  topics?: string[];
+  language: string | null;
+  archived?: boolean;
+  created_at: string;
+  pushed_at: string;
+  license: { spdx_id: string | null } | null;
+  owner: { login: string; type: 'User' | 'Organization' };
+};
+type TreeJson = { tree?: { path?: string; type?: string }[] };
+type ReleaseJson = { published_at?: string | null };
+
+/** Reads everything pass 1/2 need for one repo out of the write model. Never LIST — every path here is a known key (§14). */
+async function loadArtifacts(
+  cache: Cache,
+  repo: string,
+  contentHash: string,
+): Promise<AnalyzeInput | null> {
+  const keys = repoKeys(repo);
+  const repoJson = await cache.getJSON<RepoJson>(keys.repo);
+  if (repoJson === null) return null;
+
+  const readme = (await cache.getText(keys.readme)) ?? '';
+  const tree = await cache.getJSON<TreeJson>(keys.tree);
+  const treePaths = (tree?.tree ?? [])
+    .filter((entry) => entry.type === 'blob')
+    .map((entry) => entry.path ?? '')
+    .filter((path) => path !== '');
+
+  const manifests: Record<string, string> = {};
+  for (const file of MANIFEST_FILES) {
+    const text = await cache.getText(keys.manifest(file));
+    if (text !== null) manifests[file] = text;
+  }
+
+  const releases = await cache.getJSON<ReleaseJson[]>(keys.releases);
+  const latestReleaseAt = releases?.[0]?.published_at ?? null;
+
+  return {
+    repo,
+    content_hash: contentHash,
+    name: repoJson.name,
+    description: repoJson.description,
+    topics: repoJson.topics ?? [],
+    tree: treePaths,
+    manifests,
+    language: repoJson.language,
+    readme,
+    derived: {
+      owner: repoJson.owner.login,
+      owner_type: repoJson.owner.type,
+      license_spdx: repoJson.license?.spdx_id ?? null,
+      archived: repoJson.archived === true,
+      created_at: repoJson.created_at,
+      pushed_at: repoJson.pushed_at,
+      latest_release_at: latestReleaseAt,
+    },
+  };
+}
+
+async function analyzeOne(
+  repo: string,
+  contentHash: string,
+  deps: AnalyzerDeps,
+  options: AnalyzeOptions,
+): Promise<Analysis | null> {
+  const artifacts = await loadArtifacts(deps.cache, repo, contentHash);
+  if (artifacts === null) {
+    // A repo the crawler never fetched is a fact about the corpus, not a silent no-op (§2's
+    // "events are facts about the past") — `repos_state` and the backoffice's "skipped and
+    // why" view need this on the journal, the same way the crawler emits its own RepoSkipped
+    // for "nothing to work with" (crawler/sources/github/fetch.ts's `reason: 'not-found'`).
+    log.warn({ repo }, 'no cached repo.json — skipping (crawl it first)');
+    await deps.journal.append({ type: 'RepoSkipped', repo, reason: 'not-crawled' });
+    return null;
+  }
+
+  const analysis = await analyzeRepo(artifacts, {
+    cache: deps.cache,
+    forceRefresh: options.forceRefresh,
+    llm: deps.llm,
+  });
+  await deps.cache.putJSON(analysisKey(repo), analysis);
+  return analysis;
+}
+
+async function recordFailure(deps: AnalyzerDeps, repo: string, error: Error): Promise<void> {
+  log.warn({ repo, err: error.message }, 'analysis failed');
+  await deps.journal.append({ type: 'RepoFailed', repo, phase: 'analyze', error: error.message });
+}
+
+async function recordSuccess(deps: AnalyzerDeps, repo: string, analysis: Analysis): Promise<void> {
+  await deps.journal.append({
+    type: 'RepoAnalyzed',
+    repo,
+    content_hash: analysis.content_hash,
+    confidence: analysis.confidence,
+    partial: analysis.partial_signals.length > 0,
+  });
+}
+
+export async function runAnalyzer(
+  options: AnalyzeOptions,
+  deps: AnalyzerDeps = defaultDeps(),
+): Promise<void> {
+  const { journal } = deps;
+
   const checkpoint = await journal.checkpoint('analyzer');
   log.info(
-    { checkpoint: checkpoint.last_event_id, forceRefresh, repo, minConfidence },
+    { checkpoint: checkpoint.last_event_id, forceRefresh: options.forceRefresh },
     'analyzer start',
   );
 
-  let seen = 0;
+  let processed = 0;
   let lastId = checkpoint.last_event_id;
-
   for await (const event of journal.read({ afterId: checkpoint.last_event_id })) {
     lastId = event.id;
-    if (event.type !== 'RepoFetched' || !event.changed) continue;
-    seen += 1;
-    log.debug({ repo: event.repo, content_hash: event.content_hash }, 'would analyze');
+    if (event.type === 'RepoFetched' && event.changed) {
+      log.debug({ repo: event.repo, content_hash: event.content_hash }, 'analyzing');
+      const analysis = await perItem(
+        event.repo,
+        () => analyzeOne(event.repo, event.content_hash, deps, options),
+        (repo, error) => recordFailure(deps, repo, error),
+      );
+      if (analysis) {
+        await recordSuccess(deps, event.repo, analysis);
+        processed += 1;
+      }
+    }
 
-    // TODO(analyzer): implement the three passes (§4.2):
-    //   pass 1 — classifyKind / classifyDomains / k8sRelevance / classifyRuntime /
-    //            classifyDerived over the cached payloads. classifyDerived takes the
-    //            repo.json licence, timestamps and owner type, plus the CNCF landscape
-    //            lookup — pass `landscape: null` until the crawler caches that seed, which
-    //            degrades maturity and governance to `unknown` rather than guessing.
-    //   pass 2 — signal providers via @keco/signals; a provider that fails yields null +
-    //            an entry in partial_signals[]; write the analysis anyway with partial:true
-    //   pass 3 — LLM only when confidence < 0.7 or kind is ambiguous, structured output
-    //            validated by AnalysisSchema, one retry, then fallbackAnalysis()
-    //   Then run the assembled document through AnalysisSchema.parse() — exactly as
-    //   fallbackAnalysis() already does for pass 3 — before writing analysis/{repo}.json
-    //   and appending RepoAnalyzed. §3 calls this path "schema-validated" and it has to
-    //   actually be: the taxonomy is data, so a mistyped family value is not a type error
-    //   and nothing downstream would reject it.
-    // Also re-analyze when the oldest signal's TTL has expired, not only on a content_hash
-    // change — signal freshness drifts from repo freshness (§14).
-    // NOTE: AnalysisSchema defaults the five taxonomy fields to `unknown`, so an
-    // analysis written before those families existed stays parseable on replay — but it
-    // also stays `unknown` forever, because an unchanged content_hash never re-triggers
-    // analysis. Re-classification is not driven by content_hash alone (§14). When these
-    // passes land, force one full-corpus pass-1 re-run for the new fields rather than
-    // waiting for organic change: it is free, being rules over data already in cache.
+    // Advance past every event once handled — including a failure, which is itself durably
+    // recorded as RepoFailed. A checkpoint tracks "have I looked at this", not "did it
+    // succeed": a permanently broken repo must not block the rest of the corpus forever (§4).
+    await journal.advance('analyzer', event.id);
   }
 
-  if (lastId && lastId !== checkpoint.last_event_id) {
-    // Advance only once the work above is durable in the cache.
-    log.info({ candidates: seen, checkpoint: lastId }, 'analyzer batch complete (dry run — not advancing)');
-  } else {
-    log.info({ candidates: seen }, 'nothing to analyze');
-  }
-
-  log.warn('analyzer passes are not implemented yet — see the TODO in this file and AGENTS.md §4.2');
+  log.info({ processed, checkpoint: lastId }, 'analyzer batch complete');
 }
