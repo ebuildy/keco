@@ -621,6 +621,8 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run repo:history -- --limit 20` | The crawl run history: fetched, skipped, failed, GitHub quota spent |
 | `mise run repo:analyze` | Classify everything with a changed `content_hash` or an expired signal TTL |
 | `mise run repo:analyze -- --force-refresh scorecard` | Ignore TTL for one provider |
+| `mise run repo:analyze -- --repo owner/name` | Analyze one named repo directly, bypassing the journal — reads its cached `_fetch.json` for the last `content_hash`, appends `RepoAnalyzed`, never touches the checkpoint |
+| `mise run repo:analyze -- --min-confidence 0.7` | Re-analyze every existing analysis below the threshold, a manual maintenance sweep over `analysis/**` — not part of the continuous journal loop |
 | `mise run project` | Project analyses into Meilisearch |
 | `mise run rebuild` | Full offline replay → new index → alias swap, zero GitHub calls |
 | `mise run checkpoint:reset -- --consumer analyzer` | Reset a checkpoint |

@@ -192,7 +192,16 @@ export async function runAnalyzer(
     // A direct, single-repo request bypasses the journal entirely — the same bypass shape as
     // the crawler's `--repo` (§4.2). The last content_hash the crawler recorded is what this
     // analysis gets stamped with, and the checkpoint is never touched.
-    const fetchMeta = await cache.getJSON<{ content_hash: string }>(repoKeys(repo).fetch);
+    let fetchMeta: { content_hash: string } | null;
+    try {
+      fetchMeta = await cache.getJSON<{ content_hash: string }>(repoKeys(repo).fetch);
+    } catch (error) {
+      // A corrupted `_fetch.json` for the named repo is a fact about this repo, not a crash of
+      // the process — the same "single bad repo must never abort a run" rule (§13) that
+      // `readAnalysisForSweep` applies to a corrupted analysis document.
+      await recordFailure(deps, repo, error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     if (fetchMeta === null) {
       log.error({ repo }, 'repo has never been crawled — run repo:crawl first');
       process.exitCode = 1;

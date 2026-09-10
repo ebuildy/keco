@@ -284,6 +284,29 @@ describe('runAnalyzer (--repo bypass)', () => {
     expect(process.exitCode).toBe(1);
     process.exitCode = undefined;
   });
+
+  it('records RepoFailed instead of crashing when the named repo has a corrupted _fetch.json', async () => {
+    const cache = new Cache(memoryStorage());
+    const journal = new Journal(cache);
+    // Malformed JSON at the _fetch.json key: cache.getJSON throws parsing it, which is the real
+    // path a corrupted cache entry can throw through — not the controlled null-return of a
+    // never-crawled repo.
+    await cache.putText(repoKeys('broken/repo').fetch, 'not valid json {');
+
+    await runAnalyzer(
+      { forceRefresh: null, repo: 'broken/repo', minConfidence: null },
+      { cache, journal, llm: null },
+    );
+
+    expect(await cache.has('analysis/broken/repo.json')).toBe(false);
+    const failed = (await allEvents(journal)).find(
+      (event) => event.type === 'RepoFailed' && event.repo === 'broken/repo',
+    );
+    expect(failed).toMatchObject({ type: 'RepoFailed', repo: 'broken/repo', phase: 'analyze' });
+
+    const checkpoint = await journal.checkpoint('analyzer');
+    expect(checkpoint.last_event_id).toBeNull(); // the bypass never touches the checkpoint
+  });
 });
 
 describe('runAnalyzer (--min-confidence sweep)', () => {
