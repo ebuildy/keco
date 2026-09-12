@@ -10,10 +10,11 @@ use App\Discovery\Console\DiscoveryResetCommand;
 use App\Discovery\Search\SearchItem;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
-use App\Discovery\SystemClock;
 use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Worker\SystemClock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -27,6 +28,7 @@ final class DiscoveryCommandsTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
     private GithubRepositoryRepository $repos;
+    private DiscoverySightingRepository $sightings;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -37,10 +39,11 @@ final class DiscoveryCommandsTest extends KernelTestCase
 
         $this->em = $container->get(EntityManagerInterface::class);
         $this->repos = $container->get(GithubRepositoryRepository::class);
+        $this->sightings = $container->get(DiscoverySightingRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_sightings, github_repositories, discovery_runs, discovery_state');
     }
 
     private function seedOneRepo(string $query, int $stars): void
@@ -48,6 +51,7 @@ final class DiscoveryCommandsTest extends KernelTestCase
         $store = DiscoveryStore::open(
             $this->em,
             $this->repos,
+            $this->sightings,
             $this->runs,
             $this->states,
             new SystemClock(),
@@ -155,8 +159,10 @@ final class DiscoveryCommandsTest extends KernelTestCase
         $tester->execute(['--query' => 'kubernetes', '--yes' => true]);
 
         $tester->assertCommandIsSuccessful();
-        self::assertSame(0, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(0, $this->sightings->countByQuerySlug('kubernetes'));
         self::assertSame(1, $this->runs->countByQuerySlug('kubernetes'));
+        // No other query sights this repo, so its GithubRepository row is now orphaned too.
+        self::assertSame(0, $this->repos->countAll());
     }
 
     public function testResetCommandWithoutYesPromptsAndDefaultsToAborting(): void
@@ -169,12 +175,12 @@ final class DiscoveryCommandsTest extends KernelTestCase
         $tester->execute(['--query' => 'kubernetes']);
 
         $tester->assertCommandIsSuccessful();
-        self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('kubernetes'));
     }
 
     protected function tearDown(): void
     {
         parent::tearDown();
-        unset($this->em, $this->repos, $this->runs, $this->states);
+        unset($this->em, $this->repos, $this->sightings, $this->runs, $this->states);
     }
 }

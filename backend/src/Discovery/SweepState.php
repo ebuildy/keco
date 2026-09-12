@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Discovery;
 
+use App\Worker\Window;
+
 /**
  * Everything one sweep of one query tracks between resumes — a plain, mutable, Doctrine-free
  * mirror of `store/collections.ts`'s `DiscoveryState` type. `App\Entity\DiscoveryState` is the

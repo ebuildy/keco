@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Discovery\Store;
 
-use App\Discovery\SystemClock;
 use App\Discovery\Search\SearchItem;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
-use App\Repository\GithubRepositoryRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Repository\GithubRepositoryRepository;
+use App\Worker\SystemClock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Uid\Ulid;
@@ -18,11 +19,16 @@ use Symfony\Component\Uid\Ulid;
 /**
  * Ported in spirit from `store/store.test.ts` — round-tripped through real Postgres, since this
  * class's whole job is the Doctrine mapping the pure `App\Discovery` unit tests can't exercise.
+ *
+ * Every assertion about "how many repos this query has" now reads `DiscoverySighting` counts;
+ * every assertion about "how many distinct GitHub repos exist" reads `GithubRepository` counts
+ * (AGENTS.md §4.1) — the two are no longer the same number once two queries can share a repo.
  */
 final class DiscoveryStoreTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
     private GithubRepositoryRepository $repos;
+    private DiscoverySightingRepository $sightings;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -33,10 +39,11 @@ final class DiscoveryStoreTest extends KernelTestCase
 
         $this->em = $container->get(EntityManagerInterface::class);
         $this->repos = $container->get(GithubRepositoryRepository::class);
+        $this->sightings = $container->get(DiscoverySightingRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_sightings, github_repositories, discovery_runs, discovery_state');
     }
 
     /**
@@ -73,6 +80,7 @@ final class DiscoveryStoreTest extends KernelTestCase
         return DiscoveryStore::open(
             $this->em,
             $this->repos,
+            $this->sightings,
             $this->runs,
             $this->states,
             new SystemClock(),
@@ -87,11 +95,12 @@ final class DiscoveryStoreTest extends KernelTestCase
         $outcome = $store->record(self::item(), 'kubernetes stars:>5000', new \DateTimeImmutable());
 
         self::assertSame('new', $outcome);
-        self::assertSame(0, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(0, $this->sightings->countByQuerySlug('kubernetes'));
 
         $store->flush();
 
-        self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->repos->countAll());
     }
 
     public function testReportsARepoAlreadySeenThisRunAsUnchangedWithoutRewritingIt(): void
@@ -131,11 +140,14 @@ final class DiscoveryStoreTest extends KernelTestCase
         self::assertSame('changed', $outcome);
         $second->flush();
 
-        $repo = $this->repos->find('kubernetes_1');
+        $repo = $this->repos->find(1);
         self::assertNotNull($repo);
         self::assertSame(999, $repo->getStars());
-        self::assertSame((string) $firstRunId, $repo->getFirstSeenRunId());
-        self::assertSame((string) $secondRunId, $repo->getLastSeenRunId());
+
+        $sighting = $this->sightings->find('kubernetes_1');
+        self::assertNotNull($sighting);
+        self::assertSame((string) $firstRunId, $sighting->getFirstSeenRunId());
+        self::assertSame((string) $secondRunId, $sighting->getLastSeenRunId());
     }
 
     public function testStartsColdWhenThereIsNoStateEvenIfRepoDocumentsExist(): void
@@ -154,7 +166,7 @@ final class DiscoveryStoreTest extends KernelTestCase
         self::assertSame('new', $outcome);
     }
 
-    public function testFreshDeletesThisQueryAndOnlyThisQuery(): void
+    public function testFreshDeletesThisQuerysSightingsAndOnlyThisQuery(): void
     {
         $k8s = $this->open('kubernetes');
         $k8s->record(self::item(), 'a', new \DateTimeImmutable());
@@ -168,13 +180,39 @@ final class DiscoveryStoreTest extends KernelTestCase
 
         $this->open('kubernetes', fresh: true);
 
-        self::assertSame(0, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(0, $this->sightings->countByQuerySlug('kubernetes'));
         self::assertNull($this->states->findByQuerySlug('kubernetes'));
-        self::assertSame(1, $this->repos->countByQuerySlug('istio'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('istio'));
         self::assertNotNull($this->states->findByQuerySlug('istio'));
+        // The kubernetes repo had no other sighting, so --fresh also removed its now-orphaned
+        // GithubRepository row; istio's repo is untouched.
+        self::assertNull($this->repos->find(1));
+        self::assertNotNull($this->repos->find(2));
         // --fresh never deletes run history — the count only grows (the first sweep's run, plus
         // the run --fresh itself just opened), it never shrinks back to 1.
         self::assertSame(2, $this->runs->countByQuerySlug('kubernetes'));
+    }
+
+    public function testFreshNeverDeletesAGithubRepositoryStillSightedByAnotherQuery(): void
+    {
+        $k8s = $this->open('kubernetes');
+        $k8s->record(self::item(), 'a', new \DateTimeImmutable());
+        $k8s->flush();
+        $k8s->finishRun('complete');
+
+        $cliTools = $this->open('cli-tools');
+        // Same repo id — the same actual GitHub repo, sighted by a second query.
+        $cliTools->record(self::item(), 'a', new \DateTimeImmutable());
+        $cliTools->flush();
+        $cliTools->finishRun('complete');
+
+        $this->open('kubernetes', fresh: true);
+
+        self::assertSame(0, $this->sightings->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('cli-tools'));
+        // The repo is still sighted by cli-tools, so it must survive --fresh on kubernetes.
+        self::assertNotNull($this->repos->find(1));
+        self::assertSame(1, $this->repos->countAll());
     }
 
     public function testWritesARunningRecordTheMomentTheStoreOpens(): void
@@ -220,10 +258,10 @@ final class DiscoveryStoreTest extends KernelTestCase
         for ($i = 1; $i < 25; ++$i) {
             self::assertFalse($store->windowCompleted());
         }
-        self::assertSame(0, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(0, $this->sightings->countByQuerySlug('kubernetes'));
 
         self::assertTrue($store->windowCompleted());
-        self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('kubernetes'));
     }
 
     /**
@@ -245,12 +283,12 @@ final class DiscoveryStoreTest extends KernelTestCase
         self::assertNotNull($run);
         self::assertSame('interrupted', $run->getOutcome());
         self::assertNotNull($run->getEndedAt());
-        self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('kubernetes'));
     }
 
     protected function tearDown(): void
     {
         parent::tearDown();
-        unset($this->em, $this->repos, $this->runs, $this->states);
+        unset($this->em, $this->repos, $this->sightings, $this->runs, $this->states);
     }
 }

@@ -13,7 +13,7 @@ use Doctrine\ORM\Mapping as ORM;
  * (`store/collections.ts`'s `DiscoveryState` / `toStateDocument`, migration design spec §3).
  *
  * Deliberately dumb: `pendingWindows`/`completedWindows`/`failedWindows` are stored as plain
- * JSON arrays, not `App\Discovery\Window`/`FailedWindow` value objects — `deptrac.yaml` only
+ * JSON arrays, not `App\Worker\Window`/`App\Discovery\FailedWindow` value objects — `deptrac.yaml` only
  * allows `Entity -> Repository`, so the conversion to/from those richer types happens in
  * `App\Discovery\Store\SweepStateMapper`, not here.
  */

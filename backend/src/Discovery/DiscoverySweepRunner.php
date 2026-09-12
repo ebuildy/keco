@@ -9,7 +9,11 @@ use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
 use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Worker\Clock;
+use App\Worker\Window;
+use App\Worker\Windows;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
@@ -27,6 +31,7 @@ final class DiscoverySweepRunner
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly GithubRepositoryRepository $repos,
+        private readonly DiscoverySightingRepository $sightings,
         private readonly DiscoveryRunRepository $runs,
         private readonly DiscoveryStateRepository $states,
         private readonly GitHubSearchClient $search,
@@ -57,6 +62,7 @@ final class DiscoverySweepRunner
         $store = DiscoveryStore::open(
             $this->em,
             $this->repos,
+            $this->sightings,
             $this->runs,
             $this->states,
             $this->clock,

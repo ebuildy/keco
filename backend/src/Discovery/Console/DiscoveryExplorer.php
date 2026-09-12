@@ -5,16 +5,21 @@ declare(strict_types=1);
 namespace App\Discovery\Console;
 
 use App\Discovery\QuerySlug;
-use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
-use App\Repository\GithubRepositoryRepository;
+use App\Entity\GithubRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Repository\GithubRepositoryRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
  * `app:discovery:count|list|reset` — reading and clearing the discovery dataset, ported from
  * `apps/workers/src/discovery/explore.ts`. Data access only; the console commands render.
+ *
+ * Scoped to one query, this reasons over {@see DiscoverySighting} — the `(query_slug, repo_id)`
+ * relationship. Unscoped, it reasons over {@see GithubRepository} — the global, deduplicated
+ * corpus (AGENTS.md §4.1).
  */
 final class DiscoveryExplorer
 {
@@ -27,6 +32,7 @@ final class DiscoveryExplorer
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly GithubRepositoryRepository $repos,
+        private readonly DiscoverySightingRepository $sightings,
         private readonly DiscoveryRunRepository $runs,
         private readonly DiscoveryStateRepository $states,
     ) {
@@ -35,7 +41,7 @@ final class DiscoveryExplorer
     /**
      * The set of swept queries comes from `discovery_state`, one row per query — the only cheap
      * enumeration available, exactly like `explore.ts`'s rationale: a query is listed from the
-     * moment its first sweep opens, before any repo or run row lands.
+     * moment its first sweep opens, before any sighting or run row lands.
      *
      * @return list<CountRow>
      */
@@ -51,7 +57,7 @@ final class DiscoveryExplorer
             return new CountRow(
                 query: $state->getQuery(),
                 querySlug: $slug,
-                repos: $this->repos->countByQuerySlug($slug),
+                repos: $this->sightings->countByQuerySlug($slug),
                 runs: $this->runs->countByQuerySlug($slug),
                 pendingWindows: \count($state->getPendingWindows()),
                 lastRun: $this->runs->findLatestByQuerySlug($slug),
@@ -119,7 +125,7 @@ final class DiscoveryExplorer
         if (null !== $query) {
             $slug = QuerySlug::of($query);
 
-            return new ListResult($this->repos->findByQuerySlug($slug, $limit, $field, $direction), $this->repos->countByQuerySlug($slug));
+            return new ListResult($this->sightings->findRepositoriesByQuerySlug($slug, $limit, $field, $direction), $this->sightings->countByQuerySlug($slug));
         }
 
         return new ListResult($this->repos->findAllOrdered($limit, $field, $direction), $this->repos->countAll());
@@ -146,26 +152,30 @@ final class DiscoveryExplorer
     }
 
     /**
-     * Applies a plan. Corpus first, then state, then — only if asked — the history, mirroring
+     * Applies a plan. Sightings first, then state, then — only if asked — the history, mirroring
      * `explore.ts`'s ordering rationale: a state row surviving over a partly-deleted corpus is
      * recoverable (the next sweep re-records what is missing); the reverse would strand rows
-     * nothing will ever clean up.
+     * nothing will ever clean up. A `GithubRepository` row is deleted only once no sighting
+     * anywhere still references it — a repo another query still sees survives (AGENTS.md §4.1).
      *
      * @param list<ResetPlan> $plans
      */
     public function applyReset(array $plans): void
     {
         foreach ($plans as $plan) {
-            $this->repos->removeByQuerySlug($plan->querySlug);
+            $repoIds = $this->sightings->repoIdsByQuerySlug($plan->querySlug);
+            $this->sightings->removeByQuerySlug($plan->querySlug);
             $this->states->removeByQuerySlug($plan->querySlug);
+            $this->repos->removeOrphans($repoIds);
             if ($plan->deleteRuns) {
                 $this->runs->removeByQuerySlug($plan->querySlug);
             }
         }
 
         // These are DQL bulk deletes, which run at the SQL level and bypass the UnitOfWork — a
-        // DiscoveryState/GithubRepository already managed from an earlier find() would otherwise
-        // keep answering from the identity map as if the deleted rows still existed.
+        // DiscoverySighting/DiscoveryState/GithubRepository already managed from an earlier
+        // find() would otherwise keep answering from the identity map as if the deleted rows
+        // still existed.
         $this->em->clear();
     }
 }

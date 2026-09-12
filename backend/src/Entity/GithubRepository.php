@@ -9,32 +9,24 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
- * One repo discovery's GitHub Search sweeps found for one query, replacing the TS
- * `discovery_repos` collection (`apps/workers/src/discovery/store/collections.ts`'s `DetailDoc`
- * + `RepoDocumentContext`, migration design spec §3) — table `github_repositories` here, named
- * for what the row actually is (a GitHub repository), not which pipeline stage wrote it.
+ * The unique record of a GitHub repository — one row per actual repo, globally, full stop.
  *
- * `id` is the composite `"{querySlug}_{repoId}"` — see `App\Discovery\QuerySlug::repoId()` —
- * the same scheme the TS store used so two queries sharing a repo cannot collide.
+ * PK is GitHub's own numeric repo id, never a composite of query and repo — the same repo
+ * discovered by two different queries is the same row here. Holds only the latest known
+ * snapshot of the repo itself; no query provenance (that belongs to {@see DiscoverySighting}).
+ * Replaces the pre-split `GithubRepository` that was keyed by `"{querySlug}_{repoId}"`, which
+ * let the same repo appear as multiple rows — see AGENTS.md §4.1's "one row per repo, full
+ * stop" policy and the migration design spec §3.
  */
 #[ORM\Entity(repositoryClass: GithubRepositoryRepository::class)]
 #[ORM\Table(name: 'github_repositories')]
-#[ORM\Index(columns: ['query_slug'], name: 'idx_github_repositories_query_slug')]
 #[ORM\Index(columns: ['stars'], name: 'idx_github_repositories_stars')]
 class GithubRepository
 {
     #[ORM\Id]
-    #[ORM\Column(length: 140)]
-    private string $id;
-
     #[ORM\Column(name: 'repo_id')]
+    #[ORM\GeneratedValue(strategy: 'NONE')]
     private int $repoId;
-
-    #[ORM\Column(name: 'query_slug', length: 100)]
-    private string $querySlug;
-
-    #[ORM\Column(length: 255)]
-    private string $query;
 
     #[ORM\Column(name: 'full_name', length: 255)]
     private string $fullName;
@@ -91,31 +83,19 @@ class GithubRepository
     #[ORM\Column(name: 'github_pushed_at', length: 40, nullable: true)]
     private ?string $githubPushedAt;
 
-    /** The window query string that first recorded this sighting (first-wins, see DiscoveryStore). */
-    #[ORM\Column(name: 'discovered_via', length: 500)]
-    private string $discoveredVia;
-
-    #[ORM\Column(name: 'discovered_at', type: Types::DATETIME_IMMUTABLE)]
-    private \DateTimeImmutable $discoveredAt;
-
-    /** Change signal: unchanged ⇒ not rewritten. See `App\Discovery\Store\PayloadHash`. */
+    /**
+     * The latest known change signal for this repo's own snapshot — distinct from any single
+     * query's {@see DiscoverySighting::$payloadHash}, since two queries might not re-see a repo
+     * at the same cadence. See `App\Discovery\Store\PayloadHash`.
+     */
     #[ORM\Column(name: 'payload_hash', length: 32)]
     private string $payloadHash;
-
-    #[ORM\Column(name: 'first_seen_run_id', length: 32)]
-    private string $firstSeenRunId;
-
-    #[ORM\Column(name: 'last_seen_run_id', length: 32)]
-    private string $lastSeenRunId;
 
     /**
      * @param list<string> $topics
      */
     public function __construct(
-        string $id,
         int $repoId,
-        string $querySlug,
-        string $query,
         string $fullName,
         string $name,
         string $owner,
@@ -133,16 +113,9 @@ class GithubRepository
         string $githubCreatedAt,
         string $githubUpdatedAt,
         ?string $githubPushedAt,
-        string $discoveredVia,
-        \DateTimeImmutable $discoveredAt,
         string $payloadHash,
-        string $firstSeenRunId,
-        string $lastSeenRunId,
     ) {
-        $this->id = $id;
         $this->repoId = $repoId;
-        $this->querySlug = $querySlug;
-        $this->query = $query;
         $this->fullName = $fullName;
         $this->name = $name;
         $this->owner = $owner;
@@ -160,16 +133,7 @@ class GithubRepository
         $this->githubCreatedAt = $githubCreatedAt;
         $this->githubUpdatedAt = $githubUpdatedAt;
         $this->githubPushedAt = $githubPushedAt;
-        $this->discoveredVia = $discoveredVia;
-        $this->discoveredAt = $discoveredAt;
         $this->payloadHash = $payloadHash;
-        $this->firstSeenRunId = $firstSeenRunId;
-        $this->lastSeenRunId = $lastSeenRunId;
-    }
-
-    public function getId(): string
-    {
-        return $this->id;
     }
 
     public function getRepoId(): int
@@ -177,14 +141,19 @@ class GithubRepository
         return $this->repoId;
     }
 
-    public function getQuerySlug(): string
-    {
-        return $this->querySlug;
-    }
-
     public function getFullName(): string
     {
         return $this->fullName;
+    }
+
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    public function getOwner(): string
+    {
+        return $this->owner;
     }
 
     public function getStars(): int
@@ -207,25 +176,15 @@ class GithubRepository
         return $this->payloadHash;
     }
 
-    public function getFirstSeenRunId(): string
-    {
-        return $this->firstSeenRunId;
-    }
-
-    public function getLastSeenRunId(): string
-    {
-        return $this->lastSeenRunId;
-    }
-
     /**
-     * Rewrites every field a fresh sighting can change, in place — used when a repo already
-     * known to this query resurfaces with a different `payloadHash` (AGENTS.md §4.1's
-     * "first-wins" rule only applies to `discoveredVia`/`discoveredAt`/`firstSeenRunId`, which
-     * this method deliberately leaves untouched).
+     * Rewrites every field the latest sighting can change, in place — used when this repo's
+     * snapshot is stale relative to a freshly discovered payload, regardless of which query
+     * found it (AGENTS.md §4.1: "always overwrite with the latest data regardless of which
+     * query saw it; skip the write only if payload_hash is unchanged").
      *
      * @param list<string> $topics
      */
-    public function updateSighting(
+    public function updateSnapshot(
         string $fullName,
         string $name,
         string $owner,
@@ -244,7 +203,6 @@ class GithubRepository
         string $githubUpdatedAt,
         ?string $githubPushedAt,
         string $payloadHash,
-        string $lastSeenRunId,
     ): void {
         $this->fullName = $fullName;
         $this->name = $name;
@@ -264,6 +222,5 @@ class GithubRepository
         $this->githubUpdatedAt = $githubUpdatedAt;
         $this->githubPushedAt = $githubPushedAt;
         $this->payloadHash = $payloadHash;
-        $this->lastSeenRunId = $lastSeenRunId;
     }
 }
