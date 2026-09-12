@@ -92,6 +92,17 @@ class DiscoveryRepoRepository extends ServiceEntityRepository
             ->getResult();
     }
 
+    public function countAll(): int
+    {
+        /** @var int $count */
+        $count = $this->createQueryBuilder('r')
+            ->select('COUNT(r.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return $count;
+    }
+
     /** Deletes every row for one query — `--fresh` and `discovery:reset`'s corpus wipe. */
     public function removeByQuerySlug(string $querySlug): int
     {
