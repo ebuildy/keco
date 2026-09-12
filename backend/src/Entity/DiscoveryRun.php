@@ -39,7 +39,9 @@ class DiscoveryRun
     #[ORM\Column(name: 'ended_at', type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $endedAt = null;
 
-    #[ORM\Column(name: 'duration_ms', nullable: true)]
+    // BIGINT: a resumed sweep's wall-clock duration can span days, which overflows a 32-bit
+    // int in milliseconds (~24.8 days) well within realistic resume gaps.
+    #[ORM\Column(name: 'duration_ms', type: Types::BIGINT, nullable: true)]
     private ?int $durationMs = null;
 
     /** `running` | `complete` | `failed` | `interrupted`. */
