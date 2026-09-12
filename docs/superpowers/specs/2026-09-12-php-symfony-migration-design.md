@@ -46,6 +46,9 @@ keco/
 │   │   ├── Repository/               # one Doctrine repository per entity
 │   │   ├── Blob/                     # BlobStorageInterface + Local/S3 adapters, §3.1
 │   │   ├── Journal/                  # JournalEvent + Checkpoint helpers, shared by every consumer
+│   │   ├── Worker/                   # generic worker-runtime code with no bounded-context
+│   │   │                             # knowledge: Clock/SystemClock, calendar/window-splitting
+│   │   │                             # algebra, anything a second context ends up needing too
 │   │   ├── Discovery/                # write side, §4.1
 │   │   │   ├── Message/  MessageHandler/  Console/
 │   │   ├── Crawler/                  # write side, §4.2
@@ -125,7 +128,8 @@ Structured, queryable write-model data — the direct replacement for `repos/**`
 | `Analysis` | `analysis/{owner}/{repo}.json` | `kind`, `domains[]`, `runtime`, `license_class`, `openness`, `maturity`, `governance`, `confidence`, `method`, `model`, `signals jsonb`, `signals_used[]`, `partial_signals[]`, `content_hash`, `analyzed_at`. |
 | `JournalEvent` | `journal/{date}/{ulid}.json` | `id` (ULID, PK, sortable), `type`, `repo` (nullable), `payload jsonb`, `created_at`. Append-only; never updated or deleted (§2 rule 7). An indexed range query (`WHERE id > :checkpoint ORDER BY id LIMIT :n`) replaces the old directory-of-files-by-ULID scan — strictly the same "never LIST to find work" contract, backed by a real index instead of a convention. |
 | `Checkpoint` | `checkpoints/{consumer}.json` | `consumer_name` (PK), `last_event_id`, `updated_at`. |
-| `GithubRepository` | `discovery_repos` (Meilisearch) | Discovery's corpus. |
+| `GithubRepository` | `discovery_repos` (Meilisearch) | **One row per actual GitHub repo, globally** — PK is GitHub's own numeric repo id, not a per-query composite. Holds the latest known snapshot (name, owner, stars, description, topics, archived, fork, `raw`-ish fields, `payload_hash`). This is the entity `Repo` (§4.2, Phase 2) has a foreign key to. |
+| `DiscoverySighting` | `discovery_repos` (Meilisearch) | **New, split out of `GithubRepository`.** One row per `(query_slug, repo_id)` — which query found this repo, when, via which window, first/last seen run id. `ManyToOne` to `GithubRepository`. This is where the old per-query "first-wins" and resume bookkeeping lives now; `GithubRepository` itself stays free of query provenance. |
 | `DiscoveryRun` | `discovery_runs` (Meilisearch) | One row per sweep process; `outcome` (`running`/`complete`/`failed`/`interrupted`) exactly as before. |
 | `DiscoveryState` | `discovery_state` (Meilisearch) | Resume position, one per query. |
 | `CrawlHistoryEntry` | `crawl_history` (Meilisearch) | One row per crawl run. |
@@ -164,11 +168,13 @@ matching the original event types one-to-one:
 
 ```
 SweepDiscoveryQuery (scheduled)
-  → DiscoverySweepHandler → upserts GithubRepository rows, records DiscoveryRun/DiscoveryState
+  → DiscoverySweepHandler → upserts GithubRepository (one row per repo, globally) and
+    DiscoverySighting (one row per query_slug × repo_id), records DiscoveryRun/DiscoveryState
 
 CrawlRepo(owner, name)                          [dispatched per GithubRepository, batched]
-  → CrawlRepoHandler → fetches GitHub (conditional), writes Repo row + blob store,
-    appends JournalEvent{type: RepoFetched, changed}
+  → CrawlRepoHandler → fetches GitHub (conditional), writes Repo row + blob store — Repo carries
+    a nullable FK to the GithubRepository it came from (null for the `--repo` bypass path, which
+    crawls a repo discovery never saw), appends JournalEvent{type: RepoFetched, changed}
     → if changed: dispatches AnalyzeRepo(owner, name)
 
 AnalyzeRepo(owner, name)
@@ -207,8 +213,18 @@ process, not inside the request. A route handler that iterates repos is still al
 
 One rule per §7 boundary, checked by `mise run check` (translated to run `deptrac analyse`):
 
+- **A bounded-context namespace (`Discovery`, `Crawler`, `Analyzer`, `Projector`) holds only
+  code that needs that context's domain knowledge.** Anything else — a value object, an
+  algorithm, a wrapper with no idea which pipeline stage is calling it — moves to a shared
+  namespace instead: `Worker` for generic runtime code (`Clock`/`SystemClock`, calendar/window
+  algebra, anything of that shape), alongside the already-shared `Entity`/`Repository`, `Blob`,
+  `Journal`, `Taxonomy`. Move code out the moment a second context needs it — don't wait for a
+  third, and don't speculatively move something only one context uses yet. This is what makes
+  reuse actually happen instead of staying theoretical: the crawler's `_fetch.json`-staleness
+  check (§4.2) and the analyzer's TTL checks (§4.3) both want the exact same `Clock` abstraction
+  the discovery sweep already needed for testability, not three copies of it.
 - `Discovery`, `Crawler`, `Analyzer`, `Projector` may depend on `Entity`, `Repository`, `Blob`,
-  `Journal`, `Taxonomy` — never on `Search` or `Query`.
+  `Journal`, `Taxonomy`, `Worker` — never on `Search` or `Query`.
 - `Search` and `Query` may be imported only by `Projector` (write, for upserts) and `Api`/
   `Backoffice` (read). `Query` never imports `Entity`/`Repository`/`Blob` — it only ever talks to
   `Search`, mirroring the old "`packages/query` may import `@keco/search`, never `@keco/cache`"

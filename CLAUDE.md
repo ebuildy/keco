@@ -129,11 +129,13 @@ and what each replaces. In brief:
 
 | Entity | Holds |
 |---|---|
-| `Repo` | Typed columns for what's scored/filtered (`stars`, `forks`, `pushed_at`, `archived`, `license`, `content_hash`, `etag`, `fetched_at`) **plus** `raw_payload jsonb` — the verbatim GitHub API response — **plus** `tree jsonb` and `manifests jsonb` for pass-1 rule inputs. |
+| `Repo` | Typed columns for what's scored/filtered (`stars`, `forks`, `pushed_at`, `archived`, `license`, `content_hash`, `etag`, `fetched_at`) **plus** `raw_payload jsonb` — the verbatim GitHub API response — **plus** `tree jsonb` and `manifests jsonb` for pass-1 rule inputs. Carries a nullable foreign key to the `GithubRepository` it was crawled from (null only for the `--repo` bypass path). |
 | `Analysis` | `kind`, `domains[]`, `runtime`, `license_class`, `openness`, `maturity`, `governance`, `confidence`, `method`, `model`, `signals jsonb`, `signals_used[]`, `partial_signals[]`, `content_hash`, `analyzed_at`. |
 | `JournalEvent` | `id` (ULID, PK), `type`, `repo`, `payload jsonb`, `created_at` — append-only, indexed for ordered replay. |
 | `Checkpoint` | `consumer_name` (PK), `last_event_id`, `updated_at` — one row per consumer. |
-| `GithubRepository` / `DiscoveryRun` / `DiscoveryState` | Discovery's corpus, sweep history, and resume position. |
+| `GithubRepository` | **The unique record of a GitHub repo** — one row per repo, globally, keyed by GitHub's own numeric repo id. Latest known snapshot only; no query provenance. |
+| `DiscoverySighting` | One row per `(query_slug, repo_id)` — which query found this repo, when, first/last seen run id. `ManyToOne` to `GithubRepository`. The same repo found by two queries is two `DiscoverySighting` rows and one `GithubRepository` row. |
+| `DiscoveryRun` / `DiscoveryState` | Sweep history and resume position, per query. |
 | `CrawlHistoryEntry` | One row per crawl run: counts, cost, outcome. |
 | `ExternalSignal` | Pass-2 provider cache: `provider`, `cache_key`, `payload jsonb`, `fetched_at`, `ttl_seconds`. |
 | `ChatTrace` | `(query, retrieved_ids, answer, created_at)` for eval fixtures. |
@@ -202,9 +204,14 @@ Four independent bounded contexts inside `backend/`: `Discovery`, `Crawler`, `An
 handler that reads its inputs from Postgres → does work → writes Postgres/the blob store →
 appends `JournalEvent`s → dispatches the next stage's message.
 
+**A context's own namespace holds only its domain logic — anything reusable moves to `Worker`,
+the moment a second context needs it** (§7's import-boundary rules have the enforced version of
+this). Four contexts each growing their own `Clock` or their own date-window-splitting algebra
+is the failure mode this guards against.
+
 | Context | Triggered by | Produces | Network | Cadence |
 |---|---|---|---|---|
-| **Discovery** | `SweepDiscoveryQuery` (Scheduler/cron) | `GithubRepository`, `DiscoveryRun`, `DiscoveryState` rows | GitHub Search (paced) | periodic sweep, resumable |
+| **Discovery** | `SweepDiscoveryQuery` (Scheduler/cron) | `GithubRepository`, `DiscoverySighting`, `DiscoveryRun`, `DiscoveryState` rows | GitHub Search (paced) | periodic sweep, resumable |
 | **Crawler** | `CrawlRepo` (dispatched per `GithubRepository`) | `Repo` rows, blob store, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
 | **Analyzer** | `AnalyzeRepo` (dispatched on `RepoFetched{changed:true}` or an expired signal) | `Analysis` rows, `RepoAnalyzed` | signal providers + LLM, **all cached** | continuous |
 | **Projector** | `ProjectRepo` (dispatched on `RepoAnalyzed`) | Meilisearch `tools` | none | continuous, batched |
@@ -248,11 +255,21 @@ split-vs-paginate decision for a probed window, and the resume-vs-new-sweep tran
 PHP with no framework dependency, unit-testable without Postgres — the same shape the old
 `windows.ts`/`plan.ts`/`sweep.ts` had, just as PHP classes under `Discovery/`.
 
-**Discovery appends no `JournalEvent`s.** It writes `GithubRepository` rows directly, and the
-crawler reads that table as its worklist. This is a deliberate exception to §2's event-flow
-contract: a weekly sweep would otherwise write ~100k tiny journal rows. The delta is already
-computed from a `payload_hash` column, so emitting `RepoDiscovered` later is a small additive
-change if the crawler ever needs a resumable offset instead of a full-table read.
+**Discovery appends no `JournalEvent`s.** It writes `GithubRepository` and `DiscoverySighting`
+rows directly, and the crawler reads `GithubRepository` as its worklist. This is a deliberate
+exception to §2's event-flow contract: a weekly sweep would otherwise write ~100k tiny journal
+rows. The delta is already computed from a `payload_hash` column, so emitting `RepoDiscovered`
+later is a small additive change if the crawler ever needs a resumable offset instead of a
+full-table read.
+
+**`GithubRepository` is the unique record of a GitHub repo — one row per repo, full stop.** The
+same repo found by two different queries is still one `GithubRepository` row; the two sightings
+live in two `DiscoverySighting` rows instead. A sweep upserts both: the canonical row (latest
+snapshot fields) and this query's sighting (`discovered_via`, `discovered_at`,
+`first_seen_run_id`, `last_seen_run_id`). Getting this backwards — keying `GithubRepository`
+itself by `(query_slug, repo_id)` — was tried once and reverted: it let the same repo appear as
+multiple rows, which is wrong for an entity whose whole job is to *be* the unique record, and it
+gave `Repo` (§4.2) nothing unambiguous to hold a foreign key to.
 
 **Every sweep records a run.** Opening a sweep inserts a `DiscoveryRun` row immediately with
 `outcome: 'running'`; finishing it stamps the ending on every path out — complete, failed, and a
@@ -261,9 +278,12 @@ change if the crawler ever needs a resumable offset instead of a full-table read
 without cleanup.
 
 - **Resume by default.** A sweep continues from its `DiscoveryState` row; `--fresh` is the
-  explicit opt-out, and deletes the query's `GithubRepository` rows and `DiscoveryState` row rather
-  than merely ignoring them. It never touches `DiscoveryRun`. `--limit` stops at the first window
-  boundary past N — a dev-run convenience, not a budget.
+  explicit opt-out, and deletes the query's `DiscoverySighting` rows and `DiscoveryState` row
+  rather than merely ignoring them — plus any `GithubRepository` left with zero remaining
+  `DiscoverySighting` rows, since a repo no query can currently see isn't part of any corpus.
+  `--fresh` never touches `DiscoveryRun`, and never deletes a `GithubRepository` another query
+  still has a live sighting on. `--limit` stops at the first window boundary past N — a dev-run
+  convenience, not a budget.
 - **Change-gated writes.** A window whose result set is byte-identical is not rewritten, so a
   re-sweep produces no churn.
 - Discovery has its own rate pacer, built on Symfony's `RateLimiter` component — GitHub Search is
@@ -559,6 +579,8 @@ keco/
 │   │   ├── Entity/  Repository/    # the write model, §3
 │   │   ├── Blob/                   # BlobStorageInterface + adapters, §3.1
 │   │   ├── Journal/                # JournalEvent + Checkpoint, shared by every consumer
+│   │   ├── Worker/                 # generic worker-runtime code, no bounded-context knowledge:
+│   │   │                           # Clock/SystemClock, calendar/window algebra, §4
 │   │   ├── Discovery/  Crawler/  Analyzer/  Projector/    # write side, §4 — each with
 │   │   │                                                  # Message/ MessageHandler/ Console/
 │   │   ├── Taxonomy/               # taxonomy.yaml loader + validation, §6
@@ -596,9 +618,16 @@ entrypoint runs — the direct descendant of "one Node process in production."
 **Import boundaries, enforced by `deptrac.yaml`** (§6 of the migration design spec has the full
 rule set; the headline rules):
 
+- **A bounded-context namespace holds only that context's domain logic.** `Discovery`,
+  `Crawler`, `Analyzer` and `Projector` are for code that needs to know it's discovering,
+  crawling, analyzing or projecting. A value object or algorithm with no such knowledge — a
+  clock abstraction, calendar/window-splitting algebra, anything of that shape — belongs in
+  `Worker` instead, next to the already-shared `Entity`/`Repository`, `Blob`, `Journal`,
+  `Taxonomy`. Move it the moment a second context needs it, not before and not speculatively:
+  this is what makes reuse real rather than four contexts each growing their own copy.
 - `Discovery`/`Crawler`/`Analyzer`/`Projector` may depend on `Entity`, `Repository`, `Blob`,
-  `Journal`, `Taxonomy` — never on `Search` or `Query`. An analyzer that queries Meilisearch to
-  decide what to work on has broken §2's rule 1.
+  `Journal`, `Taxonomy`, `Worker` — never on `Search` or `Query`. An analyzer that queries
+  Meilisearch to decide what to work on has broken §2's rule 1.
 - `Search` and `Query` may be imported only by `Projector` (write, for upserts) and `Api`/
   `Backoffice` (read). `Query` never imports `Entity`/`Repository`/`Blob`.
 - `Api` and `Backoffice` may depend on `Query`, `Entity`/`Repository` (read-only, for pipeline
@@ -630,9 +659,9 @@ them all; the table below is the map, not the source of truth.
 | `mise run build` | Build the portal, prerender its top tool pages; `composer install --no-dev` + warm the Symfony cache for `backend/` |
 | `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from `tools` — Node, unchanged, reads Meilisearch directly |
 | `mise run migrate` | `bin/console doctrine:migrations:migrate` |
-| `mise run discovery:sweep -- --query kubernetes --fresh` | `bin/console app:discovery:sweep` — enumerate repos into `GithubRepository`/`DiscoveryState` (resumes by default; `--fresh` deletes the query's corpus and state, never `DiscoveryRun` history) |
+| `mise run discovery:sweep -- --query kubernetes --fresh` | `bin/console app:discovery:sweep` — enumerate repos into `GithubRepository`/`DiscoverySighting`/`DiscoveryState` (resumes by default; `--fresh` deletes the query's sightings and state, never `DiscoveryRun` history) |
 | `mise run discovery:list -- runs --limit 20` | `bin/console app:discovery:list runs` — the sweep history |
-| `mise run discovery:reset -- --query kubernetes` | Delete a query's `GithubRepository`/`DiscoveryState` rows, keeping `DiscoveryRun` history. Prompts; not rebuildable offline |
+| `mise run discovery:reset -- --query kubernetes` | Delete a query's `DiscoverySighting`/`DiscoveryState` rows (plus any `GithubRepository` this leaves with no sighting from any query), keeping `DiscoveryRun` history. Prompts; not rebuildable offline |
 | `mise run repo:crawl -- --limit 200` | `bin/console app:repo:crawl` — dispatch `CrawlRepo` for discovered repos |
 | `mise run repo:icon -- --repo owner/name` | `bin/console app:repo:icon` — fetch and rasterize one repo's icon, standalone |
 | `mise run repo:history -- --limit 20` | `bin/console app:repo:history` — crawl run history: fetched, skipped, failed, GitHub quota spent |
