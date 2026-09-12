@@ -30,7 +30,7 @@ final class DiscoveryResetCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('query', 'q', InputOption::VALUE_REQUIRED, 'The query to reset')
+            ->addOption('query', null, InputOption::VALUE_REQUIRED, 'The query to reset')
             ->addOption('all', null, InputOption::VALUE_NONE, 'Reset every query')
             ->addOption('include-runs', null, InputOption::VALUE_NONE, 'Delete the run history too')
             ->addOption('yes', 'y', InputOption::VALUE_NONE, 'Skip the confirmation prompt')

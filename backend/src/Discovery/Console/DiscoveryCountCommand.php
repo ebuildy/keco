@@ -27,7 +27,7 @@ final class DiscoveryCountCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('query', 'q', InputOption::VALUE_REQUIRED, 'Narrow to one query')
+            ->addOption('query', null, InputOption::VALUE_REQUIRED, 'Narrow to one query')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit NDJSON to stdout instead of a table')
             ->setHelp(
                 "Every table at once — a partial answer is not what anyone opens this for.\n".
