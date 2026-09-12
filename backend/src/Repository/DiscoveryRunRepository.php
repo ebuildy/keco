@@ -79,6 +79,17 @@ class DiscoveryRunRepository extends ServiceEntityRepository
             ->getResult();
     }
 
+    public function countAll(): int
+    {
+        /** @var int $count */
+        $count = $this->createQueryBuilder('r')
+            ->select('COUNT(r.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
+
+        return $count;
+    }
+
     /** Deletes every run row for one query — `--include-runs` only; never the default path. */
     public function removeByQuerySlug(string $querySlug): int
     {

@@ -135,6 +135,36 @@ class DiscoveryRun
         return $this->endedAt;
     }
 
+    public function getDurationMs(): ?int
+    {
+        return $this->durationMs;
+    }
+
+    public function getReposNew(): int
+    {
+        return $this->reposNew;
+    }
+
+    public function getReposChanged(): int
+    {
+        return $this->reposChanged;
+    }
+
+    public function getPagesFetched(): int
+    {
+        return $this->pagesFetched;
+    }
+
+    public function getWindowsCompleted(): int
+    {
+        return $this->windowsCompleted;
+    }
+
+    public function getWindowsFailed(): int
+    {
+        return $this->windowsFailed;
+    }
+
     /**
      * Run-scoped progress, snapshotted at the moment of the write — never the sweep-scoped
      * totals, which accumulate across every resume (AGENTS.md §4.1).
