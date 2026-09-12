@@ -1,0 +1,20 @@
+includes:
+    - vendor/phpstan/phpstan-doctrine/extension.neon
+    - vendor/phpstan/phpstan-doctrine/rules.neon
+    - vendor/phpstan/phpstan-symfony/extension.neon
+    - vendor/phpstan/phpstan-symfony/rules.neon
+
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+    excludePaths:
+        # Symfony skeleton boilerplate, not application code: MicroKernelTrait resolves
+        # getAllowedEnvs() through a private-method/trait interaction PHPStan's unused-method
+        # check can't see through, and Kernel.php is otherwise unmodified generated code.
+        - src/Kernel.php
+    symfony:
+        containerXmlPath: var/cache/dev/App_KernelDevDebugContainer.xml
+    doctrine:
+        objectManagerLoader: tests/object-manager.php

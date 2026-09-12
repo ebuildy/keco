@@ -1,0 +1,137 @@
+# Import-boundary enforcement — the PHP equivalent of eslint.config.mjs's rules (AGENTS.md §7).
+# Each ruleset entry encodes one line of the CQRS contract from AGENTS.md §7 and the migration
+# design spec §6. If you need to relax one, re-read those sections first.
+#
+# Layer collectors match on the fully-qualified class name (leading backslash stripped), so
+# `App\Entity\JournalEvent` belongs to the `Entity` layer, `App\Analyzer\Signals\Scorecard`
+# belongs to `AnalyzerSignals` (not `Analyzer` — the negative lookahead below carves it out so
+# the two layers stay disjoint), etc.
+deptrac:
+    paths:
+        - ./src
+
+    exclude_files:
+        - '#.*\.gitkeep#'
+
+    layers:
+        - name: Entity
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Entity\\#'
+
+        - name: Repository
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Repository\\#'
+
+        - name: Blob
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Blob\\#'
+
+        - name: Journal
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Journal\\#'
+
+        - name: Taxonomy
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Taxonomy\\#'
+
+        - name: Discovery
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Discovery\\#'
+
+        - name: Crawler
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Crawler\\#'
+
+        # Deliberately excludes App\Analyzer\Signals\* (see the AnalyzerSignals layer below) so
+        # the two layers are disjoint: "Analyzer\Signals may only be imported by Analyzer itself"
+        # is enforced by never granting any other layer access to AnalyzerSignals, below.
+        - name: Analyzer
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Analyzer\\(?!Signals\\)#'
+
+        - name: AnalyzerSignals
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Analyzer\\Signals\\#'
+
+        - name: Projector
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Projector\\#'
+
+        - name: Search
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Search\\#'
+
+        - name: Query
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Query\\#'
+
+        - name: Api
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Api\\#'
+
+        - name: Backoffice
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Backoffice\\#'
+
+        - name: Command
+          collectors:
+              - type: classNameRegex
+                value: '#^App\\Command\\#'
+
+    ruleset:
+        # Write side (AGENTS.md §4): may depend on the write model and the shared vocabulary,
+        # never on the read side. Projector is the one documented exception (§4.4) — its entire
+        # job is to write the `tools` read model, so it alone among the write-side layers may
+        # depend on Search.
+        Discovery: [Entity, Repository, Blob, Journal, Taxonomy]
+        Crawler: [Entity, Repository, Blob, Journal, Taxonomy]
+        Analyzer: [Entity, Repository, Blob, Journal, Taxonomy, AnalyzerSignals]
+        Projector: [Entity, Repository, Blob, Journal, Taxonomy, Search]
+
+        # Analyzer\Signals: every adapter goes through ExternalSignal's cache-first repository
+        # (Entity/Repository), never bypasses it — and is importable only by Analyzer (nothing
+        # else lists AnalyzerSignals below).
+        AnalyzerSignals: [Entity, Repository, Blob, Journal, Taxonomy]
+
+        # Read side (AGENTS.md §11): Query never touches the write model, only Search. Api and
+        # Backoffice read via Query, read the write model directly for observability
+        # (repos_state's replacement) and checkpoint resets, and reach the taxonomy vocabulary —
+        # never Discovery, Crawler, Analyzer or Signals directly. The only way the read side
+        # reaches the write side is through a dispatched message (not modelled as a layer
+        # dependency until Messenger handlers exist).
+        Query: [Search]
+        Api: [Query, Entity, Repository, Journal, Taxonomy]
+        Backoffice: [Query, Entity, Repository, Journal, Taxonomy]
+
+        # Cross-cutting console commands (taxonomy:check today; search:settings, search:key,
+        # index:create/seed, checkpoint:reset in later phases) — a composition-root layer, not a
+        # bounded context, so it is allowed broader read access than any single write-side stage.
+        Command: [Taxonomy, Journal, Search, Blob, Entity, Repository]
+
+        # The write model and shared vocabulary depend on nothing above them. Entity -> Repository
+        # is the one allowed exception: #[ORM\Entity(repositoryClass: ...)] is how every Doctrine
+        # entity in this app names its repository, a framework convention rather than a CQRS
+        # boundary — none of the rules above say Entity may not reference Repository.
+        Entity: [Repository]
+        Repository: [Entity]
+        Blob: []
+        Journal: [Entity, Repository]
+        Taxonomy: []
+
+        # Left unconfigured so deptrac reports any dependency out of Search as a violation — an
+        # index/settings wrapper has no business depending on anything else in this application.
+        Search: []
