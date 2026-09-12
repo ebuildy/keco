@@ -22,7 +22,7 @@ final class SweepDiscoveryQueryHandlerTest extends KernelTestCase
     {
         self::bootKernel();
         $em = static::getContainer()->get(EntityManagerInterface::class);
-        $em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
+        $em->getConnection()->executeStatement('TRUNCATE TABLE discovery_sightings, github_repositories, discovery_runs, discovery_state');
     }
 
     public function testDispatchingTheMessageQueuesItOnTheDiscoveryTransportRatherThanRunningInline(): void

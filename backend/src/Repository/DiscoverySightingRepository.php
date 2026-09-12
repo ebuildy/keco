@@ -107,7 +107,13 @@ class DiscoverySightingRepository extends ServiceEntityRepository
             ->getQuery()
             ->getArrayResult();
 
-        return array_map(static fn (array $row): int => (int) $row['repoId'], $rows);
+        $repoIds = [];
+        foreach ($rows as $row) {
+            /** @var array{repoId: int|string} $row */
+            $repoIds[] = (int) $row['repoId'];
+        }
+
+        return $repoIds;
     }
 
     /** Deletes every sighting for one query — `--fresh` and `discovery:reset`'s corpus wipe. */

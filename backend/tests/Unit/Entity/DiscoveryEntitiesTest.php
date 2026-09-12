@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Entity;
 
-use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
+use App\Entity\DiscoverySighting;
 use App\Entity\DiscoveryState;
-use App\Repository\GithubRepositoryRepository;
+use App\Entity\GithubRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Repository\GithubRepositoryRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Uid\Ulid;
@@ -17,11 +19,17 @@ use Symfony\Component\Uid\Ulid;
 /**
  * Round-trips the Discovery write model through real Postgres — the Doctrine mapping proof the
  * pure `App\Discovery` unit tests can't give, since they never touch an entity.
+ *
+ * `GithubRepository` and `DiscoverySighting` are tested separately here (AGENTS.md §4.1):
+ * `GithubRepository` is the deduplicated, query-agnostic snapshot, keyed by GitHub's own repo
+ * id; `DiscoverySighting` is one query's relationship to it, keyed by the composite
+ * `"{querySlug}_{repoId}"` id and pointing at the `GithubRepository` row via a `ManyToOne`.
  */
 final class DiscoveryEntitiesTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
     private GithubRepositoryRepository $repos;
+    private DiscoverySightingRepository $sightings;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -32,25 +40,23 @@ final class DiscoveryEntitiesTest extends KernelTestCase
 
         $this->em = $container->get(EntityManagerInterface::class);
         $this->repos = $container->get(GithubRepositoryRepository::class);
+        $this->sightings = $container->get(DiscoverySightingRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_sightings, github_repositories, discovery_runs, discovery_state');
     }
 
-    public function testDiscoveryRepoRoundTripsAndUpdateSightingRewritesInPlace(): void
+    private function buildRepository(int $repoId = 1, int $stars = 10, string $payloadHash = 'hash1'): GithubRepository
     {
-        $repo = new GithubRepository(
-            id: 'kubernetes_1',
-            repoId: 1,
-            querySlug: 'kubernetes',
-            query: 'kubernetes',
+        return new GithubRepository(
+            repoId: $repoId,
             fullName: 'a/one',
             name: 'one',
             owner: 'a',
             description: null,
             homepage: null,
-            stars: 10,
+            stars: $stars,
             forks: 0,
             openIssues: 0,
             language: 'Go',
@@ -62,23 +68,23 @@ final class DiscoveryEntitiesTest extends KernelTestCase
             githubCreatedAt: '2020-01-01T00:00:00Z',
             githubUpdatedAt: '2020-01-01T00:00:00Z',
             githubPushedAt: null,
-            discoveredVia: 'kubernetes stars:>5000',
-            discoveredAt: new \DateTimeImmutable('2026-08-02T00:00:00Z'),
-            payloadHash: 'hash1',
-            firstSeenRunId: 'RUN1',
-            lastSeenRunId: 'RUN1',
+            payloadHash: $payloadHash,
         );
+    }
+
+    public function testGithubRepositoryRoundTripsAndUpdateSnapshotRewritesInPlace(): void
+    {
+        $repo = $this->buildRepository();
 
         $this->repos->save($repo, flush: true);
         $this->em->clear();
 
-        $reloaded = $this->repos->find('kubernetes_1');
+        $reloaded = $this->repos->find(1);
         self::assertNotNull($reloaded);
         self::assertSame(10, $reloaded->getStars());
         self::assertSame('hash1', $reloaded->getPayloadHash());
-        self::assertSame('RUN1', $reloaded->getFirstSeenRunId());
 
-        $reloaded->updateSighting(
+        $reloaded->updateSnapshot(
             fullName: 'a/one',
             name: 'one',
             owner: 'a',
@@ -97,14 +103,47 @@ final class DiscoveryEntitiesTest extends KernelTestCase
             githubUpdatedAt: '2026-01-01T00:00:00Z',
             githubPushedAt: '2026-01-01T00:00:00Z',
             payloadHash: 'hash2',
-            lastSeenRunId: 'RUN2',
         );
         $this->em->flush();
         $this->em->clear();
 
-        $updated = $this->repos->find('kubernetes_1');
+        $updated = $this->repos->find(1);
         self::assertNotNull($updated);
         self::assertSame(42, $updated->getStars());
+        self::assertSame('hash2', $updated->getPayloadHash());
+    }
+
+    public function testDiscoverySightingRoundTripsAndUpdateSightingRewritesPayloadHashKeepingFirstSeen(): void
+    {
+        $repo = $this->buildRepository();
+        $this->repos->save($repo, flush: true);
+
+        $sighting = new DiscoverySighting(
+            id: 'kubernetes_1',
+            repository: $repo,
+            querySlug: 'kubernetes',
+            query: 'kubernetes',
+            discoveredVia: 'kubernetes stars:>5000',
+            discoveredAt: new \DateTimeImmutable('2026-08-02T00:00:00Z'),
+            payloadHash: 'hash1',
+            firstSeenRunId: 'RUN1',
+            lastSeenRunId: 'RUN1',
+        );
+        $this->sightings->save($sighting, flush: true);
+        $this->em->clear();
+
+        $reloaded = $this->sightings->find('kubernetes_1');
+        self::assertNotNull($reloaded);
+        self::assertSame(1, $reloaded->getRepoId());
+        self::assertSame('hash1', $reloaded->getPayloadHash());
+        self::assertSame('RUN1', $reloaded->getFirstSeenRunId());
+
+        $reloaded->updateSighting(payloadHash: 'hash2', lastSeenRunId: 'RUN2');
+        $this->em->flush();
+        $this->em->clear();
+
+        $updated = $this->sightings->find('kubernetes_1');
+        self::assertNotNull($updated);
         self::assertSame('hash2', $updated->getPayloadHash());
         // first_seen_run_id survives an update — first-wins (AGENTS.md §4.1).
         self::assertSame('RUN1', $updated->getFirstSeenRunId());
@@ -113,42 +152,67 @@ final class DiscoveryEntitiesTest extends KernelTestCase
 
     public function testKnownByQuerySlugProjectsOnlyTheResumeFields(): void
     {
-        $repo = new GithubRepository(
+        $repo = $this->buildRepository(repoId: 2, stars: 5, payloadHash: 'hashX');
+        $this->repos->save($repo, flush: true);
+
+        $sighting = new DiscoverySighting(
             id: 'kubernetes_2',
-            repoId: 2,
+            repository: $repo,
             querySlug: 'kubernetes',
             query: 'kubernetes',
-            fullName: 'a/two',
-            name: 'two',
-            owner: 'a',
-            description: null,
-            homepage: null,
-            stars: 5,
-            forks: 0,
-            openIssues: 0,
-            language: null,
-            license: null,
-            topics: [],
-            archived: false,
-            fork: false,
-            defaultBranch: 'main',
-            githubCreatedAt: '2020-01-01T00:00:00Z',
-            githubUpdatedAt: '2020-01-01T00:00:00Z',
-            githubPushedAt: null,
             discoveredVia: 'kubernetes stars:1',
             discoveredAt: new \DateTimeImmutable(),
             payloadHash: 'hashX',
             firstSeenRunId: 'RUN1',
             lastSeenRunId: 'RUN1',
         );
-        $this->repos->save($repo, flush: true);
+        $this->sightings->save($sighting, flush: true);
         $this->em->clear();
 
-        $known = $this->repos->knownByQuerySlug('kubernetes');
+        $known = $this->sightings->knownByQuerySlug('kubernetes');
 
         self::assertSame(['payloadHash' => 'hashX', 'firstSeenRunId' => 'RUN1'], $known[2]);
-        self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
-        self::assertSame(0, $this->repos->countByQuerySlug('other'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('kubernetes'));
+        self::assertSame(0, $this->sightings->countByQuerySlug('other'));
+    }
+
+    /**
+     * The scenario this whole split exists to prevent: two queries finding the same actual
+     * GitHub repo must produce exactly one `GithubRepository` row and one `DiscoverySighting`
+     * row per query — never a second `GithubRepository` row (AGENTS.md §4.1).
+     */
+    public function testTwoQueriesSightingTheSameRepoShareOneGithubRepositoryRow(): void
+    {
+        $repo = $this->buildRepository(repoId: 3, stars: 100, payloadHash: 'shared-hash');
+        $this->repos->save($repo, flush: true);
+
+        $this->sightings->save(new DiscoverySighting(
+            id: 'kubernetes_3',
+            repository: $repo,
+            querySlug: 'kubernetes',
+            query: 'kubernetes',
+            discoveredVia: 'kubernetes stars:>50',
+            discoveredAt: new \DateTimeImmutable(),
+            payloadHash: 'shared-hash',
+            firstSeenRunId: 'RUN1',
+            lastSeenRunId: 'RUN1',
+        ), flush: true);
+        $this->sightings->save(new DiscoverySighting(
+            id: 'cli-tools_3',
+            repository: $repo,
+            querySlug: 'cli-tools',
+            query: 'cli tools',
+            discoveredVia: 'cli tools stars:>50',
+            discoveredAt: new \DateTimeImmutable(),
+            payloadHash: 'shared-hash',
+            firstSeenRunId: 'RUN2',
+            lastSeenRunId: 'RUN2',
+        ), flush: true);
+        $this->em->clear();
+
+        self::assertSame(1, $this->repos->countAll());
+        self::assertSame(1, $this->sightings->countByQuerySlug('kubernetes'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('cli-tools'));
     }
 
     public function testDiscoveryRunOpensRunningAndFinishStampsTheEnding(): void
@@ -262,6 +326,6 @@ final class DiscoveryEntitiesTest extends KernelTestCase
     protected function tearDown(): void
     {
         parent::tearDown();
-        unset($this->em, $this->repos, $this->runs, $this->states);
+        unset($this->em, $this->repos, $this->sightings, $this->runs, $this->states);
     }
 }

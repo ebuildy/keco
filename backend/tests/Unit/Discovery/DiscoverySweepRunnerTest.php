@@ -10,6 +10,7 @@ use App\Discovery\SystemClock;
 use App\Discovery\Windows;
 use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Tests\Unit\Discovery\Search\NullSearchPacer;
 use Doctrine\ORM\EntityManagerInterface;
@@ -27,6 +28,7 @@ final class DiscoverySweepRunnerTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
     private GithubRepositoryRepository $repos;
+    private DiscoverySightingRepository $sightings;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -37,10 +39,11 @@ final class DiscoverySweepRunnerTest extends KernelTestCase
 
         $this->em = $container->get(EntityManagerInterface::class);
         $this->repos = $container->get(GithubRepositoryRepository::class);
+        $this->sightings = $container->get(DiscoverySightingRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_sightings, github_repositories, discovery_runs, discovery_state');
     }
 
     /**
@@ -94,7 +97,7 @@ final class DiscoverySweepRunnerTest extends KernelTestCase
     {
         $search = new GitHubSearchClient($http, new NullSearchPacer(), new SystemClock(), 'test-token');
 
-        return new DiscoverySweepRunner($this->em, $this->repos, $this->runs, $this->states, $search, new SystemClock(), new NullLogger());
+        return new DiscoverySweepRunner($this->em, $this->repos, $this->sightings, $this->runs, $this->states, $search, new SystemClock(), new NullLogger());
     }
 
     public function testSweepsEveryStarBandAndRecordsOneRepoPerBand(): void
@@ -107,7 +110,8 @@ final class DiscoverySweepRunnerTest extends KernelTestCase
         self::assertSame(\count(Windows::STAR_BANDS), $result->reposTotal);
         self::assertSame(\count(Windows::STAR_BANDS), $result->windowsCompleted);
         self::assertSame(0, $result->windowsFailed);
-        self::assertSame(\count(Windows::STAR_BANDS), $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(\count(Windows::STAR_BANDS), $this->sightings->countByQuerySlug('kubernetes'));
+        self::assertSame(\count(Windows::STAR_BANDS), $this->repos->countAll());
 
         $run = $this->runs->findLatestByQuerySlug('kubernetes');
         self::assertNotNull($run);
@@ -159,12 +163,12 @@ final class DiscoverySweepRunnerTest extends KernelTestCase
 
         self::assertFalse($result->resuming);
         self::assertTrue($result->success);
-        self::assertSame(\count(Windows::STAR_BANDS), $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(\count(Windows::STAR_BANDS), $this->sightings->countByQuerySlug('kubernetes'));
     }
 
     protected function tearDown(): void
     {
         parent::tearDown();
-        unset($this->em, $this->repos, $this->runs, $this->states);
+        unset($this->em, $this->repos, $this->sightings, $this->runs, $this->states);
     }
 }
