@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Discovery\Search;
 
+use App\Discovery\Clock;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;

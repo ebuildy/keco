@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Discovery\Search;
 
 use App\Discovery\Search\GitHubSearchClient;
 use App\Discovery\Search\GitHubSearchException;
+use App\Tests\Unit\Discovery\FakeClock;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
