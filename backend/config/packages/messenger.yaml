@@ -8,15 +8,18 @@ framework:
             # async: '%env(MESSENGER_TRANSPORT_DSN)%'
             # failed: 'doctrine://default?queue_name=failed'
             sync: 'sync://'
+            # Discovery's own transport (AGENTS.md §4): one Doctrine-backed queue per bounded
+            # context, no broker. `queue_name` keeps it distinct from crawler/analyzer/projector
+            # transports that will share the same messenger_messages table later.
+            async_discovery: '%env(MESSENGER_TRANSPORT_DSN)%&queue_name=discovery'
 
         routing:
             # Route your messages to the transports
             # 'App\Message\YourMessage': async
+            'App\Discovery\Message\SweepDiscoveryQuery': async_discovery
 
-# when@test:
-#    framework:
-#        messenger:
-#            transports:
-#                # replace with your transport name here (e.g., my_transport: 'in-memory://')
-#                # For more Messenger testing tools, see https://github.com/zenstruck/messenger-test
-#                async: 'in-memory://'
+when@test:
+    framework:
+        messenger:
+            transports:
+                async_discovery: 'in-memory://'
