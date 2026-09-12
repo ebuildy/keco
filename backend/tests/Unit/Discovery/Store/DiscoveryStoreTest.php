@@ -226,6 +226,28 @@ final class DiscoveryStoreTest extends KernelTestCase
         self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
     }
 
+    /**
+     * The counterpart to the entity-level "killed run stays running forever" test: a *graceful*
+     * interruption (what `InterruptHandler` calls on SIGINT/SIGTERM) explicitly marks the run
+     * `interrupted` rather than leaving it stuck — the two behaviors are deliberately different,
+     * and this pins the distinction.
+     */
+    public function testAGracefulInterruptionMarksTheRunInterruptedNotComplete(): void
+    {
+        $store = $this->open();
+        $store->record(self::item(), 'a', new \DateTimeImmutable());
+
+        // What DiscoverySweepRunner's InterruptHandler callback does on SIGINT/SIGTERM.
+        $store->flush();
+        $store->finishRun('interrupted');
+
+        $run = $this->runs->findLatestByQuerySlug('kubernetes');
+        self::assertNotNull($run);
+        self::assertSame('interrupted', $run->getOutcome());
+        self::assertNotNull($run->getEndedAt());
+        self::assertSame(1, $this->repos->countByQuerySlug('kubernetes'));
+    }
+
     protected function tearDown(): void
     {
         parent::tearDown();
