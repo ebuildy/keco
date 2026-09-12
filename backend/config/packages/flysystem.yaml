@@ -1,0 +1,11 @@
+# Read the documentation at https://github.com/thephpleague/flysystem-bundle/blob/master/docs/1-getting-started.md
+#
+# `blob.storage` backs App\Blob\LocalBlobStorage (AGENTS.md §3.1) — README markdown, icon bytes
+# and derived PNGs, the things that don't belong in a jsonb column. Local today; swapping to S3
+# later is a new storage entry here plus a new adapter class, no caller touched.
+flysystem:
+    storages:
+        blob.storage:
+            adapter: 'local'
+            options:
+                directory: '%kernel.project_dir%/var/blob'

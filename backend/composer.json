@@ -11,6 +11,7 @@
         "doctrine/doctrine-bundle": "^3.3",
         "doctrine/doctrine-migrations-bundle": "^4.0",
         "doctrine/orm": "^3.7",
+        "league/flysystem-bundle": "^3.7",
         "meilisearch/meilisearch-php": "^1.17",
         "symfony/console": "8.1.*",
         "symfony/dotenv": "8.1.*",
