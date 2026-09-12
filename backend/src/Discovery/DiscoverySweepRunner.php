@@ -7,14 +7,14 @@ namespace App\Discovery;
 use App\Discovery\Search\GitHubSearchClient;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * discovery — GitHub Search → `DiscoveryRepo`/`DiscoveryRun`/`DiscoveryState` (design
+ * discovery — GitHub Search → `GithubRepository`/`DiscoveryRun`/`DiscoveryState` (design
  * 2026-08-02), ported from `apps/workers/src/discovery/index.ts`'s `runDiscovery`.
  *
  * Thin by construction, same as the TS original: the window algebra is {@see Windows}, the
@@ -26,7 +26,7 @@ final class DiscoverySweepRunner
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
-        private readonly DiscoveryRepoRepository $repos,
+        private readonly GithubRepositoryRepository $repos,
         private readonly DiscoveryRunRepository $runs,
         private readonly DiscoveryStateRepository $states,
         private readonly GitHubSearchClient $search,

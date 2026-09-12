@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Discovery\Console;
 
-use App\Entity\DiscoveryRepo;
+use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -131,7 +131,7 @@ final class DiscoveryListCommand extends Command
 
         $io->table(
             ['stars', 'repo', 'language', 'pushed at'],
-            array_map(static fn (DiscoveryRepo $repo): array => [
+            array_map(static fn (GithubRepository $repo): array => [
                 (string) $repo->getStars(),
                 $repo->getFullName(),
                 $repo->getLanguage() ?? '—',
@@ -173,7 +173,7 @@ final class DiscoveryListCommand extends Command
     /**
      * @return array<string, mixed>
      */
-    private static function repoToArray(DiscoveryRepo $repo): array
+    private static function repoToArray(GithubRepository $repo): array
     {
         return [
             'id' => $repo->getId(),

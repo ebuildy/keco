@@ -46,7 +46,7 @@ final class QuerySlug
     }
 
     /**
-     * Underscore, never a colon: `DiscoveryRepo::id` is `[A-Za-z0-9_-]` only. Slugs contain no
+     * Underscore, never a colon: `GithubRepository::id` is `[A-Za-z0-9_-]` only. Slugs contain no
      * underscores and repo ids are numeric, so `{slug}_{id}` cannot collide between two queries.
      */
     public static function repoId(string $querySlug, int $repoId): string

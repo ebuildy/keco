@@ -8,10 +8,10 @@ use App\Discovery\Clock;
 use App\Discovery\QuerySlug;
 use App\Discovery\Search\SearchItem;
 use App\Discovery\SweepState;
-use App\Entity\DiscoveryRepo;
+use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
 use App\Entity\DiscoveryState;
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -79,7 +79,7 @@ final class DiscoveryStore
      */
     private function __construct(
         private readonly EntityManagerInterface $em,
-        private readonly DiscoveryRepoRepository $repos,
+        private readonly GithubRepositoryRepository $repos,
         private readonly Clock $clock,
         private readonly string $query,
         string $querySlug,
@@ -103,7 +103,7 @@ final class DiscoveryStore
 
     public static function open(
         EntityManagerInterface $em,
-        DiscoveryRepoRepository $repos,
+        GithubRepositoryRepository $repos,
         DiscoveryRunRepository $runs,
         DiscoveryStateRepository $states,
         Clock $clock,
@@ -121,7 +121,7 @@ final class DiscoveryStore
             $repos->removeByQuerySlug($querySlug);
             $states->removeByQuerySlug($querySlug);
             // DQL bulk deletes run at the SQL level and bypass the UnitOfWork, so any
-            // already-managed DiscoveryState/DiscoveryRepo for this slug would otherwise still
+            // already-managed DiscoveryState/GithubRepository for this slug would otherwise still
             // answer from the identity map as if the rows still existed.
             $em->clear();
         }
@@ -289,11 +289,11 @@ final class DiscoveryStore
         }
     }
 
-    private function buildEntity(PendingSighting $sighting): DiscoveryRepo
+    private function buildEntity(PendingSighting $sighting): GithubRepository
     {
         $item = $sighting->item;
 
-        return new DiscoveryRepo(
+        return new GithubRepository(
             id: $sighting->id,
             repoId: $item->id,
             querySlug: $this->querySlug,
@@ -323,7 +323,7 @@ final class DiscoveryStore
         );
     }
 
-    private function applySighting(DiscoveryRepo $entity, PendingSighting $sighting): void
+    private function applySighting(GithubRepository $entity, PendingSighting $sighting): void
     {
         $item = $sighting->item;
         $entity->updateSighting(

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Entity;
 
-use App\Entity\DiscoveryRepo;
+use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
 use App\Entity\DiscoveryState;
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -21,7 +21,7 @@ use Symfony\Component\Uid\Ulid;
 final class DiscoveryEntitiesTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
-    private DiscoveryRepoRepository $repos;
+    private GithubRepositoryRepository $repos;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -31,16 +31,16 @@ final class DiscoveryEntitiesTest extends KernelTestCase
         $container = static::getContainer();
 
         $this->em = $container->get(EntityManagerInterface::class);
-        $this->repos = $container->get(DiscoveryRepoRepository::class);
+        $this->repos = $container->get(GithubRepositoryRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_repos, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
     }
 
     public function testDiscoveryRepoRoundTripsAndUpdateSightingRewritesInPlace(): void
     {
-        $repo = new DiscoveryRepo(
+        $repo = new GithubRepository(
             id: 'kubernetes_1',
             repoId: 1,
             querySlug: 'kubernetes',
@@ -113,7 +113,7 @@ final class DiscoveryEntitiesTest extends KernelTestCase
 
     public function testKnownByQuerySlugProjectsOnlyTheResumeFields(): void
     {
-        $repo = new DiscoveryRepo(
+        $repo = new GithubRepository(
             id: 'kubernetes_2',
             repoId: 2,
             querySlug: 'kubernetes',

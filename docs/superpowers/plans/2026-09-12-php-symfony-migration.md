@@ -91,7 +91,7 @@ real handler, any controller, EasyAdmin, security, actually calling GitHub or Me
 
 **Scope IN:** everything in AGENTS.md §4.1, ported from `apps/workers/src/discovery`.
 
-- Entities: `DiscoveryRepo`, `DiscoveryRun`, `DiscoveryState` + migration.
+- Entities: `GithubRepository`, `DiscoveryRun`, `DiscoveryState` + migration.
 - The window/plan/sweep algebra (`windows.ts`/`plan.ts`/`sweep.ts` today) as pure PHP classes
   under `Discovery/`, unit-testable with no Postgres — ported test-by-test from the existing TS
   test suite so behavior parity is provable, not assumed.
@@ -101,14 +101,14 @@ real handler, any controller, EasyAdmin, security, actually calling GitHub or Me
 - Console commands: `app:discovery:sweep`, `app:discovery:list`, `app:discovery:reset`, matching
   today's `kecoctl discovery *` flag surface (`--fresh`, `--limit`, `--query`).
 
-**Scope OUT:** the crawler reading `DiscoveryRepo` (phase 2); anything in `Crawler`/`Analyzer`.
+**Scope OUT:** the crawler reading `GithubRepository` (phase 2); anything in `Crawler`/`Analyzer`.
 
 **Dependencies:** phase 0's `Journal`, `Taxonomy` (unused here, but the namespace convention),
 and Postgres migrations tooling.
 
 **Acceptance criteria:**
 - [ ] Running `app:discovery:sweep --query kubernetes --limit 3` against a fresh Postgres and the
-      real GitHub Search API produces a `DiscoveryRepo` set that matches (same repo count, same
+      real GitHub Search API produces a `GithubRepository` set that matches (same repo count, same
       windows completed) a same-parameters run of today's `mise run discovery:sweep` — the parity
       check named in "Ground rules."
 - [ ] `--fresh` deletes and re-populates as AGENTS.md §4.1 describes; `--limit` overshoots at the
@@ -131,7 +131,7 @@ and Postgres migrations tooling.
   reasoning unchanged.
 - Skip rules (forks, archived+stale) decided from `raw_payload` alone, `JournalEvent{RepoSkipped}`
   with a reason.
-- `Crawler\Message\CrawlRepo` + handler, dispatched per `DiscoveryRepo` row (batched, not one
+- `Crawler\Message\CrawlRepo` + handler, dispatched per `GithubRepository` row (batched, not one
   dispatch per repo per tick — match today's `--limit` batching behavior).
 - Console commands: `app:repo:crawl`, `app:repo:icon`, `app:repo:history`.
 
@@ -139,7 +139,7 @@ and Postgres migrations tooling.
 until phase 3 exists — a `RepoFetched{changed: true}` event is still appended even though nothing
 yet consumes it to analyze.
 
-**Dependencies:** phase 1's `DiscoveryRepo` table as the worklist; phase 0's `Blob`, `Journal`.
+**Dependencies:** phase 1's `GithubRepository` table as the worklist; phase 0's `Blob`, `Journal`.
 
 **Acceptance criteria:**
 - [ ] Crawling the same 50-repo sample with the PHP crawler and with `mise run repo:crawl`

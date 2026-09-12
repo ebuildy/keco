@@ -7,7 +7,7 @@ namespace App\Discovery\Store;
 use App\Discovery\Search\SearchItem;
 
 /**
- * The change signal that gates a `DiscoveryRepo` rewrite (AGENTS.md §4.1: "a window whose result
+ * The change signal that gates a `GithubRepository` rewrite (AGENTS.md §4.1: "a window whose result
  * set is byte-identical is not rewritten"). Ported from `store/collections.ts`'s `toDetail`.
  *
  * Deliberately excludes `discoveredVia`/`discoveredAt`: the first is provenance, not content, and
