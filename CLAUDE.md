@@ -510,11 +510,19 @@ topics for `domains`, SPDX ids for `license_class`) and optional `hidden`.
 
 **Unknown is a real answer.** Every family whose classification can fail declares `unknown` and
 defaults to it. Absence of evidence never becomes a positive claim — the same rule §4.3 applies to
-a missing Scorecard. `unknown` values are hidden from the UI. `governance` in particular will
-report `unknown` for most real foundation projects (etcd-io, containerd, helm, prometheus,
-cilium) until the CNCF landscape crawler ships a cached seed — an org account alone proves
-nothing. `maturity` checks `archived` before the CNCF level, so an archived CNCF-graduated
-project reports `archived`; see `docs/taxonomy.md` for why.
+a missing Scorecard. `unknown` values are hidden from the UI. `governance` and `maturity` are
+seeded from the CNCF Landscape (`packages/signals/src/providers/cncf-landscape.ts`, a weekly
+bulk fetch of `cncf/landscape`'s `landscape.yml`): a repo hosted at any level reports
+`cncf-graduated`/`cncf-incubating`/`cncf-sandbox` and `foundation` from that seed — real
+foundation projects (etcd-io, containerd, helm, prometheus, cilium) no longer default to
+`unknown` just because an org account alone proves nothing. An Organization-owned repo the
+Landscape doesn't list still defaults to `unknown` governance (a User-owned repo reports
+`individual`, and a handful of hardcoded foundation orgs report `foundation`, regardless of
+Landscape membership); maturity's fallback for an unlisted repo is age-based bands
+(`established`/`young`/`dormant`), not `unknown` — a positive CNCF claim requires the seed, but
+the absence of one is not the common route to `unknown` for either family. `maturity` checks
+`archived` before the CNCF level, so an archived CNCF-graduated project reports `archived`; see
+`docs/taxonomy.md` for why.
 
 **The vocabulary is data, so the types are `string`.** `Kind` and `Domain` are not literal
 unions; validation is a zod refinement against the loaded file. The compile-time check is replaced
@@ -613,6 +621,8 @@ invoked ad-hoc. `mise tasks` lists them all; the table below is the map, not the
 | `mise run repo:history -- --limit 20` | The crawl run history: fetched, skipped, failed, GitHub quota spent |
 | `mise run repo:analyze` | Classify everything with a changed `content_hash` or an expired signal TTL |
 | `mise run repo:analyze -- --force-refresh scorecard` | Ignore TTL for one provider |
+| `mise run repo:analyze -- --repo owner/name` | Analyze one named repo directly, bypassing the journal — reads its cached `_fetch.json` for the last `content_hash`, appends `RepoAnalyzed`, never touches the checkpoint |
+| `mise run repo:analyze -- --min-confidence 0.7` | Re-analyze every existing analysis below the threshold, a manual maintenance sweep over `analysis/**` — not part of the continuous journal loop |
 | `mise run project` | Project analyses into Meilisearch |
 | `mise run rebuild` | Full offline replay → new index → alias swap, zero GitHub calls |
 | `mise run checkpoint:reset -- --consumer analyzer` | Reset a checkpoint |

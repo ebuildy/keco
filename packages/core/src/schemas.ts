@@ -25,10 +25,26 @@ export const ScorecardSignal = z.object({
 
 export const Signals = z.object({
   scorecard: ScorecardSignal.nullable().default(null),
-  osv: z.object({ open_vulns: z.number().int().min(0), fetched_at: z.iso.datetime() }).nullable().default(null),
+  osv: z
+    .object({ open_vulns: z.number().int().min(0), fetched_at: z.iso.datetime() })
+    .nullable()
+    .default(null),
   dependents: z.number().int().min(0).nullable().default(null),
 });
 export type Signals = z.infer<typeof Signals>;
+
+/**
+ * A CNCF Landscape entry for one repo (AGENTS.md §4.2, §6). Built by
+ * `packages/signals/src/providers/cncf-landscape.ts`, consumed by
+ * `packages/analyze/src/rules/derived.ts`'s `classifyDerived`. Lives in `@keco/core` — not
+ * `@keco/signals` or `packages/analyze` — because both of those packages need the same shape
+ * without either importing the other.
+ */
+export const LandscapeEntry = z.object({
+  cncf_level: z.enum(['graduated', 'incubating', 'sandbox']).nullable(),
+  org_type: z.enum(['foundation', 'vendor', 'community']).nullable(),
+});
+export type LandscapeEntry = z.infer<typeof LandscapeEntry>;
 
 /** Which pass settled the classification (§4.2). Cheapest first: rules → signals → llm. */
 export const AnalysisMethod = z.enum(['rules', 'signals', 'llm']);

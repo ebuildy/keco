@@ -2,6 +2,7 @@ import type { Cache } from '@keco/cache';
 import { z } from 'zod';
 import { DAY, Provider } from '../provider';
 
+export * from './cncf-landscape';
 export * from './scorecard';
 
 /**
@@ -28,7 +29,9 @@ export const depsDevProvider = (cache: Cache) =>
       timeoutMs: 8_000,
       schema: DepsDevResponse,
       // key is `owner/repo`
-      request: (key) => ({ url: `https://api.deps.dev/v3/projects/github.com%2F${key.replace('/', '%2F')}` }),
+      request: (key) => ({
+        url: `https://api.deps.dev/v3/projects/github.com%2F${key.replace('/', '%2F')}`,
+      }),
     },
     cache,
   );
@@ -38,6 +41,9 @@ export const OsvResponse = z.object({
   vulns: z.array(z.object({ id: z.string(), summary: z.string().optional() })).default([]),
 });
 
+/** `ecosystem::name` — OSV needs both to query precisely; see packages/analyze's package-identity.ts. */
+export const encodeOsvKey = (ecosystem: string, name: string): string => `${ecosystem}::${name}`;
+
 export const osvProvider = (cache: Cache) =>
   new Provider(
     {
@@ -45,15 +51,21 @@ export const osvProvider = (cache: Cache) =>
       ttlSeconds: 3 * DAY,
       timeoutMs: 8_000,
       schema: OsvResponse,
-      // key is a package name; the analyzer supplies it from the manifests it parsed.
-      request: (key) => ({
-        url: 'https://api.osv.dev/v1/query',
-        init: {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ package: { name: key } }),
-        },
-      }),
+      // key is `ecosystem::name` (see encodeOsvKey). The analyzer derives both from the one
+      // manifest it managed to parse — a bare repo name is not enough to query OSV precisely.
+      request: (key) => {
+        const [ecosystem, ...rest] = key.split('::');
+        const name = rest.join('::');
+        if (!ecosystem || !name) return null;
+        return {
+          url: 'https://api.osv.dev/v1/query',
+          init: {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ package: { name, ecosystem } }),
+          },
+        };
+      },
     },
     cache,
   );
@@ -85,11 +97,28 @@ export const brewProvider = (cache: Cache) =>
   );
 
 /** Artifact Hub — proof that a chart / plugin / operator is actually published. */
-export const ArtifactHubResponse = z.object({
-  packages: z
-    .array(z.object({ name: z.string(), repository: z.object({ name: z.string() }).partial() }))
-    .default([]),
+export const ArtifactHubPackage = z.object({
+  name: z.string(),
+  normalized_name: z.string().optional(),
+  official: z.boolean().optional(),
+  stars: z.number().optional(),
+  repository: z.object({ name: z.string(), url: z.string(), kind: z.number() }).partial(),
 });
+export type ArtifactHubPackage = z.infer<typeof ArtifactHubPackage>;
+
+export const ArtifactHubResponse = z.object({
+  packages: z.array(ArtifactHubPackage).default([]),
+});
+export type ArtifactHubResponse = z.infer<typeof ArtifactHubResponse>;
+
+/**
+ * Repository `kind` codes for the registries this project proves an install command from.
+ * Confirmed live: `GET /api/v1/repositories/search?kind=5` returns krew-index at kind 5;
+ * a Helm search (cert-manager, argo-cd, …) returns kind 0. Artifact Hub also indexes OLM
+ * operators, Falco rules, OPA policies, etc. — deliberately not mapped here (see the plan's
+ * scope note): getting an OLM install command right needs more than a search hit.
+ */
+export const ARTIFACTHUB_REPOSITORY_KIND = { helm: 0, krew: 5 } as const;
 
 export const artifactHubProvider = (cache: Cache) =>
   new Provider(
@@ -107,13 +136,7 @@ export const artifactHubProvider = (cache: Cache) =>
   );
 
 export type ProviderName =
-  | 'scorecard'
-  | 'depsdev'
-  | 'osv'
-  | 'brew'
-  | 'artifacthub'
-  | 'krew'
-  | 'operatorhub';
+  'scorecard' | 'depsdev' | 'osv' | 'brew' | 'artifacthub' | 'krew' | 'operatorhub';
 
 export const PROVIDER_NAMES: ProviderName[] = [
   'scorecard',

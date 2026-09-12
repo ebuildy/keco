@@ -40,17 +40,29 @@ Everything needed for Keco to be genuinely useful once. No accounts, no curation
   Registry seeds (CNCF landscape, krew index, Artifact Hub, OperatorHub, curated `awesome-*`)
   fed this worklist directly until `docs/adr/0004-remove-crawler-seeds.md` — see "Known gaps and
   approximations" below for where that data goes instead.
-- ⬜ **analyzer pass 1** — local rules over cached payloads, each new rule shipping with a
-  fixture that proves it.
-- ⬜ **analyzer pass 2** — Scorecard, deps.dev, OSV, Homebrew, krew, Artifact Hub behind the TTL
-  cache; a dead provider degrades to `null` + `partial_signals[]` and never stalls the pipeline.
-- ⬜ **analyzer pass 3** — LLM only for what rules and signals left ambiguous; structured output
-  validated by `AnalysisSchema`; one retry, then an honest low-confidence fallback.
+- ✅ **analyzer pass 1** — local rules over cached payloads (`kind`, `domains`, `runtime`,
+  `license_class`, `openness`, `maturity`, `governance`, `k8s_relevance`), each with a fixture
+  in `packages/analyze/fixtures` proving it.
+- ✅ **analyzer pass 2** — Scorecard, deps.dev, OSV, Homebrew and CNCF Landscape behind the TTL
+  cache; Artifact Hub proves `helm` and `krew` install methods from an exact, case-insensitive
+  name match, and CNCF Landscape membership finally feeds `maturity`/`governance` instead of a
+  hardcoded `null` — closing the gap §6 used to document (etcd-io, containerd, helm, prometheus,
+  cilium now report `cncf-graduated`/`foundation` from an actual seed, not `unknown`). A dead
+  provider degrades to `null` + `partial_signals[]` and never stalls the pipeline. Known gaps,
+  deliberately deferred rather than missed: krew's own index and OperatorHub are not separate
+  providers (Artifact Hub already indexes krew plugins; a safe, general OLM install command
+  needs more than a search hit), and the "GitHub extra" signal (contributors, dependents,
+  community profile, sharing the crawler's quota) is not wired.
+- ✅ **analyzer pass 3** — LLM only for what rules and signals left ambiguous (`kind`,
+  `domains`, `summary`, `confidence`, `needs_review` only — never `runtime` or the four
+  cached-metadata families); structured output forced via Anthropic tool-use and validated
+  against the taxonomy itself; one retry, then an honest low-confidence fallback.
 - ⬜ **projector** — the four score axes, quality renormalised over available signals, momentum
   z-scored across the corpus; batched upserts; `repos_state` written from the same events.
-- ⬜ **re-analysis triggers** — `content_hash` change *or* the oldest signal's TTL expiring.
-  Signal freshness drifts from repo freshness; a repo unchanged for a year still needs its
-  Scorecard refreshed.
+- ⬜ **re-analysis triggers** — `content_hash` change is wired (the journal-driven default
+  path); the oldest signal's TTL expiring is not yet a trigger on its own. Signal freshness
+  drifts from repo freshness; a repo unchanged for a year still needs its Scorecard (and CNCF
+  Landscape) entry refreshed weekly.
 
 ### Read side
 
