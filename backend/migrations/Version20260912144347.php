@@ -8,26 +8,35 @@ use Doctrine\DBAL\Schema\Schema;
 use Doctrine\Migrations\AbstractMigration;
 
 /**
- * Discovery write model (AGENTS.md §4.1): `github_repositories`/`discovery_runs`/`discovery_state`,
- * replacing the TS `DiscoveryStore`'s three DataStore collections (`github_repositories` was
- * `discovery_repos` there — renamed here for what the row is, not which stage wrote it). Also
- * creates `messenger_messages`, the Doctrine transport table Symfony Messenger needs for
- * `async_discovery` (`MESSENGER_TRANSPORT_DSN` is configured `auto_setup=0`, so schema changes
- * go through migrations here too, never `messenger:setup-transports`'s own DDL) — this is the
- * first bounded context to need a real transport, so it's the natural place to add the table.
+ * Discovery write model (AGENTS.md §4.1): `github_repositories`/`discovery_sightings`/
+ * `discovery_runs`/`discovery_state`, replacing the TS `DiscoveryStore`'s three DataStore
+ * collections. `github_repositories` is the unique record of a GitHub repository — one row per
+ * actual repo, globally, keyed by GitHub's own numeric repo id — and `discovery_sightings` is
+ * the `(query_slug, repo_id)` relationship a query has to it, keyed by the same composite id
+ * scheme the single pre-split table used to use directly. Also creates `messenger_messages`,
+ * the Doctrine transport table Symfony Messenger needs for `async_discovery`
+ * (`MESSENGER_TRANSPORT_DSN` is configured `auto_setup=0`, so schema changes go through
+ * migrations here too, never `messenger:setup-transports`'s own DDL) — this is the first bounded
+ * context to need a real transport, so it's the natural place to add the table.
+ *
+ * Edited in place rather than followed by a corrective migration: this migration has not shipped
+ * anywhere, so there is no environment whose history needs to be preserved.
  */
 final class Version20260912144347 extends AbstractMigration
 {
     public function getDescription(): string
     {
-        return 'Discovery write model (github_repositories/discovery_runs/discovery_state) and the messenger_messages transport table.';
+        return 'Discovery write model (github_repositories/discovery_sightings/discovery_runs/discovery_state) and the messenger_messages transport table.';
     }
 
     public function up(Schema $schema): void
     {
-        $this->addSql('CREATE TABLE github_repositories (id VARCHAR(140) NOT NULL, repo_id INT NOT NULL, query_slug VARCHAR(100) NOT NULL, query VARCHAR(255) NOT NULL, full_name VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL, owner VARCHAR(255) NOT NULL, description TEXT DEFAULT NULL, homepage VARCHAR(500) DEFAULT NULL, stars INT NOT NULL, forks INT NOT NULL, open_issues INT NOT NULL, language VARCHAR(100) DEFAULT NULL, license VARCHAR(100) DEFAULT NULL, topics JSON NOT NULL, archived BOOLEAN NOT NULL, fork BOOLEAN NOT NULL, default_branch VARCHAR(255) NOT NULL, github_created_at VARCHAR(40) NOT NULL, github_updated_at VARCHAR(40) NOT NULL, github_pushed_at VARCHAR(40) DEFAULT NULL, discovered_via VARCHAR(500) NOT NULL, discovered_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, payload_hash VARCHAR(32) NOT NULL, first_seen_run_id VARCHAR(32) NOT NULL, last_seen_run_id VARCHAR(32) NOT NULL, PRIMARY KEY (id))');
-        $this->addSql('CREATE INDEX idx_github_repositories_query_slug ON github_repositories (query_slug)');
+        $this->addSql('CREATE TABLE github_repositories (repo_id INT NOT NULL, full_name VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL, owner VARCHAR(255) NOT NULL, description TEXT DEFAULT NULL, homepage VARCHAR(500) DEFAULT NULL, stars INT NOT NULL, forks INT NOT NULL, open_issues INT NOT NULL, language VARCHAR(100) DEFAULT NULL, license VARCHAR(100) DEFAULT NULL, topics JSON NOT NULL, archived BOOLEAN NOT NULL, fork BOOLEAN NOT NULL, default_branch VARCHAR(255) NOT NULL, github_created_at VARCHAR(40) NOT NULL, github_updated_at VARCHAR(40) NOT NULL, github_pushed_at VARCHAR(40) DEFAULT NULL, payload_hash VARCHAR(32) NOT NULL, PRIMARY KEY (repo_id))');
         $this->addSql('CREATE INDEX idx_github_repositories_stars ON github_repositories (stars)');
+        $this->addSql('CREATE TABLE discovery_sightings (id VARCHAR(140) NOT NULL, repo_id INT NOT NULL, query_slug VARCHAR(100) NOT NULL, query VARCHAR(255) NOT NULL, discovered_via VARCHAR(500) NOT NULL, discovered_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, payload_hash VARCHAR(32) NOT NULL, first_seen_run_id VARCHAR(32) NOT NULL, last_seen_run_id VARCHAR(32) NOT NULL, PRIMARY KEY (id))');
+        $this->addSql('CREATE INDEX idx_discovery_sightings_query_slug ON discovery_sightings (query_slug)');
+        $this->addSql('CREATE INDEX IDX_35FCE500BD359B2D ON discovery_sightings (repo_id)');
+        $this->addSql('ALTER TABLE discovery_sightings ADD CONSTRAINT FK_35FCE500BD359B2D FOREIGN KEY (repo_id) REFERENCES github_repositories (repo_id) NOT DEFERRABLE INITIALLY IMMEDIATE');
         $this->addSql('CREATE TABLE discovery_runs (id UUID NOT NULL, query VARCHAR(255) NOT NULL, query_slug VARCHAR(100) NOT NULL, started_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, ended_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, duration_ms BIGINT DEFAULT NULL, outcome VARCHAR(16) NOT NULL, fresh BOOLEAN NOT NULL, run_limit INT DEFAULT NULL, pages_fetched INT NOT NULL, dropped INT NOT NULL, repos_new INT NOT NULL, repos_changed INT NOT NULL, repos_unchanged INT NOT NULL, windows_completed INT NOT NULL, windows_failed INT NOT NULL, sweep_repos_total INT NOT NULL, sweep_windows_pending INT NOT NULL, stopped_at_limit BOOLEAN NOT NULL, failed_windows JSON NOT NULL, PRIMARY KEY (id))');
         $this->addSql('CREATE INDEX idx_discovery_runs_query_slug ON discovery_runs (query_slug)');
         $this->addSql('CREATE INDEX idx_discovery_runs_outcome ON discovery_runs (outcome)');
@@ -43,6 +52,7 @@ final class Version20260912144347 extends AbstractMigration
 
     public function down(Schema $schema): void
     {
+        $this->addSql('DROP TABLE discovery_sightings');
         $this->addSql('DROP TABLE github_repositories');
         $this->addSql('DROP TABLE discovery_runs');
         $this->addSql('DROP TABLE discovery_state');

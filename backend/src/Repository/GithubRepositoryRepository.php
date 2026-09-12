@@ -9,6 +9,11 @@ use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
+ * The global, deduplicated corpus: one row per actual GitHub repo, full stop. No query
+ * provenance here — that lives in {@see DiscoverySightingRepository}. This is deliberately the
+ * shape the crawler's future worklist read needs: "give me every `GithubRepository`", a plain
+ * read with no join for the common, unscoped case (AGENTS.md §4.1/§4.2).
+ *
  * @extends ServiceEntityRepository<GithubRepository>
  */
 class GithubRepositoryRepository extends ServiceEntityRepository
@@ -26,57 +31,30 @@ class GithubRepositoryRepository extends ServiceEntityRepository
         }
     }
 
-    public function countByQuerySlug(string $querySlug): int
-    {
-        /** @var int $count */
-        $count = $this->createQueryBuilder('r')
-            ->select('COUNT(r.id)')
-            ->andWhere('r.querySlug = :slug')
-            ->setParameter('slug', $querySlug)
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        return $count;
-    }
-
     /**
-     * The resume path's known-repo map: three fields per row, because streaming full documents
-     * to rebuild a hash map is the one avoidable cost at startup (AGENTS.md §4.1's TS
-     * equivalent, `KnownRepoSchema`).
+     * @param list<int> $repoIds
      *
-     * @return array<int, array{payloadHash: string, firstSeenRunId: string}> keyed by repoId
+     * @return array<int, GithubRepository> keyed by repoId
      */
-    public function knownByQuerySlug(string $querySlug): array
+    public function findByRepoIds(array $repoIds): array
     {
-        $rows = $this->createQueryBuilder('r')
-            ->select('r.repoId AS repoId', 'r.payloadHash AS payloadHash', 'r.firstSeenRunId AS firstSeenRunId')
-            ->andWhere('r.querySlug = :slug')
-            ->setParameter('slug', $querySlug)
-            ->getQuery()
-            ->getArrayResult();
-
-        $known = [];
-        foreach ($rows as $row) {
-            /** @var array{repoId: int, payloadHash: string, firstSeenRunId: string} $row */
-            $known[$row['repoId']] = ['payloadHash' => $row['payloadHash'], 'firstSeenRunId' => $row['firstSeenRunId']];
+        if ([] === $repoIds) {
+            return [];
         }
 
-        return $known;
-    }
-
-    /**
-     * @return list<GithubRepository>
-     */
-    public function findByQuerySlug(string $querySlug, int $limit, string $sortField = 'stars', string $sortDirection = 'DESC'): array
-    {
-        /** @var list<GithubRepository> */
-        return $this->createQueryBuilder('r')
-            ->andWhere('r.querySlug = :slug')
-            ->setParameter('slug', $querySlug)
-            ->orderBy('r.'.$sortField, $sortDirection)
-            ->setMaxResults($limit)
+        $rows = $this->createQueryBuilder('r')
+            ->andWhere('r.repoId IN (:ids)')
+            ->setParameter('ids', $repoIds)
             ->getQuery()
             ->getResult();
+
+        $byId = [];
+        foreach ($rows as $row) {
+            /** @var GithubRepository $row */
+            $byId[$row->getRepoId()] = $row;
+        }
+
+        return $byId;
     }
 
     /**
@@ -96,20 +74,34 @@ class GithubRepositoryRepository extends ServiceEntityRepository
     {
         /** @var int $count */
         $count = $this->createQueryBuilder('r')
-            ->select('COUNT(r.id)')
+            ->select('COUNT(r.repoId)')
             ->getQuery()
             ->getSingleScalarResult();
 
         return $count;
     }
 
-    /** Deletes every row for one query — `--fresh` and `discovery:reset`'s corpus wipe. */
-    public function removeByQuerySlug(string $querySlug): int
+    /**
+     * Deletes every repo in `$repoIds` that no `DiscoverySighting` references anywhere — a repo
+     * no query currently sees isn't part of any corpus (AGENTS.md §4.1). Never deletes a repo
+     * another query still has a live sighting on: the caller passes only the repo ids affected
+     * by the sighting deletion that just ran, and this method re-checks each one against
+     * `discovery_sightings` before removing it.
+     *
+     * @param list<int> $repoIds candidate repo ids — typically the ones just orphaned by a
+     *                           sighting deletion, not the whole corpus
+     */
+    public function removeOrphans(array $repoIds): int
     {
+        if ([] === $repoIds) {
+            return 0;
+        }
+
         return $this->createQueryBuilder('r')
             ->delete()
-            ->andWhere('r.querySlug = :slug')
-            ->setParameter('slug', $querySlug)
+            ->andWhere('r.repoId IN (:ids)')
+            ->andWhere('NOT EXISTS (SELECT 1 FROM App\Entity\DiscoverySighting s WHERE s.repository = r)')
+            ->setParameter('ids', $repoIds)
             ->getQuery()
             ->execute();
     }
