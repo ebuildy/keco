@@ -27,6 +27,11 @@ export default ts.config(
       '**/dist/**',
       '**/coverage/**',
       'packages/analyze/fixtures/**',
+      // The Symfony/PHP monolith (docs/adr/0005) — Composer/PHP code, not this toolchain's
+      // concern. `backend/vendor/**` in particular ships raw JS assets from PHP dependencies
+      // (PHPUnit's coverage HTML templates, Symfony's error-handler pages) that aren't ours to
+      // lint.
+      'backend/**',
     ],
   },
   js.configs.recommended,
