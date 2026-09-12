@@ -11,7 +11,7 @@ use App\Discovery\Search\SearchItem;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
 use App\Discovery\SystemClock;
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -26,7 +26,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 final class DiscoveryCommandsTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
-    private DiscoveryRepoRepository $repos;
+    private GithubRepositoryRepository $repos;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -36,11 +36,11 @@ final class DiscoveryCommandsTest extends KernelTestCase
         $container = static::getContainer();
 
         $this->em = $container->get(EntityManagerInterface::class);
-        $this->repos = $container->get(DiscoveryRepoRepository::class);
+        $this->repos = $container->get(GithubRepositoryRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_repos, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
     }
 
     private function seedOneRepo(string $query, int $stars): void

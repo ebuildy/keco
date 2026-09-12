@@ -125,7 +125,7 @@ Structured, queryable write-model data — the direct replacement for `repos/**`
 | `Analysis` | `analysis/{owner}/{repo}.json` | `kind`, `domains[]`, `runtime`, `license_class`, `openness`, `maturity`, `governance`, `confidence`, `method`, `model`, `signals jsonb`, `signals_used[]`, `partial_signals[]`, `content_hash`, `analyzed_at`. |
 | `JournalEvent` | `journal/{date}/{ulid}.json` | `id` (ULID, PK, sortable), `type`, `repo` (nullable), `payload jsonb`, `created_at`. Append-only; never updated or deleted (§2 rule 7). An indexed range query (`WHERE id > :checkpoint ORDER BY id LIMIT :n`) replaces the old directory-of-files-by-ULID scan — strictly the same "never LIST to find work" contract, backed by a real index instead of a convention. |
 | `Checkpoint` | `checkpoints/{consumer}.json` | `consumer_name` (PK), `last_event_id`, `updated_at`. |
-| `DiscoveryRepo` | `discovery_repos` (Meilisearch) | Discovery's corpus. |
+| `GithubRepository` | `discovery_repos` (Meilisearch) | Discovery's corpus. |
 | `DiscoveryRun` | `discovery_runs` (Meilisearch) | One row per sweep process; `outcome` (`running`/`complete`/`failed`/`interrupted`) exactly as before. |
 | `DiscoveryState` | `discovery_state` (Meilisearch) | Resume position, one per query. |
 | `CrawlHistoryEntry` | `crawl_history` (Meilisearch) | One row per crawl run. |
@@ -164,9 +164,9 @@ matching the original event types one-to-one:
 
 ```
 SweepDiscoveryQuery (scheduled)
-  → DiscoverySweepHandler → upserts DiscoveryRepo rows, records DiscoveryRun/DiscoveryState
+  → DiscoverySweepHandler → upserts GithubRepository rows, records DiscoveryRun/DiscoveryState
 
-CrawlRepo(owner, name)                          [dispatched per DiscoveryRepo, batched]
+CrawlRepo(owner, name)                          [dispatched per GithubRepository, batched]
   → CrawlRepoHandler → fetches GitHub (conditional), writes Repo row + blob store,
     appends JournalEvent{type: RepoFetched, changed}
     → if changed: dispatches AnalyzeRepo(owner, name)

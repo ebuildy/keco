@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Discovery\Console;
 
 use App\Discovery\QuerySlug;
-use App\Entity\DiscoveryRepo;
+use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -26,7 +26,7 @@ final class DiscoveryExplorer
 
     public function __construct(
         private readonly EntityManagerInterface $em,
-        private readonly DiscoveryRepoRepository $repos,
+        private readonly GithubRepositoryRepository $repos,
         private readonly DiscoveryRunRepository $runs,
         private readonly DiscoveryStateRepository $states,
     ) {
@@ -110,7 +110,7 @@ final class DiscoveryExplorer
     }
 
     /**
-     * @return ListResult<DiscoveryRepo>
+     * @return ListResult<GithubRepository>
      */
     public function listRepos(?string $query, int $limit, ?string $sort): ListResult
     {
@@ -164,7 +164,7 @@ final class DiscoveryExplorer
         }
 
         // These are DQL bulk deletes, which run at the SQL level and bypass the UnitOfWork — a
-        // DiscoveryState/DiscoveryRepo already managed from an earlier find() would otherwise
+        // DiscoveryState/GithubRepository already managed from an earlier find() would otherwise
         // keep answering from the identity map as if the deleted rows still existed.
         $this->em->clear();
     }

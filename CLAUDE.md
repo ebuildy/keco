@@ -133,7 +133,7 @@ and what each replaces. In brief:
 | `Analysis` | `kind`, `domains[]`, `runtime`, `license_class`, `openness`, `maturity`, `governance`, `confidence`, `method`, `model`, `signals jsonb`, `signals_used[]`, `partial_signals[]`, `content_hash`, `analyzed_at`. |
 | `JournalEvent` | `id` (ULID, PK), `type`, `repo`, `payload jsonb`, `created_at` — append-only, indexed for ordered replay. |
 | `Checkpoint` | `consumer_name` (PK), `last_event_id`, `updated_at` — one row per consumer. |
-| `DiscoveryRepo` / `DiscoveryRun` / `DiscoveryState` | Discovery's corpus, sweep history, and resume position. |
+| `GithubRepository` / `DiscoveryRun` / `DiscoveryState` | Discovery's corpus, sweep history, and resume position. |
 | `CrawlHistoryEntry` | One row per crawl run: counts, cost, outcome. |
 | `ExternalSignal` | Pass-2 provider cache: `provider`, `cache_key`, `payload jsonb`, `fetched_at`, `ttl_seconds`. |
 | `ChatTrace` | `(query, retrieved_ids, answer, created_at)` for eval fixtures. |
@@ -204,8 +204,8 @@ appends `JournalEvent`s → dispatches the next stage's message.
 
 | Context | Triggered by | Produces | Network | Cadence |
 |---|---|---|---|---|
-| **Discovery** | `SweepDiscoveryQuery` (Scheduler/cron) | `DiscoveryRepo`, `DiscoveryRun`, `DiscoveryState` rows | GitHub Search (paced) | periodic sweep, resumable |
-| **Crawler** | `CrawlRepo` (dispatched per `DiscoveryRepo`) | `Repo` rows, blob store, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
+| **Discovery** | `SweepDiscoveryQuery` (Scheduler/cron) | `GithubRepository`, `DiscoveryRun`, `DiscoveryState` rows | GitHub Search (paced) | periodic sweep, resumable |
+| **Crawler** | `CrawlRepo` (dispatched per `GithubRepository`) | `Repo` rows, blob store, `RepoFetched` | GitHub (rate-limited) | continuous, full sweep weekly |
 | **Analyzer** | `AnalyzeRepo` (dispatched on `RepoFetched{changed:true}` or an expired signal) | `Analysis` rows, `RepoAnalyzed` | signal providers + LLM, **all cached** | continuous |
 | **Projector** | `ProjectRepo` (dispatched on `RepoAnalyzed`) | Meilisearch `tools` | none | continuous, batched |
 
@@ -248,7 +248,7 @@ split-vs-paginate decision for a probed window, and the resume-vs-new-sweep tran
 PHP with no framework dependency, unit-testable without Postgres — the same shape the old
 `windows.ts`/`plan.ts`/`sweep.ts` had, just as PHP classes under `Discovery/`.
 
-**Discovery appends no `JournalEvent`s.** It writes `DiscoveryRepo` rows directly, and the
+**Discovery appends no `JournalEvent`s.** It writes `GithubRepository` rows directly, and the
 crawler reads that table as its worklist. This is a deliberate exception to §2's event-flow
 contract: a weekly sweep would otherwise write ~100k tiny journal rows. The delta is already
 computed from a `payload_hash` column, so emitting `RepoDiscovered` later is a small additive
@@ -261,7 +261,7 @@ change if the crawler ever needs a resumable offset instead of a full-table read
 without cleanup.
 
 - **Resume by default.** A sweep continues from its `DiscoveryState` row; `--fresh` is the
-  explicit opt-out, and deletes the query's `DiscoveryRepo` rows and `DiscoveryState` row rather
+  explicit opt-out, and deletes the query's `GithubRepository` rows and `DiscoveryState` row rather
   than merely ignoring them. It never touches `DiscoveryRun`. `--limit` stops at the first window
   boundary past N — a dev-run convenience, not a budget.
 - **Change-gated writes.** A window whose result set is byte-identical is not rewritten, so a
@@ -273,7 +273,7 @@ without cleanup.
 ### 4.2 Crawler
 
 Fetches everything discovery named, into `Repo` rows and the blob store. GitHub Search (via
-`Discovery`) is the only trust source for *which* repos are in the corpus — `DiscoveryRepo` is
+`Discovery`) is the only trust source for *which* repos are in the corpus — `GithubRepository` is
 the crawler's sole worklist, plus the explicit `--repo <owner/name|org>` bypass. Registry lists
 (CNCF landscape, krew index, Artifact Hub, OperatorHub, curated `awesome-*`) do **not** feed this
 worklist directly — see `docs/adr/0004-remove-crawler-seeds.md`, unaffected by this migration:
@@ -630,9 +630,9 @@ them all; the table below is the map, not the source of truth.
 | `mise run build` | Build the portal, prerender its top tool pages; `composer install --no-dev` + warm the Symfony cache for `backend/` |
 | `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from `tools` — Node, unchanged, reads Meilisearch directly |
 | `mise run migrate` | `bin/console doctrine:migrations:migrate` |
-| `mise run discovery:sweep -- --query kubernetes --fresh` | `bin/console app:discovery:sweep` — enumerate repos into `DiscoveryRepo`/`DiscoveryState` (resumes by default; `--fresh` deletes the query's corpus and state, never `DiscoveryRun` history) |
+| `mise run discovery:sweep -- --query kubernetes --fresh` | `bin/console app:discovery:sweep` — enumerate repos into `GithubRepository`/`DiscoveryState` (resumes by default; `--fresh` deletes the query's corpus and state, never `DiscoveryRun` history) |
 | `mise run discovery:list -- runs --limit 20` | `bin/console app:discovery:list runs` — the sweep history |
-| `mise run discovery:reset -- --query kubernetes` | Delete a query's `DiscoveryRepo`/`DiscoveryState` rows, keeping `DiscoveryRun` history. Prompts; not rebuildable offline |
+| `mise run discovery:reset -- --query kubernetes` | Delete a query's `GithubRepository`/`DiscoveryState` rows, keeping `DiscoveryRun` history. Prompts; not rebuildable offline |
 | `mise run repo:crawl -- --limit 200` | `bin/console app:repo:crawl` — dispatch `CrawlRepo` for discovered repos |
 | `mise run repo:icon -- --repo owner/name` | `bin/console app:repo:icon` — fetch and rasterize one repo's icon, standalone |
 | `mise run repo:history -- --limit 20` | `bin/console app:repo:history` — crawl run history: fetched, skipped, failed, GitHub quota spent |

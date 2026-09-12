@@ -8,7 +8,7 @@ use App\Discovery\DiscoverySweepRunner;
 use App\Discovery\Search\GitHubSearchClient;
 use App\Discovery\SystemClock;
 use App\Discovery\Windows;
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Tests\Unit\Discovery\Search\NullSearchPacer;
@@ -26,7 +26,7 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 final class DiscoverySweepRunnerTest extends KernelTestCase
 {
     private EntityManagerInterface $em;
-    private DiscoveryRepoRepository $repos;
+    private GithubRepositoryRepository $repos;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -36,11 +36,11 @@ final class DiscoverySweepRunnerTest extends KernelTestCase
         $container = static::getContainer();
 
         $this->em = $container->get(EntityManagerInterface::class);
-        $this->repos = $container->get(DiscoveryRepoRepository::class);
+        $this->repos = $container->get(GithubRepositoryRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_repos, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
     }
 
     /**

@@ -4,23 +4,24 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
-use App\Repository\DiscoveryRepoRepository;
+use App\Repository\GithubRepositoryRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
 /**
  * One repo discovery's GitHub Search sweeps found for one query, replacing the TS
  * `discovery_repos` collection (`apps/workers/src/discovery/store/collections.ts`'s `DetailDoc`
- * + `RepoDocumentContext`, migration design spec §3).
+ * + `RepoDocumentContext`, migration design spec §3) — table `github_repositories` here, named
+ * for what the row actually is (a GitHub repository), not which pipeline stage wrote it.
  *
  * `id` is the composite `"{querySlug}_{repoId}"` — see `App\Discovery\QuerySlug::repoId()` —
  * the same scheme the TS store used so two queries sharing a repo cannot collide.
  */
-#[ORM\Entity(repositoryClass: DiscoveryRepoRepository::class)]
-#[ORM\Table(name: 'discovery_repos')]
-#[ORM\Index(columns: ['query_slug'], name: 'idx_discovery_repos_query_slug')]
-#[ORM\Index(columns: ['stars'], name: 'idx_discovery_repos_stars')]
-class DiscoveryRepo
+#[ORM\Entity(repositoryClass: GithubRepositoryRepository::class)]
+#[ORM\Table(name: 'github_repositories')]
+#[ORM\Index(columns: ['query_slug'], name: 'idx_github_repositories_query_slug')]
+#[ORM\Index(columns: ['stars'], name: 'idx_github_repositories_stars')]
+class GithubRepository
 {
     #[ORM\Id]
     #[ORM\Column(length: 140)]

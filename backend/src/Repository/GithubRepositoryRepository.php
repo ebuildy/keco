@@ -4,21 +4,21 @@ declare(strict_types=1);
 
 namespace App\Repository;
 
-use App\Entity\DiscoveryRepo;
+use App\Entity\GithubRepository;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
- * @extends ServiceEntityRepository<DiscoveryRepo>
+ * @extends ServiceEntityRepository<GithubRepository>
  */
-class DiscoveryRepoRepository extends ServiceEntityRepository
+class GithubRepositoryRepository extends ServiceEntityRepository
 {
     public function __construct(ManagerRegistry $registry)
     {
-        parent::__construct($registry, DiscoveryRepo::class);
+        parent::__construct($registry, GithubRepository::class);
     }
 
-    public function save(DiscoveryRepo $repo, bool $flush = false): void
+    public function save(GithubRepository $repo, bool $flush = false): void
     {
         $this->getEntityManager()->persist($repo);
         if ($flush) {
@@ -65,11 +65,11 @@ class DiscoveryRepoRepository extends ServiceEntityRepository
     }
 
     /**
-     * @return list<DiscoveryRepo>
+     * @return list<GithubRepository>
      */
     public function findByQuerySlug(string $querySlug, int $limit, string $sortField = 'stars', string $sortDirection = 'DESC'): array
     {
-        /** @var list<DiscoveryRepo> */
+        /** @var list<GithubRepository> */
         return $this->createQueryBuilder('r')
             ->andWhere('r.querySlug = :slug')
             ->setParameter('slug', $querySlug)
@@ -80,11 +80,11 @@ class DiscoveryRepoRepository extends ServiceEntityRepository
     }
 
     /**
-     * @return list<DiscoveryRepo>
+     * @return list<GithubRepository>
      */
     public function findAllOrdered(int $limit, string $sortField = 'stars', string $sortDirection = 'DESC'): array
     {
-        /** @var list<DiscoveryRepo> */
+        /** @var list<GithubRepository> */
         return $this->createQueryBuilder('r')
             ->orderBy('r.'.$sortField, $sortDirection)
             ->setMaxResults($limit)

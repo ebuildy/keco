@@ -14,11 +14,11 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * `kecoctl discovery sweep`'s PHP equivalent (AGENTS.md §8): enumerate every repo matching a
- * keyword into `DiscoveryRepo`, resuming from `DiscoveryState` by default.
+ * keyword into `GithubRepository`, resuming from `DiscoveryState` by default.
  */
 #[AsCommand(
     name: 'app:discovery:sweep',
-    description: 'Enumerate every repo matching a keyword into DiscoveryRepo, via GitHub Search.',
+    description: 'Enumerate every repo matching a keyword into GithubRepository, via GitHub Search.',
 )]
 final class DiscoverySweepCommand extends Command
 {
