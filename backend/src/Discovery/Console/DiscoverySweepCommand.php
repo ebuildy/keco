@@ -31,7 +31,7 @@ final class DiscoverySweepCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('query', 'q', InputOption::VALUE_REQUIRED, 'Keyword to enumerate', 'kubernetes')
+            ->addOption('query', null, InputOption::VALUE_REQUIRED, 'Keyword to enumerate', 'kubernetes')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Stop after roughly this many repos (overshoots)')
             ->addOption('fresh', null, InputOption::VALUE_NONE, "Start this keyword's sweep over instead of resuming")
             ->setHelp(

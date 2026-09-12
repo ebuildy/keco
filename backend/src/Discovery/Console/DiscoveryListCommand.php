@@ -31,7 +31,7 @@ final class DiscoveryListCommand extends Command
     {
         $this
             ->addArgument('target', InputArgument::OPTIONAL, 'runs or repos', 'runs')
-            ->addOption('query', 'q', InputOption::VALUE_REQUIRED, 'Narrow to one query')
+            ->addOption('query', null, InputOption::VALUE_REQUIRED, 'Narrow to one query')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Rows to show', '20')
             ->addOption('sort', 's', InputOption::VALUE_REQUIRED, 'Override the default ordering (field[:asc|desc])')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Emit NDJSON to stdout instead of a table')
