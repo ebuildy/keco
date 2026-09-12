@@ -6,8 +6,8 @@ namespace App\Tests\Unit\Discovery;
 
 use App\Discovery\DiscoverySweepRunner;
 use App\Discovery\Search\GitHubSearchClient;
-use App\Discovery\SystemClock;
-use App\Discovery\Windows;
+use App\Worker\SystemClock;
+use App\Worker\Windows;
 use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;

@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Worker;
+
+use App\Discovery\Created;
 
 /**
  * Search windows (design 2026-08-02), ported test-by-test from `apps/workers/src/discovery/windows.ts`.
@@ -15,7 +17,10 @@ namespace App\Discovery;
  * current date would invalidate every resume. `created:2020-01-01..2020-03-31` means the same
  * thing tomorrow.
  *
- * Pure: no network, no Doctrine, no ambient clock — `$now` is always passed in.
+ * Pure: no network, no Doctrine, no ambient clock — `$now` is always passed in. Lives under
+ * `App\Worker` rather than `App\Discovery` because none of this carries discovery-specific
+ * knowledge (AGENTS.md §4/§7) — {@see \App\Discovery\Created} is the one exception, discovery's
+ * own calendar-range representation, imported here rather than moved.
  */
 final class Windows
 {

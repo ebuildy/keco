@@ -8,11 +8,11 @@ use App\Discovery\Console\DiscoveryExplorer;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
 use App\Discovery\Search\SearchItem;
-use App\Discovery\SystemClock;
 use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Worker\SystemClock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 

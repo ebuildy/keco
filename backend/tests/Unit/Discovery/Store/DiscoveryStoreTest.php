@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Discovery\Store;
 
-use App\Discovery\SystemClock;
 use App\Discovery\Search\SearchItem;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
@@ -12,6 +11,7 @@ use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Repository\GithubRepositoryRepository;
+use App\Worker\SystemClock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Uid\Ulid;
