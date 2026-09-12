@@ -8,12 +8,14 @@ use App\Discovery\Clock;
 use App\Discovery\QuerySlug;
 use App\Discovery\Search\SearchItem;
 use App\Discovery\SweepState;
-use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
+use App\Entity\DiscoverySighting;
 use App\Entity\DiscoveryState;
-use App\Repository\GithubRepositoryRepository;
+use App\Entity\GithubRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
+use App\Repository\GithubRepositoryRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Ulid;
 
@@ -24,6 +26,12 @@ use Symfony\Component\Uid\Ulid;
  * `apps/workers/src/discovery/store/store.ts`'s `DiscoveryStore`; this file owns the same
  * bookkeeping the TS version did: what counts as changed, which sighting wins, and when a flush
  * is due.
+ *
+ * Every recorded repo is upserted into **two** entities (AGENTS.md §4.1's "one row per repo,
+ * full stop" policy): the globally deduplicated {@see GithubRepository} snapshot — overwritten
+ * with the latest data regardless of which query saw it, skipped only when its `payloadHash` is
+ * already current — and this query's own {@see DiscoverySighting} row, first-wins on
+ * `discoveredVia`/`discoveredAt`/`firstSeenRunId`.
  *
  * The TS store's crash-safety property — "corpus first, then state, and state alone is
  * durable" — survives here even though Postgres gives real transactions: {@see flush()} issues
@@ -75,11 +83,14 @@ final class DiscoveryStore
     public readonly string $runId;
 
     /**
-     * @param array<int, array{payloadHash: string, firstSeenRunId: string}> $known keyed by repoId
+     * @param array<int, array{payloadHash: string, firstSeenRunId: string}> $known keyed by repoId —
+     *                                                                                this query's own
+     *                                                                                sighting state
      */
     private function __construct(
         private readonly EntityManagerInterface $em,
         private readonly GithubRepositoryRepository $repos,
+        private readonly DiscoverySightingRepository $sightings,
         private readonly Clock $clock,
         private readonly string $query,
         string $querySlug,
@@ -104,6 +115,7 @@ final class DiscoveryStore
     public static function open(
         EntityManagerInterface $em,
         GithubRepositoryRepository $repos,
+        DiscoverySightingRepository $sightings,
         DiscoveryRunRepository $runs,
         DiscoveryStateRepository $states,
         Clock $clock,
@@ -117,20 +129,24 @@ final class DiscoveryStore
 
         if ($options->fresh) {
             // `--fresh` deletes rather than merely ignoring, so a fresh sweep genuinely starts
-            // clean (AGENTS.md §4.1).
-            $repos->removeByQuerySlug($querySlug);
+            // clean (AGENTS.md §4.1). Only this query's sightings are removed; a `GithubRepository`
+            // row is deleted only once it has no sighting left anywhere — a repo another query
+            // still sees survives.
+            $repoIds = $sightings->repoIdsByQuerySlug($querySlug);
+            $sightings->removeByQuerySlug($querySlug);
             $states->removeByQuerySlug($querySlug);
+            $repos->removeOrphans($repoIds);
             // DQL bulk deletes run at the SQL level and bypass the UnitOfWork, so any
-            // already-managed DiscoveryState/GithubRepository for this slug would otherwise still
-            // answer from the identity map as if the rows still existed.
+            // already-managed DiscoverySighting/DiscoveryState/GithubRepository for this slug
+            // would otherwise still answer from the identity map as if the rows still existed.
             $em->clear();
         }
 
         $stateEntity = $options->fresh ? null : $states->findByQuerySlug($querySlug);
 
         // Only load the corpus once there is state to resume: state is what says how far the
-        // sweep got, so a query with repo rows but no state is a cold start, not a partial one.
-        $known = null !== $stateEntity ? $repos->knownByQuerySlug($querySlug) : [];
+        // sweep got, so a query with sighting rows but no state is a cold start, not a partial one.
+        $known = null !== $stateEntity ? $sightings->knownByQuerySlug($querySlug) : [];
 
         $sweepState = null !== $stateEntity
             ? SweepStateMapper::fromEntity($stateEntity)
@@ -145,6 +161,7 @@ final class DiscoveryStore
         return new self(
             $em,
             $repos,
+            $sightings,
             $clock,
             $query,
             $querySlug,
@@ -162,8 +179,9 @@ final class DiscoveryStore
     }
 
     /**
-     * Records one search hit, buffering it only when the payload changed. The first window to
-     * find a repo owns its `discoveredVia`; later sightings are dropped.
+     * Records one search hit, buffering it only when the payload changed relative to what THIS
+     * query already knows about it. The first window to find a repo owns its `discoveredVia`;
+     * later sightings are dropped.
      *
      * @return 'new'|'changed'|'unchanged'
      */
@@ -263,41 +281,50 @@ final class DiscoveryStore
      */
     private function writeCorpus(array $pending): void
     {
-        $changedIds = array_values(array_map(
-            static fn (PendingSighting $s): string => $s->id,
-            array_filter($pending, static fn (PendingSighting $s): bool => !$s->isNew),
-        ));
+        $repoIds = array_values(array_unique(array_map(
+            static fn (PendingSighting $s): int => $s->item->id,
+            $pending,
+        )));
 
-        $existingById = [];
-        if ([] !== $changedIds) {
-            foreach ($this->repos->findBy(['id' => $changedIds]) as $entity) {
-                $existingById[$entity->getId()] = $entity;
-            }
+        $existingRepos = $this->repos->findByRepoIds($repoIds);
+        $existingSightings = [];
+        foreach ($this->sightings->findBy(['id' => array_keys($pending)]) as $entity) {
+            $existingSightings[$entity->getId()] = $entity;
         }
 
         foreach (array_chunk(array_keys($pending), self::WRITE_BATCH) as $chunk) {
             foreach ($chunk as $id) {
                 $sighting = $pending[$id];
-                $existing = $existingById[$id] ?? null;
-                if (null !== $existing) {
-                    $this->applySighting($existing, $sighting);
+                $repoId = $sighting->item->id;
+
+                $repo = $existingRepos[$repoId] ?? null;
+                if (null === $repo) {
+                    $repo = $this->buildRepository($sighting);
+                    $this->em->persist($repo);
+                    $existingRepos[$repoId] = $repo;
+                } elseif ($repo->getPayloadHash() !== $sighting->payloadHash) {
+                    // Overwritten regardless of which query saw it; skipped only when the
+                    // repo's own snapshot is already current (AGENTS.md §4.1).
+                    $this->applyRepositorySnapshot($repo, $sighting);
+                }
+
+                $existingSighting = $existingSightings[$id] ?? null;
+                if (null !== $existingSighting) {
+                    $existingSighting->updateSighting($sighting->payloadHash, $this->runId);
                 } else {
-                    $this->em->persist($this->buildEntity($sighting));
+                    $this->em->persist($this->buildSighting($sighting, $repo));
                 }
             }
             $this->em->flush();
         }
     }
 
-    private function buildEntity(PendingSighting $sighting): GithubRepository
+    private function buildRepository(PendingSighting $sighting): GithubRepository
     {
         $item = $sighting->item;
 
         return new GithubRepository(
-            id: $sighting->id,
             repoId: $item->id,
-            querySlug: $this->querySlug,
-            query: $this->query,
             fullName: $item->fullName,
             name: $item->name,
             owner: $item->ownerLogin ?? (explode('/', $item->fullName)[0]),
@@ -315,36 +342,46 @@ final class DiscoveryStore
             githubCreatedAt: $item->createdAt,
             githubUpdatedAt: $item->updatedAt,
             githubPushedAt: $item->pushedAt,
+            payloadHash: $sighting->payloadHash,
+        );
+    }
+
+    private function applyRepositorySnapshot(GithubRepository $repo, PendingSighting $sighting): void
+    {
+        $item = $sighting->item;
+        $repo->updateSnapshot(
+            fullName: $item->fullName,
+            name: $item->name,
+            owner: $item->ownerLogin ?? (explode('/', $item->fullName)[0]),
+            description: $item->description,
+            homepage: $item->homepage,
+            stars: $item->stargazersCount,
+            forks: $item->forksCount,
+            openIssues: $item->openIssuesCount,
+            language: $item->language,
+            license: $item->license,
+            topics: $item->topics,
+            archived: $item->archived,
+            fork: $item->fork,
+            defaultBranch: $item->defaultBranch,
+            githubCreatedAt: $item->createdAt,
+            githubUpdatedAt: $item->updatedAt,
+            githubPushedAt: $item->pushedAt,
+            payloadHash: $sighting->payloadHash,
+        );
+    }
+
+    private function buildSighting(PendingSighting $sighting, GithubRepository $repo): DiscoverySighting
+    {
+        return new DiscoverySighting(
+            id: $sighting->id,
+            repository: $repo,
+            querySlug: $this->querySlug,
+            query: $this->query,
             discoveredVia: $sighting->discoveredVia,
             discoveredAt: $sighting->discoveredAt,
             payloadHash: $sighting->payloadHash,
             firstSeenRunId: $sighting->firstSeenRunId,
-            lastSeenRunId: $this->runId,
-        );
-    }
-
-    private function applySighting(GithubRepository $entity, PendingSighting $sighting): void
-    {
-        $item = $sighting->item;
-        $entity->updateSighting(
-            fullName: $item->fullName,
-            name: $item->name,
-            owner: $item->ownerLogin ?? (explode('/', $item->fullName)[0]),
-            description: $item->description,
-            homepage: $item->homepage,
-            stars: $item->stargazersCount,
-            forks: $item->forksCount,
-            openIssues: $item->openIssuesCount,
-            language: $item->language,
-            license: $item->license,
-            topics: $item->topics,
-            archived: $item->archived,
-            fork: $item->fork,
-            defaultBranch: $item->defaultBranch,
-            githubCreatedAt: $item->createdAt,
-            githubUpdatedAt: $item->updatedAt,
-            githubPushedAt: $item->pushedAt,
-            payloadHash: $sighting->payloadHash,
             lastSeenRunId: $this->runId,
         );
     }

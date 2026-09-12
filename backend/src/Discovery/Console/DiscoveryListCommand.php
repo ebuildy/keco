@@ -176,7 +176,7 @@ final class DiscoveryListCommand extends Command
     private static function repoToArray(GithubRepository $repo): array
     {
         return [
-            'id' => $repo->getId(),
+            'repo_id' => $repo->getRepoId(),
             'full_name' => $repo->getFullName(),
             'stars' => $repo->getStars(),
             'language' => $repo->getLanguage(),
