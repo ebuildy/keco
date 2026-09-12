@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Discovery\Store;
 
-use App\Discovery\Clock;
 use App\Discovery\QuerySlug;
 use App\Discovery\Search\SearchItem;
 use App\Discovery\SweepState;
@@ -16,6 +15,7 @@ use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Repository\GithubRepositoryRepository;
+use App\Worker\Clock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Ulid;
 

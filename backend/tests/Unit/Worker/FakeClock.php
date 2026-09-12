@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Unit\Discovery;
+namespace App\Tests\Unit\Worker;
 
-use App\Discovery\Clock;
+use App\Worker\Clock;
 
 /** A clock that never actually sleeps, and records every wait so a test can assert on it. */
 final class FakeClock implements Clock

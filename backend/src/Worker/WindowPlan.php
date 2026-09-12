@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Worker;
 
 /**
  * What to do with a window once its probe page has come back. Ported from `plan.ts`'s

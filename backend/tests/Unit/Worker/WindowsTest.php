@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Unit\Discovery;
+namespace App\Tests\Unit\Worker;
 
 use App\Discovery\Created;
-use App\Discovery\Window;
-use App\Discovery\Windows;
+use App\Worker\Window;
+use App\Worker\Windows;
 use PHPUnit\Framework\TestCase;
 
 /**
