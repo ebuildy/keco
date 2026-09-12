@@ -11,6 +11,7 @@ use App\Discovery\Search\SearchItem;
 use App\Discovery\SystemClock;
 use App\Repository\GithubRepositoryRepository;
 use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
@@ -25,6 +26,7 @@ final class DiscoveryExplorerTest extends KernelTestCase
     private EntityManagerInterface $em;
     private DiscoveryExplorer $explorer;
     private GithubRepositoryRepository $repos;
+    private DiscoverySightingRepository $sightings;
     private DiscoveryRunRepository $runs;
     private DiscoveryStateRepository $states;
 
@@ -35,11 +37,12 @@ final class DiscoveryExplorerTest extends KernelTestCase
 
         $this->em = $container->get(EntityManagerInterface::class);
         $this->repos = $container->get(GithubRepositoryRepository::class);
+        $this->sightings = $container->get(DiscoverySightingRepository::class);
         $this->runs = $container->get(DiscoveryRunRepository::class);
         $this->states = $container->get(DiscoveryStateRepository::class);
         $this->explorer = $container->get(DiscoveryExplorer::class);
 
-        $this->em->getConnection()->executeStatement('TRUNCATE TABLE github_repositories, discovery_runs, discovery_state');
+        $this->em->getConnection()->executeStatement('TRUNCATE TABLE discovery_sightings, github_repositories, discovery_runs, discovery_state');
     }
 
     /**
@@ -73,13 +76,13 @@ final class DiscoveryExplorerTest extends KernelTestCase
     {
         $now = new \DateTimeImmutable('2026-08-02T00:00:00Z');
 
-        $k8s = DiscoveryStore::open($this->em, $this->repos, $this->runs, $this->states, new SystemClock(), 'kubernetes', new OpenOptions(now: $now));
+        $k8s = DiscoveryStore::open($this->em, $this->repos, $this->sightings, $this->runs, $this->states, new SystemClock(), 'kubernetes', new OpenOptions(now: $now));
         $k8s->record(self::item(['id' => 1, 'full_name' => 'a/one', 'stargazers_count' => 10]), 'q', $now);
         $k8s->record(self::item(['id' => 2, 'full_name' => 'a/two', 'stargazers_count' => 30]), 'q', $now);
         $k8s->flush();
         $k8s->finishRun('complete');
 
-        $istio = DiscoveryStore::open($this->em, $this->repos, $this->runs, $this->states, new SystemClock(), 'istio', new OpenOptions(now: $now));
+        $istio = DiscoveryStore::open($this->em, $this->repos, $this->sightings, $this->runs, $this->states, new SystemClock(), 'istio', new OpenOptions(now: $now));
         $istio->record(self::item(['id' => 3, 'full_name' => 'b/three', 'stargazers_count' => 5]), 'q', $now);
         $istio->flush();
         $istio->finishRun('complete');
@@ -193,11 +196,14 @@ final class DiscoveryExplorerTest extends KernelTestCase
         $plans = $this->explorer->planReset('kubernetes', false, false);
         $this->explorer->applyReset($plans);
 
-        self::assertSame(0, $this->repos->countByQuerySlug('kubernetes'));
+        self::assertSame(0, $this->sightings->countByQuerySlug('kubernetes'));
         self::assertNull($this->states->findByQuerySlug('kubernetes'));
         self::assertSame(1, $this->runs->countByQuerySlug('kubernetes'));
         // Untouched.
-        self::assertSame(1, $this->repos->countByQuerySlug('istio'));
+        self::assertSame(1, $this->sightings->countByQuerySlug('istio'));
+        // Neither of kubernetes's two repos is sighted by any other query, so both
+        // GithubRepository rows are now orphaned and removed too — only istio's repo remains.
+        self::assertSame(1, $this->repos->countAll());
     }
 
     public function testApplyResetDeletesTheHistoryTooUnderIncludeRuns(): void
@@ -213,6 +219,6 @@ final class DiscoveryExplorerTest extends KernelTestCase
     protected function tearDown(): void
     {
         parent::tearDown();
-        unset($this->em, $this->explorer, $this->repos, $this->runs, $this->states);
+        unset($this->em, $this->explorer, $this->repos, $this->sightings, $this->runs, $this->states);
     }
 }
