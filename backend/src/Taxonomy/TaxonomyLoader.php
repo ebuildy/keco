@@ -39,11 +39,7 @@ final class TaxonomyLoader
             throw TaxonomyValidationException::because("invalid YAML: {$e->getMessage()}");
         }
 
-        if (!\is_array($parsed)) {
-            throw TaxonomyValidationException::because('the file must contain a YAML mapping.');
-        }
-
-        return $this->parse($parsed);
+        return $this->parse($this->asMapping($parsed, 'the file'));
     }
 
     /**
@@ -66,7 +62,7 @@ final class TaxonomyLoader
         $families = [];
 
         foreach ($rawFamilies as $rawFamily) {
-            $family = $this->parseFamily($rawFamily);
+            $family = $this->parseFamily($this->asMapping($rawFamily, 'each family'));
 
             if (isset($familyIds[$family->id])) {
                 throw TaxonomyValidationException::because("duplicate family id: {$family->id}");
@@ -138,14 +134,10 @@ final class TaxonomyLoader
     }
 
     /**
-     * @param mixed $raw
+     * @param array<string, mixed> $raw
      */
-    private function parseFamily($raw): TaxonomyFamily
+    private function parseFamily(array $raw): TaxonomyFamily
     {
-        if (!\is_array($raw)) {
-            throw TaxonomyValidationException::because('each family must be a mapping.');
-        }
-
         $id = $this->requireString($raw, 'id', 'family');
         if (!preg_match('/^[a-z0-9]+(_[a-z0-9]+)*$/', $id)) {
             throw TaxonomyValidationException::because("family id \"{$id}\" must be lower_snake_case.");
@@ -173,6 +165,11 @@ final class TaxonomyLoader
             throw TaxonomyValidationException::because("family {$id} values must be a non-empty list.");
         }
 
+        $values = array_values(array_map(
+            fn (mixed $rawValue): TaxonomyValue => $this->parseValue($this->asMapping($rawValue, "a value of family {$id}"), $id),
+            $rawValues,
+        ));
+
         return new TaxonomyFamily(
             id: $id,
             label: $this->requireString($raw, 'label', "family {$id}"),
@@ -180,22 +177,18 @@ final class TaxonomyLoader
             description: $this->requireString($raw, 'description', "family {$id}"),
             cardinality: $cardinality,
             source: $source,
-            values: array_map(fn ($rawValue) => $this->parseValue($rawValue, $id), $rawValues),
+            values: $values,
             min: $this->optionalInt($raw, 'min'),
             max: $this->optionalInt($raw, 'max'),
-            facet: (bool) ($raw['facet'] ?? true),
+            facet: $this->optionalBool($raw, 'facet', true),
         );
     }
 
     /**
-     * @param mixed $raw
+     * @param array<string, mixed> $raw
      */
-    private function parseValue($raw, string $familyId): TaxonomyValue
+    private function parseValue(array $raw, string $familyId): TaxonomyValue
     {
-        if (!\is_array($raw)) {
-            throw TaxonomyValidationException::because("each value of family {$familyId} must be a mapping.");
-        }
-
         $id = $this->requireString($raw, 'id', "a value of family {$familyId}");
         if (!preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $id)) {
             throw TaxonomyValidationException::because(
@@ -208,13 +201,44 @@ final class TaxonomyLoader
             throw TaxonomyValidationException::because("aliases of {$familyId}/{$id} must be a list.");
         }
 
+        $aliases = [];
+        foreach ($rawAliases as $rawAlias) {
+            if (!\is_string($rawAlias)) {
+                throw TaxonomyValidationException::because("aliases of {$familyId}/{$id} must be strings.");
+            }
+            $aliases[] = $rawAlias;
+        }
+
         return new TaxonomyValue(
             id: $id,
             label: $this->requireString($raw, 'label', "{$familyId}/{$id}"),
             description: $this->requireString($raw, 'description', "{$familyId}/{$id}"),
-            aliases: array_values(array_map('strval', $rawAliases)),
-            hidden: (bool) ($raw['hidden'] ?? false),
+            aliases: $aliases,
+            hidden: $this->optionalBool($raw, 'hidden', false),
         );
+    }
+
+    /**
+     * Validates that `$value` is a YAML mapping (an array with string keys) and narrows its type
+     * accordingly, so every caller downstream can declare `array<string, mixed>` truthfully
+     * instead of the `array<mixed, mixed>` a bare `is_array()` check leaves PHPStan with.
+     *
+     * @return array<string, mixed>
+     */
+    private function asMapping(mixed $value, string $context): array
+    {
+        if (!\is_array($value)) {
+            throw TaxonomyValidationException::because("{$context} must be a mapping.");
+        }
+
+        foreach (array_keys($value) as $key) {
+            if (!\is_string($key)) {
+                throw TaxonomyValidationException::because("{$context} must be a mapping with string keys.");
+            }
+        }
+
+        /** @var array<string, mixed> $value */
+        return $value;
     }
 
     /**
@@ -241,6 +265,22 @@ final class TaxonomyLoader
         }
         if (!\is_int($value)) {
             throw TaxonomyValidationException::because("\"{$key}\" must be an integer.");
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     */
+    private function optionalBool(array $raw, string $key, bool $default): bool
+    {
+        $value = $raw[$key] ?? null;
+        if (null === $value) {
+            return $default;
+        }
+        if (!\is_bool($value)) {
+            throw TaxonomyValidationException::because("\"{$key}\" must be a boolean.");
         }
 
         return $value;

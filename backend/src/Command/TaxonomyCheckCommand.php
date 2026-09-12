@@ -43,7 +43,8 @@ final class TaxonomyCheckCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $path = $input->getOption('path');
+        $pathOption = $input->getOption('path');
+        $path = \is_string($pathOption) ? $pathOption : null;
         $loader = null === $path ? $this->taxonomyLoader : new TaxonomyLoader($path);
 
         try {
