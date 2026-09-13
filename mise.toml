@@ -26,10 +26,11 @@ experimental = true
 # ── setup ────────────────────────────────────────────────────────────────────
 
 [tasks.setup]
-description = "First-run bootstrap: .env, dependencies, Meilisearch, index settings, browser search key"
+description = "First-run bootstrap: .env, dependencies, Postgres + Meilisearch, migrations, index settings, browser search key"
 depends = ["env:init", "install"]
 run = [
   "mise run infra:up",
+  "mise run backend:migrate",
   "mise run search:settings",
   "mise run search:key",
 ]
@@ -39,7 +40,8 @@ description = "Create .env from .env.example if missing"
 run = 'test -f .env || (cp .env.example .env && echo "created .env — fill in GITHUB_TOKEN")'
 
 [tasks.install]
-description = "Install workspace dependencies"
+description = "Install workspace dependencies (pnpm workspace + backend/'s Composer dependencies)"
+depends = ["backend:install"]
 run = "pnpm install"
 sources = ["package.json", "pnpm-lock.yaml", "*/*/package.json"]
 outputs = { auto = true }
@@ -90,15 +92,18 @@ run = "pnpm -F @keco/api admin:hash"
 # ── quality gates (§15 definition of done) ───────────────────────────────────
 
 [tasks.check]
-description = "Typecheck the whole workspace"
+description = "Typecheck the whole workspace, plus backend/'s PHPStan"
+depends = ["backend:check"]
 run = "pnpm -r --parallel check"
 
 [tasks.lint]
-description = "Lint (includes the import-boundary rules of §7)"
+description = "Lint (includes the import-boundary rules of §7), plus backend/'s deptrac (the same rules, PHP side)"
+depends = ["backend:lint"]
 run = "pnpm eslint ."
 
 [tasks.test]
-description = "Run the test suite"
+description = "Run the test suite, plus backend/'s PHPUnit"
+depends = ["backend:test"]
 run = "pnpm vitest run"
 
 [tasks."test:watch"]
@@ -115,7 +120,8 @@ depends = ["e2e:install"]
 run = "pnpm -F @keco/web e2e"
 
 [tasks."taxonomy:check"]
-description = "Validate packages/core/taxonomy.yaml (schema, duplicates, unknown defaults)"
+description = "Validate taxonomy/taxonomy.yaml (schema, duplicates, unknown defaults) — both loaders, TS and PHP"
+depends = ["backend:taxonomy:check"]
 run = "pnpm -F @keco/core taxonomy:check"
 
 [tasks.ci]
@@ -125,6 +131,77 @@ depends = ["check", "lint", "test", "taxonomy:check"]
 [tasks.format]
 description = "Format sources with prettier"
 run = "pnpm prettier --write ."
+
+# ── backend (PHP / Symfony) ────────────────────────────────────────────────────
+#
+# docs/adr/0005-php-symfony-monolith.md / docs/superpowers/plans/2026-09-12-php-symfony-migration.md.
+# Every task below runs `php`/`composer`/`bin/console` from PATH (see [tools] above — PHP/Composer
+# are deliberately not mise-managed) with `backend/` as its working directory. Phases 2+ (crawler,
+# analyzer, projector, the API, the backoffice) aren't built yet, so this list is short on
+# purpose — it grows one task per command as each phase lands, same discipline as the kecoctl
+# tasks below it. No TypeScript task here is retired by a PHP one landing (AGENTS.md §0): both
+# run side by side until a phase's TS implementation is deliberately removed.
+
+[tasks."backend:install"]
+description = "Install PHP dependencies (backend/)"
+dir = "backend"
+run = "composer install"
+sources = ["backend/composer.json", "backend/composer.lock"]
+outputs = { auto = true }
+
+[tasks.backend]
+description = "Symfony backend dev server on :8000 — no HTTP routes of its own yet (Phase 1 is discovery only, no Api/)"
+dir = "backend"
+run = "php -S 127.0.0.1:8000 -t public"
+
+[tasks."backend:migrate"]
+description = "Run pending Doctrine migrations against Postgres (backend/)"
+dir = "backend"
+run = "bin/console doctrine:migrations:migrate --no-interaction"
+
+[tasks."backend:check"]
+description = "PHPStan static analysis at max level (backend/)"
+dir = "backend"
+run = "vendor/bin/phpstan analyse"
+
+[tasks."backend:lint"]
+description = "deptrac — AGENTS.md §7's import-boundary rules, PHP side (backend/)"
+dir = "backend"
+run = "vendor/bin/deptrac analyse"
+
+[tasks."backend:test"]
+description = "Run the backend test suite (PHPUnit, backend/)"
+dir = "backend"
+run = "vendor/bin/phpunit"
+
+[tasks."backend:taxonomy:check"]
+description = "Validate taxonomy/taxonomy.yaml — the PHP loader (backend/)"
+dir = "backend"
+run = "bin/console app:taxonomy:check"
+
+[tasks."backend:ci"]
+description = "Everything that must be green in backend/ alone before declaring PHP work done"
+depends = ["backend:check", "backend:lint", "backend:test", "backend:taxonomy:check"]
+
+[tasks."backend:discovery:sweep"]
+description = "PHP port of `discovery:sweep` (AGENTS.md §4.1, Phase 1). Args: --query kubernetes --fresh --limit 500"
+dir = "backend"
+run = "bin/console app:discovery:sweep"
+
+[tasks."backend:discovery:count"]
+description = "PHP port of `discovery:count`. Args: --query kubernetes --json"
+dir = "backend"
+run = "bin/console app:discovery:count"
+
+[tasks."backend:discovery:list"]
+description = "PHP port of `discovery:list`. Args: runs|repos --query kubernetes --limit 20 --sort stars --json"
+dir = "backend"
+run = "bin/console app:discovery:list"
+
+[tasks."backend:discovery:reset"]
+description = "PHP port of `discovery:reset`. Args: --query kubernetes | --all --include-runs --yes"
+dir = "backend"
+run = "bin/console app:discovery:reset"
 
 # ── write side: kecoctl ───────────────────────────────────────────────────────
 
