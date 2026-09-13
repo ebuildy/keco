@@ -1,6 +1,6 @@
 # Discovery
 
-Enumerates candidate repos from GitHub Search; it does not fetch them. See `AGENTS.md` §4.1 for
+Find candidate repos from GitHub Search; it does not fetch them. See `AGENTS.md` §4.1 for
 the full contract this bounded context implements — this file is the map of *this directory*,
 not a restatement of the business rules.
 
@@ -33,18 +33,14 @@ Plan.php, Sweep.php, SweepState.php, QuerySlug.php, Created.php, FailedWindow.ph
                      pure algebra that *does* need to know it's discovery-specific
 ```
 
-**`Window`, `Windows`, `WindowPlan` and the `Clock`/`SystemClock` time abstraction live in
+**`Window`, `Windows`, `WindowPlan`, `Clock`/`SystemClock` and `InterruptHandler` live in
 `Discovery/Worker` (`App\Discovery\Worker`)** — grouped apart from the rest of this directory
-because they carry no discovery-specific knowledge (calendar-range splitting and "what time is
-it" are useful to any future bounded context), but kept as a sub-namespace of `Discovery` rather
-than promoted to a top-level `App\Worker`, per AGENTS.md §4/§7's "move it out the moment a second
-context needs it, not speculatively": nothing else needs this yet. The day `Crawler` or
-`Analyzer` wants the same `Clock` or the same windowing algebra, *that's* the moment to promote
-`Discovery/Worker` to a real shared namespace — not before. `Plan`, `Sweep`, `SweepState` and
-`QuerySlug` stay directly under `Discovery` because they *do* know they're discovery: `Plan`
-decides split-vs-paginate against GitHub Search's 1000-result cap, `Sweep`/`SweepState` are the
-resume-vs-new-sweep state machine this context's `DiscoveryState` row persists, `QuerySlug`
-derives the slug and composite ids this context's tables key on.
+because none of them carry discovery-specific knowledge (calendar-range splitting, "what time is
+it", and signal handling for a long-running process are all generic). `Plan`, `Sweep`,
+`SweepState` and `QuerySlug` stay directly under `Discovery` because they *do* know they're
+discovery: `Plan` decides split-vs-paginate against GitHub Search's 1000-result cap,
+`Sweep`/`SweepState` are the resume-vs-new-sweep state machine this context's `DiscoveryState`
+row persists, `QuerySlug` derives the slug and composite ids this context's tables key on.
 
 **Two entry points, one implementation.** `DiscoverySweepCommand` (synchronous, for manual runs
 and `mise run discovery:sweep`) and `SweepDiscoveryQueryHandler` (async, consumed off the

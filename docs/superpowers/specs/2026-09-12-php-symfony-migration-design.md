@@ -47,9 +47,7 @@ keco/
 │   │   ├── Blob/                     # BlobStorageInterface + Local/S3 adapters, §3.1
 │   │   ├── Journal/                  # JournalEvent + Checkpoint helpers, shared by every consumer
 │   │   ├── Discovery/                # write side, §4.1
-│   │   │   ├── Message/  MessageHandler/  Console/  Worker/ (no-domain-knowledge code, e.g.
-│   │   │   │                                        Clock/SystemClock, calendar-window algebra —
-│   │   │   │                                        stays here until a second context needs it)
+│   │   │   ├── Message/  MessageHandler/  Console/  Worker/
 │   │   ├── Crawler/                  # write side, §4.2
 │   │   │   ├── Message/  MessageHandler/  Icon/  Console/
 │   │   ├── Analyzer/                 # write side, §4.3
@@ -212,21 +210,8 @@ process, not inside the request. A route handler that iterates repos is still al
 
 One rule per §7 boundary, checked by `mise run check` (translated to run `deptrac analyse`):
 
-- **A bounded-context namespace (`Discovery`, `Crawler`, `Analyzer`, `Projector`) holds only
-  code that needs that context's domain knowledge.** Anything else — a value object, an
-  algorithm, a wrapper with no idea which pipeline stage is calling it — is set apart into a
-  `Worker` sub-namespace of whichever context currently owns it (`Discovery\Worker`,
-  `Clock`/`SystemClock`, calendar/window algebra, anything of that shape) rather than mixed into
-  the context's own root namespace. **It stays a sub-namespace, not a top-level shared one,
-  until a second context needs the same code** — promoting it before that is speculative in the
-  same way skipping the separation entirely would be premature: a "shared" namespace with one
-  caller isn't shared. The day the crawler's `_fetch.json`-staleness check (§4.2) or the
-  analyzer's TTL checks (§4.3) want the exact same `Clock` the discovery sweep already needed for
-  testability, that's the trigger to promote `Discovery\Worker` to a real top-level `Worker` —
-  not before.
 - `Discovery`, `Crawler`, `Analyzer`, `Projector` may depend on `Entity`, `Repository`, `Blob`,
-  `Journal`, `Taxonomy` (and, once promoted, a genuinely shared `Worker`) — never on `Search` or
-  `Query`.
+  `Journal`, `Taxonomy` — never on `Search` or `Query`.
 - `Search` and `Query` may be imported only by `Projector` (write, for upserts) and `Api`/
   `Backoffice` (read). `Query` never imports `Entity`/`Repository`/`Blob` — it only ever talks to
   `Search`, mirroring the old "`packages/query` may import `@keco/search`, never `@keco/cache`"
