@@ -204,10 +204,15 @@ Four independent bounded contexts inside `backend/`: `Discovery`, `Crawler`, `An
 handler that reads its inputs from Postgres → does work → writes Postgres/the blob store →
 appends `JournalEvent`s → dispatches the next stage's message.
 
-**A context's own namespace holds only its domain logic — anything reusable moves to `Worker`,
-the moment a second context needs it** (§7's import-boundary rules have the enforced version of
-this). Four contexts each growing their own `Clock` or their own date-window-splitting algebra
-is the failure mode this guards against.
+**A context's own namespace holds only its domain logic — anything with no such knowledge is set
+apart, but stays a sub-namespace of whichever context currently owns it (e.g.
+`Discovery\Worker`) until a *second* context actually needs it too, and only then gets promoted
+to a real top-level shared namespace** (§7's import-boundary rules have the enforced version of
+this). Don't create the shared namespace speculatively — that's the same mistake as writing
+domain-specific code with no separation at all, just in the other direction. Four contexts each
+growing their own `Clock` or their own date-window-splitting algebra is the failure mode the
+separation guards against; a top-level namespace nothing outside one context imports is the
+failure mode premature promotion produces.
 
 | Context | Triggered by | Produces | Network | Cadence |
 |---|---|---|---|---|
@@ -579,10 +584,12 @@ keco/
 │   │   ├── Entity/  Repository/    # the write model, §3
 │   │   ├── Blob/                   # BlobStorageInterface + adapters, §3.1
 │   │   ├── Journal/                # JournalEvent + Checkpoint, shared by every consumer
-│   │   ├── Worker/                 # generic worker-runtime code, no bounded-context knowledge:
-│   │   │                           # Clock/SystemClock, calendar/window algebra, §4
 │   │   ├── Discovery/  Crawler/  Analyzer/  Projector/    # write side, §4 — each with
-│   │   │                                                  # Message/ MessageHandler/ Console/
+│   │   │                                                  # Message/ MessageHandler/ Console/,
+│   │   │                                                  # plus a Worker/ sub-namespace for a
+│   │   │                                                  # context's own no-domain-knowledge
+│   │   │                                                  # code, until a second context needs
+│   │   │                                                  # it too — e.g. Discovery/Worker/
 │   │   ├── Taxonomy/               # taxonomy.yaml loader + validation, §6
 │   │   ├── Search/                 # Meilisearch client wrapper, index defs/settings, §5
 │   │   ├── Query/                  # shared retrieval — SearchTools, GetTool, CompareTools,
@@ -621,13 +628,17 @@ rule set; the headline rules):
 - **A bounded-context namespace holds only that context's domain logic.** `Discovery`,
   `Crawler`, `Analyzer` and `Projector` are for code that needs to know it's discovering,
   crawling, analyzing or projecting. A value object or algorithm with no such knowledge — a
-  clock abstraction, calendar/window-splitting algebra, anything of that shape — belongs in
-  `Worker` instead, next to the already-shared `Entity`/`Repository`, `Blob`, `Journal`,
-  `Taxonomy`. Move it the moment a second context needs it, not before and not speculatively:
-  this is what makes reuse real rather than four contexts each growing their own copy.
+  clock abstraction, calendar/window-splitting algebra, anything of that shape — is set apart
+  into a `Worker` sub-namespace of whichever context currently owns it (e.g.
+  `Discovery\Worker`), not mixed into the context's own root namespace. It stays there — not
+  promoted to a top-level `App\Worker` — until a *second* context needs the same code; only then
+  does moving it up make reuse real instead of theoretical. Promoting speculatively, before a
+  second consumer exists, is the same mistake as not separating it at all, just aimed the other
+  direction: a shared namespace with exactly one caller isn't shared, it's just relocated.
 - `Discovery`/`Crawler`/`Analyzer`/`Projector` may depend on `Entity`, `Repository`, `Blob`,
-  `Journal`, `Taxonomy`, `Worker` — never on `Search` or `Query`. An analyzer that queries
-  Meilisearch to decide what to work on has broken §2's rule 1.
+  `Journal`, `Taxonomy` (and, once one exists, a genuinely shared namespace like a promoted
+  `Worker`) — never on `Search` or `Query`. An analyzer that queries Meilisearch to decide what
+  to work on has broken §2's rule 1.
 - `Search` and `Query` may be imported only by `Projector` (write, for upserts) and `Api`/
   `Backoffice` (read). `Query` never imports `Entity`/`Repository`/`Blob`.
 - `Api` and `Backoffice` may depend on `Query`, `Entity`/`Repository` (read-only, for pipeline

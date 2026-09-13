@@ -7,8 +7,8 @@ namespace App\Tests\Unit\Discovery;
 use App\Discovery\FailedWindow;
 use App\Discovery\Sweep;
 use App\Discovery\SweepState;
-use App\Worker\Window;
-use App\Worker\Windows;
+use App\Discovery\Worker\Window;
+use App\Discovery\Worker\Windows;
 use PHPUnit\Framework\TestCase;
 
 /**

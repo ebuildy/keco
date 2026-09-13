@@ -7,7 +7,7 @@ namespace App\Discovery\Store;
 use App\Discovery\FailedWindow;
 use App\Discovery\SweepState;
 use App\Entity\DiscoveryState;
-use App\Worker\Window;
+use App\Discovery\Worker\Window;
 
 /**
  * Converts between the Doctrine-backed {@see DiscoveryState} row and the pure, Doctrine-free

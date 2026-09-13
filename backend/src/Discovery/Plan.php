@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Discovery;
 
-use App\Worker\Window;
-use App\Worker\WindowPlan;
-use App\Worker\Windows;
+use App\Discovery\Worker\Window;
+use App\Discovery\Worker\WindowPlan;
+use App\Discovery\Worker\Windows;
 
 /**
  * What to do with a window once its probe page has come back (design 2026-08-02), ported from

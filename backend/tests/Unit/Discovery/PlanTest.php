@@ -6,8 +6,8 @@ namespace App\Tests\Unit\Discovery;
 
 use App\Discovery\Created;
 use App\Discovery\Plan;
-use App\Worker\Window;
-use App\Worker\Windows;
+use App\Discovery\Worker\Window;
+use App\Discovery\Worker\Windows;
 use PHPUnit\Framework\TestCase;
 
 /**

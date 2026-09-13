@@ -104,12 +104,16 @@ real handler, any controller, EasyAdmin, security, actually calling GitHub or Me
   is being corrected before Phase 2 builds on it.)*
 - The window/plan/sweep algebra (`windows.ts`/`plan.ts`/`sweep.ts` today) as pure PHP classes,
   unit-testable with no Postgres — ported test-by-test from the existing TS test suite so
-  behavior parity is provable, not assumed. Split across two homes, per AGENTS.md §4/§7's
-  bounded-context rule: `Window`, `Windows`, `WindowPlan` and the `Clock`/`SystemClock` time
-  abstraction carry no discovery-specific knowledge and live in `Worker/` (a new namespace, not
-  present in Phase 0's skeleton since nothing needed it yet — created now, the moment a piece of
-  Discovery's code turns out to be generic). `Plan`, `Sweep`, `SweepState`, `QuerySlug` and
-  everything that does know it's discovery stay in `Discovery/`.
+  behavior parity is provable, not assumed. Split across two homes within `Discovery/`, per
+  AGENTS.md §4/§7's bounded-context rule: `Window`, `Windows`, `WindowPlan` and the
+  `Clock`/`SystemClock` time abstraction carry no discovery-specific knowledge, so they're set
+  apart in `Discovery/Worker/` — but stay a sub-namespace of `Discovery`, not a top-level shared
+  namespace, until a second context (crawler or analyzer) actually needs the same code. `Plan`,
+  `Sweep`, `SweepState`, `QuerySlug` and everything that does know it's discovery stay directly
+  in `Discovery/`. *(An earlier pass promoted `Window`/`Windows`/`WindowPlan`/`Clock` straight to
+  a top-level `Worker/` namespace before any second consumer existed — reverted as premature: a
+  "shared" namespace with exactly one caller isn't shared, it's relocated. Promote
+  `Discovery/Worker` when a real second consumer shows up, not before.)*
 - A GitHub Search client over `HttpClient`, paced by `RateLimiter` (its own budget, separate from
   the crawler's — AGENTS.md §4.1's "own rate pacer" rule).
 - `Discovery\Message\SweepDiscoveryQuery` + handler, dispatched by Scheduler/cron.

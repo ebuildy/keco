@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Discovery;
 
-use App\Worker\Windows;
+use App\Discovery\Worker\Windows;
 
 /**
  * Resume the interrupted sweep, or start a new one. Ported from `apps/workers/src/discovery/sweep.ts`.

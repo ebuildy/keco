@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Worker;
+namespace App\Discovery\Worker;
 
 /** The real clock — wall time, real `usleep`. */
 final class SystemClock implements Clock
