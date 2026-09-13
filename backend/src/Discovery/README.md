@@ -26,8 +26,8 @@ Message/           SweepDiscoveryQuery — dispatched by Scheduler/cron for the 
 MessageHandler/     └─ delegates straight to DiscoverySweepRunner, same as the console command
 Search/             GitHubSearchClient + its own RateLimiter-based pacer (SearchPacer)
 Store/              DiscoveryStore — all persistence, all upsert/dedup/first-wins logic
-Worker/             Clock/SystemClock, Window/Windows/WindowPlan — see below for why this is a
-                     sub-namespace of Discovery rather than mixed in directly, or promoted up
+Worker/             Clock/SystemClock, Window/Windows/WindowPlan, InterruptHandler — see below
+                     for why this is a sub-namespace of Discovery, not mixed in or promoted up
 DiscoverySweepRunner.php   the orchestration loop — ties the pieces below together
 Plan.php, Sweep.php, SweepState.php, QuerySlug.php, Created.php, FailedWindow.php
                      pure algebra that *does* need to know it's discovery-specific

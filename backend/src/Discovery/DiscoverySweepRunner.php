@@ -12,6 +12,7 @@ use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Discovery\Worker\Clock;
+use App\Discovery\Worker\InterruptHandler;
 use App\Discovery\Worker\Window;
 use App\Discovery\Worker\Windows;
 use Doctrine\ORM\EntityManagerInterface;

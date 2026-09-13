@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Discovery\Worker;
 
 /**
  * Graceful shutdown for the sweep loop, ported from `apps/workers/src/lib/shutdown.ts`'s
