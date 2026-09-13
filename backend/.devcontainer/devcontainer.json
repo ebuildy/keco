@@ -1,0 +1,33 @@
+{
+	"name": "Keco backend (PHP/Symfony)",
+	"dockerComposeFile": [
+		"../../infra/compose.yaml",
+		"../../infra/compose.dev.yaml",
+		"compose.devcontainer.yaml"
+	],
+	"service": "php",
+	"workspaceFolder": "/app/backend",
+	"remoteUser": "nonroot",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"bmewburn.vscode-intelephense-client",
+				"xdebug.php-debug",
+				"junstyle.php-cs-fixer",
+				"SanderRonde.phpstan-vscode"
+			],
+			"settings": {
+				"launch": {
+					"version": "0.2.0",
+					"configurations": [
+						{
+							"name": "Debug PHP",
+							"type": "php",
+							"request": "launch"
+						}
+					]
+				}
+			}
+		}
+	}
+}

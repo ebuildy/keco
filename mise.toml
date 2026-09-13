@@ -217,12 +217,12 @@ description = "Mint or fetch the browser's search-only Meilisearch key (tools in
 run = "pnpm -F @keco/search ensure-search-key"
 
 [tasks."infra:up"]
-description = "Start Meilisearch"
-run = "docker compose -f infra/compose.yml up -d"
+description = "Start Postgres + Meilisearch (infra/compose.yaml; backend/'s php service and devcontainer share this same stack)"
+run = "docker compose -f infra/compose.yaml -f infra/compose.dev.yaml up -d database meilisearch"
 
 [tasks."infra:down"]
-description = "Stop Meilisearch"
-run = "docker compose -f infra/compose.yml down"
+description = "Stop Postgres + Meilisearch"
+run = "docker compose -f infra/compose.yaml -f infra/compose.dev.yaml stop database meilisearch"
 
 [tasks."infra:reset"]
 description = "Stop Meilisearch and delete its volume. Destroys the read model (rebuildable offline) AND discovery's write model (NOT rebuildable — a re-sweep, not a replay). Prompts unless --yes"

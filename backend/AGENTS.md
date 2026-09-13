@@ -64,7 +64,13 @@ Three specifics worth spelling out, because they are easy to get wrong:
 ## Everyday workflow
 
 - Run the app with `symfony serve -d`, and commands with `symfony console ...`
-  (or `bin/console` when the Symfony CLI isn't available).
+  (or `bin/console` when the Symfony CLI isn't available). Or open `backend/` in VS Code and
+  "Reopen in Container" (`backend/.devcontainer/` — backend is its own subproject here; a
+  sibling `apps/web` devcontainer is expected later) / `mise run infra:up` (or
+  `docker compose -f infra/compose.yaml -f infra/compose.dev.yaml up` from the repo root) —
+  this starts a FrankenPHP `php` service alongside Postgres and Meilisearch (`infra/compose.yaml`
+  + `infra/compose.dev.yaml`, shared infra for every subproject), with the app served on
+  `:8000` and `symfony`/`php bin/console` run inside the container instead.
 - When something fails, read `var/log/dev.log` and the web profiler
   (`/_profiler`) before changing code.
 - If `maker-bundle` is installed, prefer `bin/console make:*` with every argument

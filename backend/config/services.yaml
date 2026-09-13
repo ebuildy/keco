@@ -24,3 +24,17 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+    # Meilisearch (AGENTS.md §5, §11): the read model's client. `Meilisearch\Client` is vendor
+    # code, so it can't carry a #[Autowire] attribute on its constructor — this is the "type-hint
+    # can't express it" case AGENTS.md calls out, and explicit YAML is the right tool for it, not
+    # a last resort worked around. $httpClient/$requestFactory/$streamFactory autowire on their
+    # own (symfony/http-client's PSR-18 bridge + php-http/discovery's PSR-17 factory, see
+    # config/packages/http_discovery.yaml); only the scalar $url/$apiKey need binding here.
+    # `App\Search` builds its index-specific wrapper (settings, rebuild, alias swap) on top of
+    # this service once the Projector lands (Phase 4+) — see docs/superpowers/specs/
+    # 2026-09-12-php-symfony-migration-design.md.
+    Meilisearch\Client:
+        arguments:
+            $url: '%env(MEILI_HOST)%'
+            $apiKey: '%env(MEILI_MASTER_KEY)%'

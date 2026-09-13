@@ -1,0 +1,39 @@
+**/*.log
+**/*.php~
+**/*.dist.php
+**/*.cache
+**/._*
+**/.DS_Store
+**/Thumbs.db
+.git/
+.github/
+docs/
+
+# TS/JS side — the php service never needs it in its build context
+node_modules/
+.pnpm-store/
+apps/*/node_modules/
+apps/*/dist/
+packages/*/node_modules/
+.cache/
+.data/
+.turbo/
+
+# backend/ — none of this is needed in either image: the dev stage bind-mounts backend/ instead
+# of COPYing it, and the prod stage (frankenphp_prod) that does COPY backend/ wholesale has no
+# use for its own dev tooling at runtime. Kept out of the build context entirely so none of it is
+# shipped to the daemon on every build.
+backend/var/
+backend/vendor/
+backend/.phpunit.cache/
+backend/.deptrac.cache
+backend/.env.local
+backend/.env.*.local
+backend/public/bundles/
+backend/tests/
+backend/phpunit.dist.xml
+backend/deptrac.yaml
+backend/phpstan.neon
+backend/.devcontainer/
+backend/AGENTS.md
+backend/CLAUDE.md
