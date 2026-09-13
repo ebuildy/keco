@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Discovery\Worker;
 
 /** One window that failed during a sweep, and why. Ported from `collections.ts`'s `FailedWindow`. */
 final readonly class FailedWindow

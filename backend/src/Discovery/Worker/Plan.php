@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Discovery\Worker;
 
 use App\Discovery\Worker\Window;
 use App\Discovery\Worker\WindowPlan;

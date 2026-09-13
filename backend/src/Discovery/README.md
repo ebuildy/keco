@@ -26,21 +26,13 @@ Message/           SweepDiscoveryQuery — dispatched by Scheduler/cron for the 
 MessageHandler/     └─ delegates straight to DiscoverySweepRunner, same as the console command
 Search/             GitHubSearchClient + its own RateLimiter-based pacer (SearchPacer)
 Store/              DiscoveryStore — all persistence, all upsert/dedup/first-wins logic
-Worker/             Clock/SystemClock, Window/Windows/WindowPlan, InterruptHandler — see below
-                     for why this is a sub-namespace of Discovery, not mixed in or promoted up
-DiscoverySweepRunner.php   the orchestration loop — ties the pieces below together
-Plan.php, Sweep.php, SweepState.php, QuerySlug.php, Created.php, FailedWindow.php
-                     pure algebra that *does* need to know it's discovery-specific
+Worker/             Everything else: Clock/SystemClock, InterruptHandler, Window/Windows/
+                     WindowPlan, Plan, Sweep/SweepState/SweepResult, QuerySlug, Created,
+                     FailedWindow — the algebra and supporting types, grouped apart from the
+                     orchestrator
+DiscoverySweepRunner.php   the orchestration loop — the one class left at this level, tying
+                     Search/, Store/ and Worker/ together
 ```
-
-**`Window`, `Windows`, `WindowPlan`, `Clock`/`SystemClock` and `InterruptHandler` live in
-`Discovery/Worker` (`App\Discovery\Worker`)** — grouped apart from the rest of this directory
-because none of them carry discovery-specific knowledge (calendar-range splitting, "what time is
-it", and signal handling for a long-running process are all generic). `Plan`, `Sweep`,
-`SweepState` and `QuerySlug` stay directly under `Discovery` because they *do* know they're
-discovery: `Plan` decides split-vs-paginate against GitHub Search's 1000-result cap,
-`Sweep`/`SweepState` are the resume-vs-new-sweep state machine this context's `DiscoveryState`
-row persists, `QuerySlug` derives the slug and composite ids this context's tables key on.
 
 **Two entry points, one implementation.** `DiscoverySweepCommand` (synchronous, for manual runs
 and `mise run discovery:sweep`) and `SweepDiscoveryQueryHandler` (async, consumed off the
@@ -48,10 +40,10 @@ and `mise run discovery:sweep`) and `SweepDiscoveryQueryHandler` (async, consume
 straight into `DiscoverySweepRunner::run()`. Neither has its own copy of the sweep logic.
 
 **The runner is thin by construction.** `DiscoverySweepRunner` is the loop and the signal-handling
-wiring (`InterruptHandler`) and nothing else: window algebra is `App\Discovery\Worker\Windows`, the
-split/paginate decision is `Plan`, the resume decision is `Sweep`, all persistence is
-`DiscoveryStore`. If you find yourself adding business logic to the runner, it probably belongs
-in one of those instead.
+wiring (`Worker\InterruptHandler`) and nothing else: window algebra is `Worker\Windows`, the
+split/paginate decision is `Worker\Plan`, the resume decision is `Worker\Sweep`, all persistence
+is `Store\DiscoveryStore`. If you find yourself adding business logic to the runner, it probably
+belongs in one of those instead.
 
 ## Entities
 

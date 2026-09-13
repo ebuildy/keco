@@ -104,9 +104,10 @@ real handler, any controller, EasyAdmin, security, actually calling GitHub or Me
   is being corrected before Phase 2 builds on it.)*
 - The window/plan/sweep algebra (`windows.ts`/`plan.ts`/`sweep.ts` today) as pure PHP classes,
   unit-testable with no Postgres — ported test-by-test from the existing TS test suite so
-  behavior parity is provable, not assumed. `Window`, `Windows`, `WindowPlan`, `Clock`,
-  `SystemClock` and `InterruptHandler` are grouped under `Discovery/Worker/`; `Plan`, `Sweep`,
-  `SweepState`, `QuerySlug` and everything else stay directly in `Discovery/`.
+  behavior parity is provable, not assumed. `Window`, `Windows`, `WindowPlan`, `Plan`, `Sweep`,
+  `SweepState`, `SweepResult`, `QuerySlug`, `Created`, `FailedWindow`, `Clock`/`SystemClock` and
+  `InterruptHandler` are grouped under `Discovery/Worker/`; `DiscoverySweepRunner` is the one
+  orchestrator class left directly in `Discovery/`.
 - A GitHub Search client over `HttpClient`, paced by `RateLimiter` (its own budget, separate from
   the crawler's — AGENTS.md §4.1's "own rate pacer" rule).
 - `Discovery\Message\SweepDiscoveryQuery` + handler, dispatched by Scheduler/cron.

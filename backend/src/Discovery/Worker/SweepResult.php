@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Discovery\Worker;
 
 /** What one `DiscoverySweepRunner::run()` call produced — mirrors `runDiscovery`'s summary log. */
 final readonly class SweepResult

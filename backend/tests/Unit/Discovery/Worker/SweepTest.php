@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Unit\Discovery;
+namespace App\Tests\Unit\Discovery\Worker;
 
-use App\Discovery\FailedWindow;
-use App\Discovery\Sweep;
-use App\Discovery\SweepState;
+use App\Discovery\Worker\FailedWindow;
+use App\Discovery\Worker\Sweep;
+use App\Discovery\Worker\SweepState;
 use App\Discovery\Worker\Window;
 use App\Discovery\Worker\Windows;
 use PHPUnit\Framework\TestCase;
