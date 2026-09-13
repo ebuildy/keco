@@ -635,41 +635,32 @@ rule set; the headline rules):
 Every dev script is a **mise task** — `mise.toml` is the single entry point. `mise tasks` lists
 them all; the table below is the map, not the source of truth.
 
-**During the migration, the PHP equivalent of an existing TS task is prefixed `backend:`**
-(`mise run backend:discovery:sweep` alongside the existing `mise run discovery:sweep`, which
-still calls the TS `kecoctl`) rather than the two sharing a name — per §0, both run side by side
-until a phase's TS implementation is deliberately retired, and a shared name would mean one of
-them silently stops being what a longstanding command actually runs. When a phase's TS side is
-retired, its `backend:`-prefixed tasks are expected to drop the prefix and become the plain,
-canonical name. Cross-cutting gates (`check`, `lint`, `test`, `taxonomy:check`, `ci`, `install`,
-`setup`) are the exception: those already run both stacks under their existing names, because
-"pass everything" was never stack-specific to begin with.
-
 | Command | What it does |
 |---|---|
-| `mise run setup` | First run: `.env`, `pnpm install` + backend's `composer install`, Postgres + Meilisearch up, backend migrations, index settings, browser search key |
+| `mise run setup` | First run: `.env`, `composer install`, `pnpm install` (for `apps/web`), Postgres + Meilisearch up, migrations, index settings, browser search key |
 | `mise run web` | Portal dev server (Vite), `apps/web`, unchanged |
-| `mise run backend` | `php -S 127.0.0.1:8000 -t public` serving `backend/` — no HTTP routes of its own yet (Phase 1 is discovery only; the Api/Backoffice contexts aren't built) |
-| `mise run dev` | Portal (:5173) + `apps/api` (:3000) together — unchanged; `backend` isn't part of it yet since it has nothing to serve |
+| `mise run backend` | `symfony server:start` (or `php -S`/FrankenPHP dev mode) serving `backend/` |
+| `mise run dev` | Portal + backend together |
 | `mise run web:mock` | Portal alone against the in-browser mock backend — fabricated data, dev/test only (§14), unchanged from before the migration |
 | `mise run build` | Build the portal, prerender its top tool pages; `composer install --no-dev` + warm the Symfony cache for `backend/` |
 | `mise run prerender` | Emit static tool pages, `sitemap.xml` and `robots.txt` from `tools` — Node, unchanged, reads Meilisearch directly |
-| `mise run backend:migrate` | `bin/console doctrine:migrations:migrate` |
-| `mise run backend:discovery:sweep -- --query kubernetes --fresh` | `bin/console app:discovery:sweep` — enumerate repos into `GithubRepository`/`DiscoverySighting`/`DiscoveryState` (resumes by default; `--fresh` deletes the query's sightings and state, never `DiscoveryRun` history) |
-| `mise run backend:discovery:count -- --query kubernetes` | `bin/console app:discovery:count` |
-| `mise run backend:discovery:list -- runs --limit 20` | `bin/console app:discovery:list runs` — the sweep history |
-| `mise run backend:discovery:reset -- --query kubernetes` | Delete a query's `DiscoverySighting`/`DiscoveryState` rows (plus any `GithubRepository` this leaves with no sighting from any query), keeping `DiscoveryRun` history. Prompts; not rebuildable offline |
-| `mise run backend:check` / `backend:lint` / `backend:test` | `phpstan analyse` · `deptrac analyse` · `phpunit`, `backend/` alone |
-| `mise run backend:ci` | The three above, plus `backend:taxonomy:check` — everything green in `backend/` alone |
-| `mise run repo:crawl -- --limit 200` | Still TS-only (crawler is Phase 2, not built): `kecoctl repo crawl` — dispatch `CrawlRepo` for discovered repos |
-| `mise run repo:icon -- --repo owner/name` | Still TS-only: `kecoctl repo icon` — fetch and rasterize one repo's icon, standalone |
-| `mise run repo:history -- --limit 20` | Still TS-only: `kecoctl repo history` — crawl run history: fetched, skipped, failed, GitHub quota spent |
-| `mise run repo:analyze` | Still TS-only (analyzer is Phase 3, not built): `kecoctl repo analyze` — classify everything with a changed `content_hash` or an expired signal |
-| `mise run project` / `rebuild` | Still TS-only (projector is Phase 4, not built): project into Meilisearch / full offline rebuild |
-| `mise run checkpoint:reset -- --consumer analyzer` | Still TS-only: `kecoctl checkpoint reset` |
-| `mise run search:settings` / `search:key` | Still TS-only — index settings and the browser search key are read-side, unaffected by which backend writes the write model |
-| `mise run taxonomy:check` | `pnpm -F @keco/core taxonomy:check` **and** `bin/console app:taxonomy:check` — both loaders validate `taxonomy/taxonomy.yaml`; a rule change isn't done until both pass |
-| `mise run check` / `lint` / `test` | `tsc`/`eslint`/`vitest` for the pnpm workspace **and** `backend:check`/`backend:lint`/`backend:test` for `backend/` — one command, both stacks |
+| `mise run migrate` | `bin/console doctrine:migrations:migrate` |
+| `mise run discovery:sweep -- --query kubernetes --fresh` | `bin/console app:discovery:sweep` — enumerate repos into `GithubRepository`/`DiscoverySighting`/`DiscoveryState` (resumes by default; `--fresh` deletes the query's sightings and state, never `DiscoveryRun` history) |
+| `mise run discovery:list -- runs --limit 20` | `bin/console app:discovery:list runs` — the sweep history |
+| `mise run discovery:reset -- --query kubernetes` | Delete a query's `DiscoverySighting`/`DiscoveryState` rows (plus any `GithubRepository` this leaves with no sighting from any query), keeping `DiscoveryRun` history. Prompts; not rebuildable offline |
+| `mise run repo:crawl -- --limit 200` | `bin/console app:repo:crawl` — dispatch `CrawlRepo` for discovered repos |
+| `mise run repo:icon -- --repo owner/name` | `bin/console app:repo:icon` — fetch and rasterize one repo's icon, standalone |
+| `mise run repo:history -- --limit 20` | `bin/console app:repo:history` — crawl run history: fetched, skipped, failed, GitHub quota spent |
+| `mise run repo:analyze` | `bin/console app:repo:analyze` — classify everything with a changed `content_hash` or an expired signal |
+| `mise run repo:analyze -- --force-refresh scorecard` | Ignore TTL for one provider |
+| `mise run repo:analyze -- --repo owner/name` | Analyze one named repo directly, bypassing the journal |
+| `mise run project` | `bin/console app:project` — project `Repo`+`Analysis` into Meilisearch |
+| `mise run rebuild` | `bin/console app:project --rebuild` — full offline replay → new index → alias swap, zero GitHub calls |
+| `mise run checkpoint:reset -- --consumer analyzer` | `bin/console app:checkpoint:reset` |
+| `mise run search:settings` | `bin/console app:search:settings` — apply index settings (idempotent) |
+| `mise run search:key` | `bin/console app:search:key` — mint or fetch the browser's search-only Meilisearch key into `.env` |
+| `mise run taxonomy:check` | `bin/console app:taxonomy:check` — validate `taxonomy/taxonomy.yaml`, plus `apps/web`'s equivalent check |
+| `mise run check` / `lint` / `test` | `phpstan analyse` · `deptrac analyse` · `php-cs-fixer` · `phpunit` (backend) — plus `tsc`/`eslint`/`vitest` for `apps/web`, unchanged |
 | `mise run e2e` | `apps/web`'s Playwright suite against the mock backend — unaffected by the migration, still needs no Postgres, no Meilisearch, no `backend/` (§9) |
 | `mise run ci` | check + lint + test + taxonomy:check across both halves — the gate for §15 |
 | `mise run infra:up` / `infra:down` / `infra:reset` | Postgres + Meilisearch (the two local services now). `infra:reset` drops and recreates the Postgres database and wipes Meilisearch — it prompts with what it is about to lose; pass `--yes` in CI |
