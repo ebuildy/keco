@@ -1,0 +1,20 @@
+{
+  "extraKnownMarketplaces": {
+    "superpowers-symfony": {
+      "source": {
+        "source": "github",
+        "repo": "dev-toolings/superpowers-symfony"
+      }
+    },
+    "symfony-ux-skills": {
+      "source": {
+        "source": "github",
+        "repo": "smnandre/symfony-ux-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "superpowers-symfony@superpowers-symfony": true,
+    "symfony-ux-skills@symfony-ux-skills": true
+  }
+}

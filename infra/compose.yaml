@@ -1,0 +1,69 @@
+# Local dev stack for backend/ (the Symfony monolith) — Postgres, Meilisearch, and a PHP
+# (FrankenPHP) service to run it in, all self-contained to this repo. Consolidates what used to
+# be infra/compose.yml (Meilisearch only) and backend/compose.yaml (Postgres only) now that
+# backend/ is the one place that needs both, plus the devcontainer that runs alongside them.
+#
+# Lives under infra/ (§7 of AGENTS.md), not the repo root, so every relative path below
+# (`context`, the bind mounts in compose.dev.yaml) is written relative to infra/, one level
+# up from the monorepo root the php service's build actually needs.
+#
+# apps/web stays outside this stack for now (it needs no service of its own — Vite talks to
+# Meilisearch directly, §9 of AGENTS.md) but this is where a `web` service would join it later.
+
+services:
+###> doctrine/doctrine-bundle ###
+  database:
+    image: postgres:${POSTGRES_VERSION:-18}-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      # You should definitely change the password in production
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-!ChangeMe!}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "${POSTGRES_DB:-app}", "-U", "${POSTGRES_USER:-app}"]
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    volumes:
+      # postgres 18+ images store data under a major-version subdirectory of
+      # /var/lib/postgresql itself now, not /var/lib/postgresql/data — see
+      # https://github.com/docker-library/postgres/pull/1259
+      - database_data:/var/lib/postgresql:rw
+###< doctrine/doctrine-bundle ###
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.24
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-keco-dev-master-key}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: 'true'
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:7700/health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  php:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    depends_on:
+      database:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      # Overrides backend/.env's host-oriented defaults (127.0.0.1) with the compose service
+      # names — an OS-level env var always wins over .env in Symfony's Dotenv.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-!ChangeMe!}@database:5432/${POSTGRES_DB:-app}?serverVersion=${POSTGRES_VERSION:-18}&charset=utf8
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-keco-dev-master-key}
+      SERVER_NAME: ${SERVER_NAME:-localhost}
+
+volumes:
+###> doctrine/doctrine-bundle ###
+  database_data:
+###< doctrine/doctrine-bundle ###
+  meili_data:

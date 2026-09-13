@@ -22,4 +22,4 @@ if [[ "${1:-}" != "--yes" ]]; then
   [[ "$reply" == "y" || "$reply" == "Y" ]] || { echo "cancelled"; exit 1; }
 fi
 
-docker compose -f infra/compose.yml down -v
+docker compose -f infra/compose.yaml -f infra/compose.dev.yaml down -v database meilisearch
