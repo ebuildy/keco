@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Discovery\Worker;
 
 /**
  * `--query` is free text that becomes part of a document id, so it is a validation surface as

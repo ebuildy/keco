@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Discovery\Store;
 
-use App\Discovery\FailedWindow;
-use App\Discovery\SweepState;
+use App\Discovery\Worker\FailedWindow;
+use App\Discovery\Worker\SweepState;
 use App\Entity\DiscoveryState;
 use App\Discovery\Worker\Window;
 

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Discovery\Store;
 
-use App\Discovery\QuerySlug;
+use App\Discovery\Worker\QuerySlug;
 use App\Discovery\Search\SearchItem;
-use App\Discovery\SweepState;
+use App\Discovery\Worker\SweepState;
 use App\Entity\DiscoveryRun;
 use App\Entity\DiscoverySighting;
 use App\Entity\DiscoveryState;

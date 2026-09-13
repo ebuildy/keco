@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Discovery\Console;
 
-use App\Discovery\QuerySlug;
+use App\Discovery\Worker\QuerySlug;
 use App\Entity\DiscoveryRun;
 use App\Entity\GithubRepository;
 use App\Repository\DiscoveryRunRepository;

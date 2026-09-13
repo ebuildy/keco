@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Discovery;
+namespace App\Discovery\Worker;
 
 /**
  * One node of the calendar-splitting tree (design 2026-08-02, ported from
