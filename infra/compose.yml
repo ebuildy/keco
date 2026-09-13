@@ -1,0 +1,58 @@
+# Local dev infrastructure.
+#
+# `postgres` is the write model for the PHP/Symfony backend (`backend/`, ADR 0005) — Repo,
+# Analysis, the journal, checkpoints, discovery's corpus, all of it. It is durable, not
+# disposable: `mise run infra:reset` wiping it means re-crawling and re-analyzing from GitHub,
+# which is hours of paced requests, not a `rm -rf` (AGENTS.md §8).
+#
+# `meilisearch` is the read model — `tools`, rebuildable offline from Postgres by
+# `mise run rebuild`, zero GitHub calls. `mise run infra:reset` wiping it is free.
+#
+# `backend/compose.yaml` (Symfony Flex's own recipe) also starts a Postgres, on a random host
+# port, for isolated backend-only dev via the Symfony CLI's docker integration. This one is the
+# canonical, fixed-port instance the rest of the monorepo (and backend's own committed
+# `.env` default `DATABASE_URL`) expects at `127.0.0.1:5432` — run one or the other, not both,
+# to avoid two databases silently diverging.
+
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.24
+    container_name: keco-meilisearch
+    ports:
+      - '7700:7700'
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-keco-dev-master-key}
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: 'true'
+    volumes:
+      - meili:/meili_data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:7700/health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: keco-postgres
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-!ChangeMe!}
+    volumes:
+      # postgres:18's official image switched to pg_ctlcluster-style, major-version-namespaced
+      # data directories and now expects the volume mounted at the parent /var/lib/postgresql,
+      # not .../data like 16/17 images (and like backend/compose.yaml's Flex-generated service,
+      # still on 16) — mounting at .../data makes the image refuse to start.
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  meili:
+  postgres:
