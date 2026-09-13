@@ -15,7 +15,7 @@ use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Repository\GithubRepositoryRepository;
-use App\Worker\Clock;
+use App\Discovery\Worker\Clock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Ulid;
 

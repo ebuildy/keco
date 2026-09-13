@@ -4,6 +4,10 @@ Enumerates candidate repos from GitHub Search; it does not fetch them. See `AGEN
 the full contract this bounded context implements — this file is the map of *this directory*,
 not a restatement of the business rules.
 
+Using <https://docs.github.com/en/rest/search/search?apiVersion=2026-03-10#search-repositories>
+
+<https://github.com/tomhuang12/awesome-k8s-resources>
+
 ## What this context is for, and isn't
 
 - **Produces** `GithubRepository`, `DiscoverySighting`, `DiscoveryRun` and `DiscoveryState` rows.
@@ -22,19 +26,25 @@ Message/           SweepDiscoveryQuery — dispatched by Scheduler/cron for the 
 MessageHandler/     └─ delegates straight to DiscoverySweepRunner, same as the console command
 Search/             GitHubSearchClient + its own RateLimiter-based pacer (SearchPacer)
 Store/              DiscoveryStore — all persistence, all upsert/dedup/first-wins logic
+Worker/             Clock/SystemClock, Window/Windows/WindowPlan — see below for why this is a
+                     sub-namespace of Discovery rather than mixed in directly, or promoted up
 DiscoverySweepRunner.php   the orchestration loop — ties the pieces below together
 Plan.php, Sweep.php, SweepState.php, QuerySlug.php, Created.php, FailedWindow.php
                      pure algebra that *does* need to know it's discovery-specific
 ```
 
 **`Window`, `Windows`, `WindowPlan` and the `Clock`/`SystemClock` time abstraction live in
-`App\Worker`, not here** — they carry no discovery-specific knowledge (calendar-range splitting
-and "what time is it" are useful to any future bounded context), so per AGENTS.md §4/§7's rule
-they moved out the moment that became true. `Plan`, `Sweep`, `SweepState` and `QuerySlug` stay in
-`Discovery` because they *do* know they're discovery: `Plan` decides split-vs-paginate against
-GitHub Search's 1000-result cap, `Sweep`/`SweepState` are the resume-vs-new-sweep state machine
-this context's `DiscoveryState` row persists, `QuerySlug` derives the slug and composite ids this
-context's tables key on.
+`Discovery/Worker` (`App\Discovery\Worker`)** — grouped apart from the rest of this directory
+because they carry no discovery-specific knowledge (calendar-range splitting and "what time is
+it" are useful to any future bounded context), but kept as a sub-namespace of `Discovery` rather
+than promoted to a top-level `App\Worker`, per AGENTS.md §4/§7's "move it out the moment a second
+context needs it, not speculatively": nothing else needs this yet. The day `Crawler` or
+`Analyzer` wants the same `Clock` or the same windowing algebra, *that's* the moment to promote
+`Discovery/Worker` to a real shared namespace — not before. `Plan`, `Sweep`, `SweepState` and
+`QuerySlug` stay directly under `Discovery` because they *do* know they're discovery: `Plan`
+decides split-vs-paginate against GitHub Search's 1000-result cap, `Sweep`/`SweepState` are the
+resume-vs-new-sweep state machine this context's `DiscoveryState` row persists, `QuerySlug`
+derives the slug and composite ids this context's tables key on.
 
 **Two entry points, one implementation.** `DiscoverySweepCommand` (synchronous, for manual runs
 and `mise run discovery:sweep`) and `SweepDiscoveryQueryHandler` (async, consumed off the
@@ -42,7 +52,7 @@ and `mise run discovery:sweep`) and `SweepDiscoveryQueryHandler` (async, consume
 straight into `DiscoverySweepRunner::run()`. Neither has its own copy of the sweep logic.
 
 **The runner is thin by construction.** `DiscoverySweepRunner` is the loop and the signal-handling
-wiring (`InterruptHandler`) and nothing else: window algebra is `App\Worker\Windows`, the
+wiring (`InterruptHandler`) and nothing else: window algebra is `App\Discovery\Worker\Windows`, the
 split/paginate decision is `Plan`, the resume decision is `Sweep`, all persistence is
 `DiscoveryStore`. If you find yourself adding business logic to the runner, it probably belongs
 in one of those instead.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Worker;
+namespace App\Discovery\Worker;
 
 use App\Discovery\Created;
 
@@ -10,9 +10,11 @@ use App\Discovery\Created;
  * A GitHub Search window: a keyword narrowed by a star band and, once split, a creation-date
  * range (design 2026-08-02, ported from `windows.ts`'s `Window` type). Immutable.
  *
- * Lives under `App\Worker` rather than `App\Discovery` because the window-splitting algebra
- * carries no discovery-specific knowledge (AGENTS.md §4/§7); {@see \App\Discovery\Created}
- * itself stays in `App\Discovery` since it is discovery's own calendar-range representation.
+ * Grouped under `App\Discovery\Worker`, not mixed into `App\Discovery` proper, because the
+ * window-splitting algebra carries no discovery-specific knowledge (AGENTS.md §4/§7) — it stays
+ * a sub-namespace of Discovery rather than a top-level `App\Worker` until a second bounded
+ * context actually needs it too. {@see \App\Discovery\Created} itself stays directly under
+ * `App\Discovery` since it is discovery's own calendar-range representation.
  */
 final readonly class Window
 {

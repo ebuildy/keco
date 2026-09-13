@@ -39,19 +39,16 @@ deptrac:
               - type: classNameRegex
                 value: '#^App\\Taxonomy\\#'
 
+        # Includes App\Discovery\Worker\* — the injectable Clock and the window-splitting
+        # algebra, used only by Discovery so far. They're grouped under this context's own
+        # namespace rather than a top-level shared one, per AGENTS.md §4/§7's "move it out the
+        # moment a second context needs it, not speculatively": nothing else does yet. Promote
+        # this sub-namespace to a real top-level App\Worker the day Crawler or Analyzer needs the
+        # same abstraction — not before.
         - name: Discovery
           collectors:
               - type: classNameRegex
                 value: '#^App\\Discovery\\#'
-
-        # Code with no discovery-specific (or crawler-/analyzer-/projector-specific) knowledge —
-        # today the injectable Clock and the window-splitting algebra, both used only by
-        # Discovery so far, moved out the moment writing them under App\Discovery would have
-        # made a second bounded context reach into Discovery to reuse them (AGENTS.md §4/§7).
-        - name: Worker
-          collectors:
-              - type: classNameRegex
-                value: '#^App\\Worker\\#'
 
         - name: Crawler
           collectors:
@@ -106,7 +103,7 @@ deptrac:
         # never on the read side. Projector is the one documented exception (§4.4) — its entire
         # job is to write the `tools` read model, so it alone among the write-side layers may
         # depend on Search.
-        Discovery: [Entity, Repository, Blob, Journal, Taxonomy, Worker]
+        Discovery: [Entity, Repository, Blob, Journal, Taxonomy]
         Crawler: [Entity, Repository, Blob, Journal, Taxonomy]
         Analyzer: [Entity, Repository, Blob, Journal, Taxonomy, AnalyzerSignals]
         Projector: [Entity, Repository, Blob, Journal, Taxonomy, Search]
@@ -115,13 +112,6 @@ deptrac:
         # (Entity/Repository), never bypasses it — and is importable only by Analyzer (nothing
         # else lists AnalyzerSignals below).
         AnalyzerSignals: [Entity, Repository, Blob, Journal, Taxonomy]
-
-        # Worker: cross-context reusable code (today, the injectable Clock and the
-        # window-splitting algebra). `App\Worker\Window`/`Windows` import
-        # `App\Discovery\Created` — discovery's own calendar-range representation, deliberately
-        # not moved alongside them — so this is the one place a shared layer depends back on a
-        # bounded context, and it is scoped to exactly that one class.
-        Worker: [Discovery]
 
         # Read side (AGENTS.md §11): Query never touches the write model, only Search. Api and
         # Backoffice read via Query, read the write model directly for observability

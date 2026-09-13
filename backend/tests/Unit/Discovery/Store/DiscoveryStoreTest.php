@@ -11,7 +11,7 @@ use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Repository\GithubRepositoryRepository;
-use App\Worker\SystemClock;
+use App\Discovery\Worker\SystemClock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Uid\Ulid;
