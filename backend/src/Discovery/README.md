@@ -34,16 +34,48 @@ DiscoverySweepRunner.php   the orchestration loop — the one class left at this
                      Search/, Store/ and Worker/ together
 ```
 
-**Two entry points, one implementation.** `DiscoverySweepCommand` (synchronous, for manual runs
-and `mise run discovery:sweep`) and `SweepDiscoveryQueryHandler` (async, consumed off the
-`async_discovery` Messenger transport for Scheduler-triggered production sweeps) both call
-straight into `DiscoverySweepRunner::run()`. Neither has its own copy of the sweep logic.
+### Sweep flow: two entry points, one implementation
 
-**The runner is thin by construction.** `DiscoverySweepRunner` is the loop and the signal-handling
-wiring (`Worker\InterruptHandler`) and nothing else: window algebra is `Worker\Windows`, the
-split/paginate decision is `Worker\Plan`, the resume decision is `Worker\Sweep`, all persistence
-is `Store\DiscoveryStore`. If you find yourself adding business logic to the runner, it probably
-belongs in one of those instead.
+`DiscoverySweepCommand` (synchronous — manual runs, `mise run discovery:sweep`) and
+`SweepDiscoveryQueryHandler` (async — consumed off the `async_discovery` Messenger transport for
+Scheduler-triggered production sweeps) both call straight into `DiscoverySweepRunner::run()`.
+Neither has its own copy of the sweep logic; the only difference between them is *what triggers*
+a sweep, never *how* one runs.
+
+```mermaid
+flowchart TD
+    CLI["app:discovery:sweep\n(DiscoverySweepCommand — sync)"]
+    CRON["Scheduler / cron"]
+    MSG["SweepDiscoveryQuery message"]
+    HANDLER["SweepDiscoveryQueryHandler"]
+    RUNNER["DiscoverySweepRunner::run()"]
+
+    CRON -->|dispatches| MSG
+    MSG -->|"async_discovery transport\n(Doctrine-backed — same Postgres, no broker)"| HANDLER
+    CLI --> RUNNER
+    HANDLER --> RUNNER
+
+    subgraph WORKER["Discovery\Worker — pure algebra, no I/O"]
+        direction LR
+        WINDOWS["Windows / WindowPlan\nquery → star-band × date windows"]
+        PLAN["Plan\nsplit-vs-paginate vs. the 1000-result cap"]
+        SWEEPALG["Sweep / SweepState\nresume-vs-new-sweep"]
+        CLOCK["Clock / SystemClock"]
+        INTERRUPT["InterruptHandler\nSIGINT/SIGTERM → graceful finishRun"]
+    end
+
+    RUNNER --> WORKER
+    RUNNER --> SEARCH["Search\GitHubSearchClient\n+ its own RateLimiter pacer"]
+    RUNNER --> STORE["Store\DiscoveryStore"]
+
+    SEARCH -->|GitHub Search API| GH[("github.com")]
+    STORE -->|upsert| PG[("Postgres\nGithubRepository · DiscoverySighting\nDiscoveryRun · DiscoveryState")]
+```
+
+**The runner is thin by construction.** Everything under `WORKER` above is stateless algebra
+with no Doctrine and no network — `DiscoverySweepRunner` is only the loop plus the wiring between
+it, `Search\GitHubSearchClient` and `Store\DiscoveryStore`. If you find yourself adding business
+logic to the runner itself, it probably belongs in one of those three instead.
 
 ## Entities
 
