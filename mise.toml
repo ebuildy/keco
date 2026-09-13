@@ -217,11 +217,11 @@ description = "Mint or fetch the browser's search-only Meilisearch key (tools in
 run = "pnpm -F @keco/search ensure-search-key"
 
 [tasks."infra:up"]
-description = "Start Meilisearch"
+description = "Start Meilisearch and Postgres"
 run = "docker compose -f infra/compose.yml up -d"
 
 [tasks."infra:down"]
-description = "Stop Meilisearch"
+description = "Stop Meilisearch and Postgres"
 run = "docker compose -f infra/compose.yml down"
 
 [tasks."infra:reset"]

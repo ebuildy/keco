@@ -47,7 +47,7 @@ keco/
 │   │   ├── Blob/                     # BlobStorageInterface + Local/S3 adapters, §3.1
 │   │   ├── Journal/                  # JournalEvent + Checkpoint helpers, shared by every consumer
 │   │   ├── Discovery/                # write side, §4.1
-│   │   │   ├── Message/  MessageHandler/  Console/
+│   │   │   ├── Message/  MessageHandler/  Console/  Worker/
 │   │   ├── Crawler/                  # write side, §4.2
 │   │   │   ├── Message/  MessageHandler/  Icon/  Console/
 │   │   ├── Analyzer/                 # write side, §4.3
@@ -125,7 +125,8 @@ Structured, queryable write-model data — the direct replacement for `repos/**`
 | `Analysis` | `analysis/{owner}/{repo}.json` | `kind`, `domains[]`, `runtime`, `license_class`, `openness`, `maturity`, `governance`, `confidence`, `method`, `model`, `signals jsonb`, `signals_used[]`, `partial_signals[]`, `content_hash`, `analyzed_at`. |
 | `JournalEvent` | `journal/{date}/{ulid}.json` | `id` (ULID, PK, sortable), `type`, `repo` (nullable), `payload jsonb`, `created_at`. Append-only; never updated or deleted (§2 rule 7). An indexed range query (`WHERE id > :checkpoint ORDER BY id LIMIT :n`) replaces the old directory-of-files-by-ULID scan — strictly the same "never LIST to find work" contract, backed by a real index instead of a convention. |
 | `Checkpoint` | `checkpoints/{consumer}.json` | `consumer_name` (PK), `last_event_id`, `updated_at`. |
-| `DiscoveryRepo` | `discovery_repos` (Meilisearch) | Discovery's corpus. |
+| `GithubRepository` | `discovery_repos` (Meilisearch) | **One row per actual GitHub repo, globally** — PK is GitHub's own numeric repo id, not a per-query composite. Holds the latest known snapshot (name, owner, stars, description, topics, archived, fork, `raw`-ish fields, `payload_hash`). This is the entity `Repo` (§4.2, Phase 2) has a foreign key to. |
+| `DiscoverySighting` | `discovery_repos` (Meilisearch) | **New, split out of `GithubRepository`.** One row per `(query_slug, repo_id)` — which query found this repo, when, via which window, first/last seen run id. `ManyToOne` to `GithubRepository`. This is where the old per-query "first-wins" and resume bookkeeping lives now; `GithubRepository` itself stays free of query provenance. |
 | `DiscoveryRun` | `discovery_runs` (Meilisearch) | One row per sweep process; `outcome` (`running`/`complete`/`failed`/`interrupted`) exactly as before. |
 | `DiscoveryState` | `discovery_state` (Meilisearch) | Resume position, one per query. |
 | `CrawlHistoryEntry` | `crawl_history` (Meilisearch) | One row per crawl run. |
@@ -164,11 +165,13 @@ matching the original event types one-to-one:
 
 ```
 SweepDiscoveryQuery (scheduled)
-  → DiscoverySweepHandler → upserts DiscoveryRepo rows, records DiscoveryRun/DiscoveryState
+  → DiscoverySweepHandler → upserts GithubRepository (one row per repo, globally) and
+    DiscoverySighting (one row per query_slug × repo_id), records DiscoveryRun/DiscoveryState
 
-CrawlRepo(owner, name)                          [dispatched per DiscoveryRepo, batched]
-  → CrawlRepoHandler → fetches GitHub (conditional), writes Repo row + blob store,
-    appends JournalEvent{type: RepoFetched, changed}
+CrawlRepo(owner, name)                          [dispatched per GithubRepository, batched]
+  → CrawlRepoHandler → fetches GitHub (conditional), writes Repo row + blob store — Repo carries
+    a nullable FK to the GithubRepository it came from (null for the `--repo` bypass path, which
+    crawls a repo discovery never saw), appends JournalEvent{type: RepoFetched, changed}
     → if changed: dispatches AnalyzeRepo(owner, name)
 
 AnalyzeRepo(owner, name)
