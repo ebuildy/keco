@@ -1,29 +1,35 @@
 # Configuration file for `prek`, a git hook framework written in Rust.
 # See https://prek.j178.dev for more information.
-#:schema https://www.schemastore.org/prek.json
 
 [[repos]]
 repo = "builtin"
-hooks = [{ id = "trailing-whitespace" }, { id = "end-of-file-fixer" }, { id = "check-added-large-files" }, { id = "check-yaml" }, { id = "check-json" }, { id = "check-toml" }, { id = "check-merge-conflict" }, { id = "detect-private-key" }]
-
-# Signature enforcement runs at pre-push, not commit-msg. At commit-msg time the commit does not
-# exist yet, so `git verify-commit HEAD` there inspects the PREVIOUS commit and says nothing about
-# the one being written; post-commit sees the right commit but git ignores its exit code, so it
-# can report but never block. pre-push is the first stage where the commits exist AND a non-zero
-# exit actually stops something. `pass_filenames = false` is required: prek appends filenames to
-# `entry`, and `git verify-commit` reads every argument as a commit-ish.
-[[repos]]
-repo = "local"
-hooks = [{ id = "check-signed-commit", name = "Check signed commit", entry = "./.ci/check-signed-commits.sh", language = "system", stages = ["pre-push"], always_run = true, pass_filenames = false }]
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  { id = "check-added-large-files" },
+  { id = "check-yaml" },
+  { id = "check-json" },
+  { id = "check-toml" },
+  { id = "check-merge-conflict" },
+  { id = "detect-private-key" },
+  { id = "check-signed-commit" },
+]
 
 [[repos]]
 repo = "https://github.com/tombi-toml/tombi-pre-commit"
 rev = "1c6e088eb48854d65499ae12c0e7ec2f1737d0f8"  # frozen: v1.5.0
-hooks = [
-  { id = "tombi-format", args = ["--offline"], files = '\.toml$' },
-]
+hooks = [{ id = "tombi-format", args = ["--offline"], files = '\.toml$' }]
 
 [[repos]]
 repo = "https://github.com/python-jsonschema/check-jsonschema"
 rev = "12e63946db2c5cfcc9030fac21c3883ba88c6ed8"  # frozen: 0.38.0
-hooks = [{ id = "check-metaschema", files = { glob = ["prek.schema.json", "prek-hooks.schema.json"] } }, { id = "check-github-workflows" }, { id = "check-renovate", additional_dependencies = ["json5"] }]
+hooks = [
+  { id = "check-metaschema", files = { glob = [
+    "prek.schema.json",
+    "prek-hooks.schema.json",
+  ] } },
+  { id = "check-github-workflows" },
+  { id = "check-renovate", additional_dependencies = [
+    "json5",
+  ] },
+]
