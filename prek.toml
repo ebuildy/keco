@@ -12,7 +12,7 @@ hooks = [
   { id = "check-toml" },
   { id = "check-merge-conflict" },
   { id = "detect-private-key" },
-  { id = "check-signed-commit" },
+  { id = "check-signed-commit", args = ["--allow-status=G"] },
 ]
 
 [[repos]]
