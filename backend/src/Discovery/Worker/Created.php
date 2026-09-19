@@ -145,10 +145,7 @@ final readonly class Created
             'quarter' => self::quarter(self::intOf($data, 'year'), self::intOf($data, 'quarter')),
             'month' => self::month(self::intOf($data, 'year'), self::intOf($data, 'month')),
             'day' => self::day(self::stringOf($data, 'date')),
-            default => throw new \InvalidArgumentException(\sprintf(
-                'Unknown Created "kind" %s.',
-                \is_string($kind) ? \sprintf('"%s"', $kind) : \gettype($kind),
-            )),
+            default => throw new \InvalidArgumentException(\sprintf('Unknown Created "kind" %s.', \is_string($kind) ? \sprintf('"%s"', $kind) : \gettype($kind))),
         };
     }
 

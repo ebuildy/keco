@@ -7,10 +7,6 @@ namespace App\Discovery;
 use App\Discovery\Search\GitHubSearchClient;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
-use App\Repository\GithubRepositoryRepository;
-use App\Repository\DiscoveryRunRepository;
-use App\Repository\DiscoverySightingRepository;
-use App\Repository\DiscoveryStateRepository;
 use App\Discovery\Worker\Clock;
 use App\Discovery\Worker\FailedWindow;
 use App\Discovery\Worker\InterruptHandler;
@@ -19,6 +15,10 @@ use App\Discovery\Worker\Sweep;
 use App\Discovery\Worker\SweepResult;
 use App\Discovery\Worker\Window;
 use App\Discovery\Worker\Windows;
+use App\Repository\DiscoveryRunRepository;
+use App\Repository\DiscoverySightingRepository;
+use App\Repository\DiscoveryStateRepository;
+use App\Repository\GithubRepositoryRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
@@ -46,12 +46,12 @@ final class DiscoverySweepRunner
     }
 
     /**
-     * @param (callable(DiscoveryStore): void)|null $onWindowCompleted Called after every window,
+     * @param (callable(DiscoveryStore): void)|null $onWindowCompleted called after every window,
      *                                                                 whether it flushed or not —
      *                                                                 lets a console command
      *                                                                 render a progress bar
      *                                                                 without this class knowing
-     *                                                                 about output.
+     *                                                                 about output
      */
     public function run(
         string $query,
@@ -162,8 +162,8 @@ final class DiscoverySweepRunner
     }
 
     /**
-     * @param list<Window> $queue Only read here (for `array_push`'s target) — never shifted; the
-     *                            caller owns that.
+     * @param list<Window> $queue only read here (for `array_push`'s target) — never shifted; the
+     *                            caller owns that
      */
     private function sweepWindow(DiscoveryStore $store, Window $window, string $query, \DateTimeImmutable $now, array &$queue): void
     {
@@ -195,7 +195,7 @@ final class DiscoverySweepRunner
     }
 
     /**
-     * @param list<\App\Discovery\Search\SearchItem> $items
+     * @param list<Search\SearchItem> $items
      */
     private function recordAll(DiscoveryStore $store, array $items, string $via, \DateTimeImmutable $now): void
     {

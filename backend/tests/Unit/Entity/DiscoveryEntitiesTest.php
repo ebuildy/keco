@@ -247,7 +247,7 @@ final class DiscoveryEntitiesTest extends KernelTestCase
      * The deliberate stuck-row behavior (AGENTS.md §4.1): a process that dies before calling
      * `finish()` — the equivalent of a SIGKILL, which cannot be trapped — leaves its run at
      * `running` forever. Simulated here by simply never finishing it and re-reading from a
-     * fresh entity manager, standing in for "another process looks at this row later."
+     * fresh entity manager, standing in for "another process looks at this row later.".
      */
     public function testAKilledRunStaysAtRunningForever(): void
     {

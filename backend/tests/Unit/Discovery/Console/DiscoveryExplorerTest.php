@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Discovery\Console;
 
 use App\Discovery\Console\DiscoveryExplorer;
+use App\Discovery\Search\SearchItem;
 use App\Discovery\Store\DiscoveryStore;
 use App\Discovery\Store\OpenOptions;
-use App\Discovery\Search\SearchItem;
-use App\Repository\GithubRepositoryRepository;
+use App\Discovery\Worker\SystemClock;
 use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
-use App\Discovery\Worker\SystemClock;
+use App\Repository\GithubRepositoryRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 

@@ -57,15 +57,10 @@ final class GitHubSearchClient
             throw new \InvalidArgumentException(\sprintf('perPage must be <= 100 (GitHub search\'s own cap), got %d', $perPage));
         }
         if ($page * $perPage > self::MAX_RESULTS_PER_QUERY) {
-            throw new \InvalidArgumentException(\sprintf(
-                'page %d at perPage %d would exceed GitHub search\'s %d-result cap',
-                $page,
-                $perPage,
-                self::MAX_RESULTS_PER_QUERY,
-            ));
+            throw new \InvalidArgumentException(\sprintf('page %d at perPage %d would exceed GitHub search\'s %d-result cap', $page, $perPage, self::MAX_RESULTS_PER_QUERY));
         }
 
-        for ($attempt = 0; ; ++$attempt) {
+        for ($attempt = 0;; ++$attempt) {
             $this->pacer->pace();
 
             try {
@@ -167,10 +162,7 @@ final class GitHubSearchClient
         // changed shape corpus-wide. An empty-but-successful page would let the caller mark the
         // window complete and the sweep "succeed" with the data silently missing.
         if ($dropped > 0 && $dropped === \count($items)) {
-            throw new GitHubSearchException(\sprintf(
-                'github search: all %d items on this page failed to parse — treating as a schema change, not per-repo noise',
-                $dropped,
-            ));
+            throw new GitHubSearchException(\sprintf('github search: all %d items on this page failed to parse — treating as a schema change, not per-repo noise', $dropped));
         }
 
         return new SearchPage($totalCount, $incomplete, $parsed, $dropped);

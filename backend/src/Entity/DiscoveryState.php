@@ -65,8 +65,8 @@ class DiscoveryState
     private int $dropped;
 
     /**
-     * @param list<array<string, mixed>>              $pendingWindows
-     * @param list<string>                            $completedWindows
+     * @param list<array<string, mixed>>                 $pendingWindows
+     * @param list<string>                               $completedWindows
      * @param list<array{window: string, error: string}> $failedWindows
      */
     public function __construct(
@@ -159,7 +159,7 @@ class DiscoveryState
      * which always writes every field together rather than patching individual ones.
      *
      * @param list<array<string, mixed>>                 $pendingWindows
-     * @param list<string>                                $completedWindows
+     * @param list<string>                               $completedWindows
      * @param list<array{window: string, error: string}> $failedWindows
      */
     public function applySnapshot(

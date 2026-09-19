@@ -85,12 +85,7 @@ final class DiscoveryExplorer
         $direction = strtolower($parts[1] ?? 'desc');
 
         if (!\in_array($field, $sortable, true)) {
-            throw new \InvalidArgumentException(\sprintf(
-                'cannot sort %s by "%s" — sortable fields are: %s',
-                $target,
-                $field,
-                implode(', ', $sortable),
-            ));
+            throw new \InvalidArgumentException(\sprintf('cannot sort %s by "%s" — sortable fields are: %s', $target, $field, implode(', ', $sortable)));
         }
         if ('asc' !== $direction && 'desc' !== $direction) {
             throw new \InvalidArgumentException(\sprintf('sort direction must be asc or desc, got "%s"', $direction));
@@ -140,9 +135,7 @@ final class DiscoveryExplorer
     public function planReset(?string $query, bool $all, bool $includeRuns): array
     {
         if (null === $query && !$all) {
-            throw new \InvalidArgumentException(
-                'refusing to reset without a target — pass --query <keyword> for one query, or --all for every query',
-            );
+            throw new \InvalidArgumentException('refusing to reset without a target — pass --query <keyword> for one query, or --all for every query');
         }
 
         return array_map(

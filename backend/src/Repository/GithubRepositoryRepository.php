@@ -50,7 +50,7 @@ class GithubRepositoryRepository extends ServiceEntityRepository
 
         $byId = [];
         foreach ($rows as $row) {
-            /** @var GithubRepository $row */
+            /* @var GithubRepository $row */
             $byId[$row->getRepoId()] = $row;
         }
 
@@ -62,7 +62,7 @@ class GithubRepositoryRepository extends ServiceEntityRepository
      */
     public function findAllOrdered(int $limit, string $sortField = 'stars', string $sortDirection = 'DESC'): array
     {
-        /** @var list<GithubRepository> */
+        /* @var list<GithubRepository> */
         return $this->createQueryBuilder('r')
             ->orderBy('r.'.$sortField, $sortDirection)
             ->setMaxResults($limit)

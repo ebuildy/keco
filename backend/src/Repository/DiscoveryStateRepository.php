@@ -36,7 +36,7 @@ class DiscoveryStateRepository extends ServiceEntityRepository
      */
     public function findAllOrderedBySlug(): array
     {
-        /** @var list<DiscoveryState> */
+        /* @var list<DiscoveryState> */
         return $this->createQueryBuilder('s')
             ->orderBy('s.querySlug', 'ASC')
             ->getQuery()

@@ -11,9 +11,9 @@ namespace App\Taxonomy;
 final class TaxonomyFamily
 {
     /**
-     * @param 'one'|'many'                 $cardinality
+     * @param 'one'|'many'                    $cardinality
      * @param 'analyzer'|'derived'|'registry' $source
-     * @param list<TaxonomyValue>          $values
+     * @param list<TaxonomyValue>             $values
      */
     public function __construct(
         public readonly string $id,

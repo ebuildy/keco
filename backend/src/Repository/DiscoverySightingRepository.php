@@ -62,8 +62,9 @@ class DiscoverySightingRepository extends ServiceEntityRepository
 
         $known = [];
         foreach ($rows as $row) {
-            /** @var array{repoId: int|string, payloadHash: string, firstSeenRunId: string} $row */
-            $known[(int) $row['repoId']] = ['payloadHash' => $row['payloadHash'], 'firstSeenRunId' => $row['firstSeenRunId']];
+            /** @var array{repoId: int|string, payloadHash: string, firstSeenRunId: string} $typedRow */
+            $typedRow = $row;
+            $known[(int) $typedRow['repoId']] = ['payloadHash' => $typedRow['payloadHash'], 'firstSeenRunId' => $typedRow['firstSeenRunId']];
         }
 
         return $known;
@@ -78,7 +79,7 @@ class DiscoverySightingRepository extends ServiceEntityRepository
      */
     public function findRepositoriesByQuerySlug(string $querySlug, int $limit, string $sortField = 'stars', string $sortDirection = 'DESC'): array
     {
-        /** @var list<GithubRepository> */
+        /* @var list<GithubRepository> */
         return $this->getEntityManager()->createQueryBuilder()
             ->select('r')
             ->from(GithubRepository::class, 'r')
@@ -109,8 +110,9 @@ class DiscoverySightingRepository extends ServiceEntityRepository
 
         $repoIds = [];
         foreach ($rows as $row) {
-            /** @var array{repoId: int|string} $row */
-            $repoIds[] = (int) $row['repoId'];
+            /** @var array{repoId: int|string} $typedRow */
+            $typedRow = $row;
+            $repoIds[] = (int) $typedRow['repoId'];
         }
 
         return $repoIds;

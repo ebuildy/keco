@@ -16,8 +16,8 @@ final readonly class WindowPlan
      *                                "nothing more to fetch for this window".
      * @param list<Window> $children  Sub-windows to enqueue. Empty when the window fits, or
      *                                when it has hit the day floor.
-     * @param bool         $truncated The window is over the cap and cannot be subdivided
-     *                                further — results are lost.
+     * @param bool         $truncated the window is over the cap and cannot be subdivided
+     *                                further — results are lost
      */
     public function __construct(
         public int $lastPage,

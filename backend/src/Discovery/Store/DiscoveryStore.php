@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Discovery\Store;
 
-use App\Discovery\Worker\QuerySlug;
 use App\Discovery\Search\SearchItem;
+use App\Discovery\Worker\Clock;
+use App\Discovery\Worker\QuerySlug;
 use App\Discovery\Worker\SweepState;
 use App\Entity\DiscoveryRun;
 use App\Entity\DiscoverySighting;
@@ -15,7 +16,6 @@ use App\Repository\DiscoveryRunRepository;
 use App\Repository\DiscoverySightingRepository;
 use App\Repository\DiscoveryStateRepository;
 use App\Repository\GithubRepositoryRepository;
-use App\Discovery\Worker\Clock;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Ulid;
 
@@ -84,8 +84,8 @@ final class DiscoveryStore
 
     /**
      * @param array<int, array{payloadHash: string, firstSeenRunId: string}> $known keyed by repoId —
-     *                                                                                this query's own
-     *                                                                                sighting state
+     *                                                                              this query's own
+     *                                                                              sighting state
      */
     private function __construct(
         private readonly EntityManagerInterface $em,
@@ -327,7 +327,7 @@ final class DiscoveryStore
             repoId: $item->id,
             fullName: $item->fullName,
             name: $item->name,
-            owner: $item->ownerLogin ?? (explode('/', $item->fullName)[0]),
+            owner: $item->ownerLogin ?? explode('/', $item->fullName)[0],
             description: $item->description,
             homepage: $item->homepage,
             stars: $item->stargazersCount,
@@ -352,7 +352,7 @@ final class DiscoveryStore
         $repo->updateSnapshot(
             fullName: $item->fullName,
             name: $item->name,
-            owner: $item->ownerLogin ?? (explode('/', $item->fullName)[0]),
+            owner: $item->ownerLogin ?? explode('/', $item->fullName)[0],
             description: $item->description,
             homepage: $item->homepage,
             stars: $item->stargazersCount,

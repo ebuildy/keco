@@ -41,14 +41,16 @@ class DiscoveryRunRepository extends ServiceEntityRepository
 
     public function findLatestByQuerySlug(string $querySlug): ?DiscoveryRun
     {
-        /** @var DiscoveryRun|null */
-        return $this->createQueryBuilder('r')
+        /** @var DiscoveryRun|null $run */
+        $run = $this->createQueryBuilder('r')
             ->andWhere('r.querySlug = :slug')
             ->setParameter('slug', $querySlug)
             ->orderBy('r.startedAt', 'DESC')
             ->setMaxResults(1)
             ->getQuery()
             ->getOneOrNullResult();
+
+        return $run;
     }
 
     /**
@@ -56,7 +58,7 @@ class DiscoveryRunRepository extends ServiceEntityRepository
      */
     public function findByQuerySlug(string $querySlug, int $limit, string $sortField = 'startedAt', string $sortDirection = 'DESC'): array
     {
-        /** @var list<DiscoveryRun> */
+        /* @var list<DiscoveryRun> */
         return $this->createQueryBuilder('r')
             ->andWhere('r.querySlug = :slug')
             ->setParameter('slug', $querySlug)
@@ -71,7 +73,7 @@ class DiscoveryRunRepository extends ServiceEntityRepository
      */
     public function findAllOrdered(int $limit, string $sortField = 'startedAt', string $sortDirection = 'DESC'): array
     {
-        /** @var list<DiscoveryRun> */
+        /* @var list<DiscoveryRun> */
         return $this->createQueryBuilder('r')
             ->orderBy('r.'.$sortField, $sortDirection)
             ->setMaxResults($limit)

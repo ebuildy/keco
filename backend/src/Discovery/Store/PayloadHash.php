@@ -34,7 +34,7 @@ final class PayloadHash
             'repo_id' => $item->id,
             'full_name' => $item->fullName,
             'name' => $item->name,
-            'owner' => $item->ownerLogin ?? (explode('/', $item->fullName)[0]),
+            'owner' => $item->ownerLogin ?? explode('/', $item->fullName)[0],
             'description' => $item->description,
             'homepage' => $item->homepage,
             'stars' => $item->stargazersCount,

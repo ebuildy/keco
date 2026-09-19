@@ -45,7 +45,7 @@ class JournalEventRepository extends ServiceEntityRepository
             $qb->andWhere('e.id > :after')->setParameter('after', $after, 'ulid');
         }
 
-        /** @var list<JournalEvent> */
+        /* @var list<JournalEvent> */
         return $qb->getQuery()->getResult();
     }
 }

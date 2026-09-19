@@ -22,9 +22,9 @@ final class InterruptHandler
     }
 
     /**
-     * @param callable(int): void $onInterrupt Must not throw — flushing durable state before
-     *                                          the process exits, never anything that can fail
-     *                                          loudly mid-shutdown.
+     * @param callable(int): void $onInterrupt must not throw — flushing durable state before
+     *                                         the process exits, never anything that can fail
+     *                                         loudly mid-shutdown
      */
     public static function install(callable $onInterrupt): void
     {

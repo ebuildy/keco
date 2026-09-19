@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Discovery\Console;
 
-use App\Entity\GithubRepository;
 use App\Entity\DiscoveryRun;
+use App\Entity\GithubRepository;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;

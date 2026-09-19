@@ -36,10 +36,7 @@ final class QuerySlug
         $slug = rtrim($slug, '-');
 
         if ('' === $slug) {
-            throw new \InvalidArgumentException(\sprintf(
-                'discovery query "%s" has no ASCII alphanumeric characters, so it has no entity namespace. Pass a keyword such as --query kubernetes.',
-                $query,
-            ));
+            throw new \InvalidArgumentException(\sprintf('discovery query "%s" has no ASCII alphanumeric characters, so it has no entity namespace. Pass a keyword such as --query kubernetes.', $query));
         }
 
         return $slug;
