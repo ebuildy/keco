@@ -5,6 +5,8 @@
 [tools]
 node = "24.18.1"
 pnpm = "11.18.0"
+prek = "latest"
+trivy = "latest"
 
 [env]
 # NODE_ENV is deliberately not set here. Vite and Fastify each set their own (vite dev →
@@ -227,3 +229,19 @@ run = "docker compose -f infra/compose.yaml -f infra/compose.dev.yaml stop datab
 [tasks."infra:reset"]
 description = "Stop Meilisearch and delete its volume. Destroys the read model (rebuildable offline) AND discovery's write model (NOT rebuildable — a re-sweep, not a replay). Prompts unless --yes"
 run = "./infra/reset.sh"
+
+# ── container image (backend/) ───────────────────────────────────────────────
+
+[tasks."image:build"]
+description = "Build the backend prod image (backend/Dockerfile, frankenphp_prod) as keco-php-prod:latest"
+run = "docker build --load -f backend/Dockerfile --target frankenphp_prod -t keco-php-prod:latest ."
+
+[tasks."image:scan"]
+description = "Trivy-scan the backend prod image on the same terms CI gates on: CRITICAL/HIGH, fixed-only, honouring .trivyignore.yaml"
+# --ignorefile is NOT optional: Trivy auto-detects a plain `.trivyignore` but not the YAML form,
+# so without it this reports findings .trivyignore.yaml already accepts and stops matching CI.
+run = "trivy image --severity CRITICAL,HIGH --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 keco-php-prod:latest"
+
+[tasks."image:cve"]
+description = "Rebuild the backend image and scan it — the loop to run after touching backend/Dockerfile"
+run = ["mise run image:build", "mise run image:scan"]

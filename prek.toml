@@ -1,0 +1,34 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  { id = "check-added-large-files" },
+  { id = "check-yaml" },
+  { id = "check-json" },
+  { id = "check-toml" },
+  { id = "check-merge-conflict" },
+  { id = "detect-private-key" },
+]
+
+[[repos]]
+repo = "https://github.com/tombi-toml/tombi-pre-commit"
+rev = "1c6e088eb48854d65499ae12c0e7ec2f1737d0f8"  # frozen: v1.5.0
+hooks = [{ id = "tombi-format", args = ["--offline"], files = '\.toml$' }]
+
+[[repos]]
+repo = "https://github.com/python-jsonschema/check-jsonschema"
+rev = "12e63946db2c5cfcc9030fac21c3883ba88c6ed8"  # frozen: 0.38.0
+hooks = [
+  { id = "check-metaschema", files = { glob = [
+    "prek.schema.json",
+    "prek-hooks.schema.json",
+  ] } },
+  { id = "check-github-workflows" },
+  { id = "check-renovate", additional_dependencies = [
+    "json5",
+  ] },
+]

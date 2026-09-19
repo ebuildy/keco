@@ -17,9 +17,16 @@ SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 WORKDIR /app/backend
 
 # persistent deps
+#
+# `apt-get upgrade` is deliberate and must stay: the upstream frankenphp tag is rebuilt on
+# FrankenPHP's release cadence, not Debian's security cadence, so by the time we build there are
+# always pending trixie security updates (perl, libpcre2, libsqlite3, libssh2, gzip...) already
+# published as .deb but not yet baked into the base layer. Without this line the image ships
+# every OS CVE fixed since the base image was last built.
 # hadolint ignore=DL3008
 RUN <<-EOF
 	apt-get update
+	apt-get upgrade -y
 	apt-get install -y --no-install-recommends \
 		file \
 		git
@@ -30,6 +37,7 @@ RUN <<-EOF
 		opcache \
 		pdo_pgsql \
 		zip
+	apt-get clean
 	rm -rf /var/lib/apt/lists/*
 EOF
 
