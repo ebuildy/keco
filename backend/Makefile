@@ -8,7 +8,11 @@
 # as its own later, explicitly-approved step.
 
 .DEFAULT_GOAL := ci
-.PHONY: install check lint lint-fix test taxonomy-check ci
+.PHONY: install check lint lint-fix test taxonomy-check ci discovery-sweep
+
+# Overridable: make discovery-sweep QUERY=operator LIMIT=200
+QUERY ?= kubernetes
+LIMIT ?= 50
 
 install: ## Install PHP dependencies
 	composer install
@@ -30,5 +34,8 @@ test: ## Run the PHPUnit test suite (needs Postgres up + an app_test database, s
 
 taxonomy-check: ## Validate taxonomy/taxonomy.yaml against the PHP-side loader
 	bin/console app:taxonomy:check
+
+discovery-sweep: ## Dev-only: sweep GitHub Search for a query, capped so it doesn't run away. Needs GITHUB_TOKEN and Postgres up. Args: QUERY=kubernetes LIMIT=50
+	bin/console app:discovery:sweep --query "$(QUERY)" --limit "$(LIMIT)"
 
 ci: check lint test taxonomy-check ## Everything green before declaring backend work done (AGENTS.md §15)
