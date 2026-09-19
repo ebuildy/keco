@@ -1,0 +1,96 @@
+# Trivy ignore file — backend image (backend/Dockerfile, frankenphp_prod stage).
+#
+# SCOPE: every entry below is scoped by `paths` to the prebuilt `frankenphp` binary that ships
+# inside the upstream `dunglas/frankenphp:1-php8.5` base image. Nothing here suppresses a finding
+# in Debian packages, in Composer dependencies, or in anything this repo builds — those must stay
+# at zero and are fixed by `apt-get upgrade` in the Dockerfile and by `composer update`.
+#
+# WHY THESE CANNOT BE PATCHED HERE: they are Go modules compiled into that binary. No package
+# update reaches them, and FrankenPHP v1.12.7 is the newest release (there is no newer runtime
+# image to bump the base tag to). The only true fixes are an upstream release or compiling
+# FrankenPHP from source, which this project has deliberately chosen not to do.
+#
+# WHY THEY ARE ACCEPTED: none of the vulnerable code paths are reachable in this deployment.
+# backend/frankenphp/Caddyfile enables exactly: frankenphp/php, file_server, encode, log,
+# rewrite, root. No SSH server, no gRPC/xDS listener, no Vulcain module. Justification is
+# recorded per entry below.
+#
+# UPSTREAM: https://github.com/php/frankenphp/issues/2643. FrankenPHP `main` has ALREADY bumped
+# golang.org/x/crypto to v0.55.0 and github.com/getkin/kin-openapi to v0.146.0, so 4 of these 7
+# clear on the next release. google.golang.org/grpc is still v1.81.1 on main and needs >= 1.83.2.
+#
+# EXPIRY IS THE POINT: these expire on 2026-12-12. On that date Trivy stops honouring them and CI
+# goes red again, which forces a re-review rather than letting a suppression quietly become
+# permanent. Do not extend a date without re-checking whether an upstream release has landed —
+# `docker run --rm --entrypoint frankenphp <image> build-info` shows the shipped module versions.
+
+vulnerabilities:
+  # ── github.com/getkin/kin-openapi (via the Vulcain Caddy module) ────────────────────────────
+  # Vulcain is compiled into the upstream binary but never enabled: the Caddyfile declares no
+  # `vulcain` directive, so http.handlers.vulcain is never instantiated and openapi3filter's
+  # ValidationHandler is never constructed. An upstream contributor confirmed on issue #2643 that
+  # Vulcain does not use the vulnerable openapi3filter path at all.
+  - id: GHSA-r277-6w6q-xmqw # CRITICAL — ValidationHandler.Load() fail-open auth bypass
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      Vulcain module is compiled in but never enabled by backend/frankenphp/Caddyfile;
+      openapi3filter.ValidationHandler is never constructed. Fixed upstream on frankenphp main
+      (kin-openapi v0.146.0), pending a release. Tracked in php/frankenphp#2643.
+    expired_at: 2026-12-12
+
+  - id: CVE-2026-76905 # HIGH — DoS via malformed multipart/form-data
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      Same as GHSA-r277-6w6q-xmqw: Vulcain is compiled in but never enabled, so no kin-openapi
+      request parsing runs. Fixed upstream on frankenphp main (kin-openapi v0.146.0).
+    expired_at: 2026-12-12
+
+  - id: CVE-2026-77354 # HIGH — DoS via deepObject query parameter parsing
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      Same as GHSA-r277-6w6q-xmqw: Vulcain is compiled in but never enabled, so no kin-openapi
+      query parsing runs. Fixed upstream on frankenphp main (kin-openapi v0.146.0).
+    expired_at: 2026-12-12
+
+  # ── golang.org/x/crypto ─────────────────────────────────────────────────────────────────────
+  - id: CVE-2026-56854 # HIGH — x/crypto/ssh source-address restriction bypass
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      The flaw is in golang.org/x/crypto/ssh's server-side authorized_keys source-address
+      enforcement. This image runs no SSH server and exposes no SSH listener; Caddy links x/crypto
+      for ACME/TLS, not for ssh. Fixed upstream on frankenphp main (x/crypto v0.55.0).
+    expired_at: 2026-12-12
+
+  # ── google.golang.org/grpc (via the Mercure module's Google Cloud SDK) ──────────────────────
+  # Mercure is imported directly by github.com/dunglas/frankenphp/caddy, so it is linked into
+  # every upstream binary whether or not it is enabled. The Caddyfile declares no `mercure`
+  # directive, and nothing in this image opens a gRPC or xDS listener.
+  - id: CVE-2026-84304 # HIGH
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      gRPC is linked only through Mercure's Google Cloud SDK dependency. Mercure is not enabled by
+      backend/frankenphp/Caddyfile and this image serves no gRPC listener. Still v1.81.1 on
+      frankenphp main; needs >= 1.83.2. Tracked in php/frankenphp#2643.
+    expired_at: 2026-12-12
+
+  - id: CVE-2026-84445 # HIGH — xDS server crash / DoS
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      Affects gRPC-Go xDS servers specifically. This image runs no xDS server and no gRPC
+      listener. Still v1.81.1 on frankenphp main; needs >= 1.83.2.
+    expired_at: 2026-12-12
+
+  - id: GHSA-hrxh-6v49-42gf # HIGH — xDS RBAC and HTTP/2 vulnerabilities
+    paths:
+      - usr/local/bin/frankenphp
+    statement: >-
+      Affects gRPC-Go's own xDS RBAC and HTTP/2 server implementation. Caddy serves HTTP/2 via
+      net/http, not gRPC-Go, and no xDS/gRPC listener exists in this image. Still v1.81.1 on
+      frankenphp main; needs >= 1.83.2.
+    expired_at: 2026-12-12

@@ -1,0 +1,39 @@
+# Development environment override — merged in alongside compose.yaml by every `docker compose`
+# invocation that names both (mise's infra:up/infra:down tasks, and the devcontainer). Not used
+# in the (currently nonexistent) prod image. Paths below are relative to infra/, where this file
+# lives, one level up from the monorepo root the php service bind-mounts.
+services:
+###> doctrine/doctrine-bundle ###
+  database:
+    ports:
+      - "5432:5432"
+###< doctrine/doctrine-bundle ###
+
+  meilisearch:
+    ports:
+      - "7700:7700"
+
+  php:
+    image: ${IMAGES_PREFIX:-}keco-php-dev
+    build:
+      target: frankenphp_dev
+    volumes:
+      - ..:/app
+      - ../backend/frankenphp/Caddyfile:/etc/frankenphp/Caddyfile:ro
+      - ../backend/frankenphp/conf.d/20-app.dev.ini:/usr/local/etc/php/app.conf.d/20-app.dev.ini:ro
+      # Keep var/ off the bind-mount for faster I/O on Mac/Windows; comment to inspect from the host.
+      - /app/backend/var
+      # If you develop on Mac or Windows you can remove the vendor/ directory
+      #  from the bind-mount for better performance by enabling the next line:
+      #- /app/backend/vendor
+    environment:
+      FRANKENPHP_WORKER_CONFIG: watch
+      # See https://xdebug.org/docs/all_settings#mode
+      XDEBUG_MODE: "${XDEBUG_MODE:-develop}"
+      APP_ENV: "${APP_ENV:-dev}"
+    extra_hosts:
+      # Ensure that host.docker.internal is correctly defined on Linux
+      - host.docker.internal:host-gateway
+    ports:
+      - "${HTTP_PORT:-8000}:80"
+    tty: true
