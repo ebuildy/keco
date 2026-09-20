@@ -39,6 +39,12 @@ deptrac:
               - type: classNameRegex
                 value: '#^App\\Taxonomy\\#'
 
+        # Includes App\Discovery\Worker\* — the injectable Clock and the window-splitting
+        # algebra, used only by Discovery so far. They're grouped under this context's own
+        # namespace rather than a top-level shared one, per AGENTS.md §4/§7's "move it out the
+        # moment a second context needs it, not speculatively": nothing else does yet. Promote
+        # this sub-namespace to a real top-level App\Worker the day Crawler or Analyzer needs the
+        # same abstraction — not before.
         - name: Discovery
           collectors:
               - type: classNameRegex

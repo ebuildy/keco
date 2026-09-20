@@ -8,6 +8,13 @@ doctrine:
 
         profiling_collect_backtrace: '%kernel.debug%'
 
+        # messenger_messages (config/packages/messenger.yaml's Doctrine transport) is real SQL
+        # in a migration, not an ORM entity — nothing under src/Entity maps to it, deliberately,
+        # since it's Messenger's table, not part of the write model. Without this filter,
+        # `doctrine:schema:validate` and `doctrine:migrations:diff` both see it (and its
+        # auto-increment sequence, `messenger_messages_id_seq`) as stray and want to drop them.
+        schema_filter: '~^(?!messenger_messages)~'
+
         # JournalEvent.id and Checkpoint.last_event_id are ULIDs (AGENTS.md §3): the type maps
         # to Postgres' native `uuid` column and stores the ULID's 128-bit value, so ordering by
         # the column is the same as ordering by the ULID itself — the indexed range read the

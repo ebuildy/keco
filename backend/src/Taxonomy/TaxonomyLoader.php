@@ -25,7 +25,7 @@ final class TaxonomyLoader
 
     /**
      * @throws TaxonomyValidationException on any problem — missing file, invalid YAML, a shape
-     *                                      that doesn't match, or a violated cross-family rule
+     *                                     that doesn't match, or a violated cross-family rule
      */
     public function load(): TaxonomyFile
     {
@@ -75,14 +75,10 @@ final class TaxonomyLoader
             $params[$family->param] = true;
 
             if ('one' === $family->cardinality && (null !== $family->min || null !== $family->max)) {
-                throw TaxonomyValidationException::because(
-                    "family {$family->id} is cardinality: one and cannot declare min or max",
-                );
+                throw TaxonomyValidationException::because("family {$family->id} is cardinality: one and cannot declare min or max");
             }
             if (null !== $family->min && null !== $family->max && $family->min > $family->max) {
-                throw TaxonomyValidationException::because(
-                    "family {$family->id} has min {$family->min} greater than max {$family->max}",
-                );
+                throw TaxonomyValidationException::because("family {$family->id} has min {$family->min} greater than max {$family->max}");
             }
 
             $this->assertValuesAreConsistent($family);
@@ -110,9 +106,7 @@ final class TaxonomyLoader
             if ('unknown' === $value->id) {
                 $hasUnknown = true;
                 if (!$value->hidden) {
-                    throw TaxonomyValidationException::because(
-                        "family {$family->id} has an \"unknown\" value that is not hidden",
-                    );
+                    throw TaxonomyValidationException::because("family {$family->id} has an \"unknown\" value that is not hidden");
                 }
             }
 
@@ -155,9 +149,7 @@ final class TaxonomyLoader
 
         $source = $this->requireString($raw, 'source', "family {$id}");
         if (!\in_array($source, ['analyzer', 'derived', 'registry'], true)) {
-            throw TaxonomyValidationException::because(
-                "family {$id} source must be \"analyzer\", \"derived\" or \"registry\".",
-            );
+            throw TaxonomyValidationException::because("family {$id} source must be \"analyzer\", \"derived\" or \"registry\".");
         }
 
         $rawValues = $raw['values'] ?? null;
@@ -191,9 +183,7 @@ final class TaxonomyLoader
     {
         $id = $this->requireString($raw, 'id', "a value of family {$familyId}");
         if (!preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/', $id)) {
-            throw TaxonomyValidationException::because(
-                "value id \"{$id}\" in family {$familyId} must be lower-kebab-case.",
-            );
+            throw TaxonomyValidationException::because("value id \"{$id}\" in family {$familyId} must be lower-kebab-case.");
         }
 
         $rawAliases = $raw['aliases'] ?? [];
@@ -237,8 +227,10 @@ final class TaxonomyLoader
             }
         }
 
-        /** @var array<string, mixed> $value */
-        return $value;
+        /** @var array<string, mixed> $mapping */
+        $mapping = $value;
+
+        return $mapping;
     }
 
     /**

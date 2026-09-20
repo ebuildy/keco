@@ -7,8 +7,8 @@ namespace App\Blob;
 use League\Flysystem\FilesystemException;
 use League\Flysystem\FilesystemOperator;
 use League\Flysystem\UnableToReadFile;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\AsAlias;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * Today's only {@see BlobStorageInterface} adapter: Flysystem's local filesystem driver,

@@ -1,0 +1,11 @@
+# Discovery's own rate pacer (AGENTS.md §4.1): GitHub Search allows roughly 30 req/min
+# authenticated, a far tighter and separate budget from the 5000 points/hour core REST API the
+# crawler and analyzer share via GITHUB_QUOTA_CRAWLER_SHARE. A token bucket with a 1-token
+# capacity, refilled every two seconds, gives the same steady per-request spacing the TS
+# RatePacer enforced (GITHUB_SEARCH_MIN_INTERVAL_MS) rather than letting requests burst.
+framework:
+    rate_limiter:
+        discovery_search:
+            policy: 'token_bucket'
+            limit: 1
+            rate: { interval: '2 seconds', amount: 1 }

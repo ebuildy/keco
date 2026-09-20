@@ -9,7 +9,6 @@ use App\Journal\JournalWriter;
 use App\Repository\JournalEventRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
-use Symfony\Component\Uid\Ulid;
 
 final class JournalWriterReaderTest extends KernelTestCase
 {
