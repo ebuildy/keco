@@ -66,8 +66,11 @@ final class GitHubSearchClient
             try {
                 $response = $this->httpClient->request('GET', self::ENDPOINT, [
                     'query' => ['q' => $query, 'per_page' => $perPage, 'page' => $page],
+                    // An empty `Authorization: Bearer` header is not the same as an absent one:
+                    // GitHub rejects the former as bad credentials (401) rather than falling back
+                    // to an anonymous request. Only send it when a token is actually configured.
                     'headers' => [
-                        'Authorization' => 'Bearer '.$this->token,
+                        ...('' !== $this->token ? ['Authorization' => 'Bearer '.$this->token] : []),
                         'Accept' => 'application/vnd.github+json',
                         'User-Agent' => 'keco',
                         'X-GitHub-Api-Version' => '2022-11-28',

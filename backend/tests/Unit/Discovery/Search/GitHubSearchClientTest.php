@@ -92,6 +92,45 @@ final class GitHubSearchClientTest extends TestCase
         $client->page('kubernetes', 1, 101);
     }
 
+    public function testOmitsTheAuthorizationHeaderWhenNoTokenIsConfigured(): void
+    {
+        // GitHub treats `Authorization: Bearer ` (a header present but empty) as bad
+        // credentials — 401 — whereas omitting the header entirely is a valid anonymous
+        // request. A dev environment with no GITHUB_TOKEN set must still be able to sweep,
+        // just at GitHub Search's lower unauthenticated rate.
+        $capturedHeaders = null;
+        $http = new MockHttpClient(function (string $method, string $url, array $options) use (&$capturedHeaders) {
+            $capturedHeaders = $options['headers'] ?? [];
+
+            return new MockResponse(self::json(self::page()), ['http_code' => 200]);
+        });
+
+        $client = new GitHubSearchClient($http, new NullSearchPacer(), new FakeClock(), '');
+        $client->page('kubernetes', 1);
+
+        /** @var list<string> $headers */
+        $headers = $capturedHeaders;
+        foreach ($headers as $header) {
+            self::assertStringStartsNotWith('Authorization:', $header);
+        }
+    }
+
+    public function testSendsABearerAuthorizationHeaderWhenATokenIsConfigured(): void
+    {
+        $capturedHeaders = null;
+        $http = new MockHttpClient(function (string $method, string $url, array $options) use (&$capturedHeaders) {
+            $capturedHeaders = $options['headers'] ?? [];
+
+            return new MockResponse(self::json(self::page()), ['http_code' => 200]);
+        });
+
+        $this->client($http)->page('kubernetes', 1);
+
+        /** @var list<string> $headers */
+        $headers = $capturedHeaders;
+        self::assertContains('Authorization: Bearer test-token', $headers);
+    }
+
     public function testPacesBeforeEveryRequest(): void
     {
         $pacer = new NullSearchPacer();
